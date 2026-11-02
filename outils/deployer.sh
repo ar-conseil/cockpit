@@ -36,7 +36,7 @@ printf 'CLE_SYNCHRO=%s\nSITE_URL=https://ar-conseil.github.io/cockpit/\n' "$CLE"
 [ -f ~/.cockpit/hubspot-token ] && printf 'HUBSPOT_TOKEN=%s\n' "$(cat ~/.cockpit/hubspot-token)" >> "$PRIVE/secrets.env"
 [ -f ~/.cockpit/camp-cle ] && printf 'CAMP_CLE=%s\n' "$(cat ~/.cockpit/camp-cle)" >> "$PRIVE/secrets.env"
 "${SB[@]}" secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$PRIVE/secrets.env" >/dev/null
-for f in sync-agendas agenda-connexion agenda-ecrire sync-harnes sync-camp lire-mails; do
+for f in sync-agendas agenda-connexion agenda-ecrire sync-harnes sync-camp lire-mails sync-tiime; do
   "${SB[@]}" functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --use-api >/dev/null && echo "   $f déployée"
 done
 
@@ -85,6 +85,12 @@ select cron.schedule(j, '*/15 * * * *', format(\$f\$ select net.http_post(url :=
     headers := jsonb_build_object('Content-Type', 'application/json',
       'x-cle-synchro', (select decrypted_secret from vault.decrypted_secrets where name = 'cle_synchro')),
     body := '{}'::jsonb, timeout_milliseconds := 60000) \$f\$, j)) from unnest(array['sync-harnes', 'sync-camp']) j;
+-- Tiime (factures Berkay et Wealthy) : toutes les heures
+select cron.unschedule('sync-tiime') where exists (select 1 from cron.job where jobname = 'sync-tiime');
+select cron.schedule('sync-tiime', '7 * * * *', \$\$ select net.http_post(url := 'https://$SUPABASE_PROJECT_REF.supabase.co/functions/v1/sync-tiime',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cle-synchro', (select decrypted_secret from vault.decrypted_secrets where name = 'cle_synchro')),
+    body := '{}'::jsonb, timeout_milliseconds := 60000) \$\$);
 select cron.unschedule('menage-evenements') where exists (select 1 from cron.job where jobname = 'menage-evenements');
 select cron.schedule('menage-evenements', '17 3 * * *', \$\$ delete from public.evenements where fin < now() - interval '90 days' \$\$);
 SQL

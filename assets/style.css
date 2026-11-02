@@ -738,6 +738,10 @@ main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: co
 .reco-actions { white-space: nowrap; text-align: right; }
 .ligne-ajout td { background: color-mix(in srgb, var(--papier-2) 40%, transparent); }
 
+/* Ligne d'affaire qui vient d'être enregistrée : elle brille un instant à sa nouvelle place */
+@keyframes vient-de-bouger { 0% { background: color-mix(in srgb, var(--c) 28%, transparent); } 100% { background: transparent; } }
+.ligne-affaire.vient-de-bouger > * { animation: vient-de-bouger 1.6s ease-out both; }
+
 /* ---------- Victor : le point du matin ---------- */
 .victor {
   position: relative; display: grid; gap: 18px; margin: 4px 0 24px; padding: 22px 24px 24px; border-radius: 18px; background: var(--blanc);

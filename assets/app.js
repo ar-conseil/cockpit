@@ -939,6 +939,12 @@
         el("div", {}, [el("dt", { text: "Prochain rendez-vous" }), el("dd", { class: "petit", text: rdv ? rdv.titre || "(sans titre)" : "—" }),
           el("small", { text: rdv ? quand(new Date(rdv.debut)) + " à " + hm(new Date(rdv.debut)) : "rien dans les 60 jours" })]),
         el("div", {}, [el("dt", { text: "Tâches ouvertes" }), el("dd", { text: String(ouvertes.length) }), el("small", { text: tachesEnRetard(iso, a.id).length + " en retard" })]),
+        // Projets à commissions (Berkay) : total vente + frais des affaires signées, et ce qui est en discussion
+        reglages(a).total ? (function () {
+          var k = kpisProjet(a);
+          return el("div", { class: "chiffre-commissions" }, [el("dt", { text: "Commissions signées" }), el("dd", { class: "petit", text: fmtN.format(Math.round(k[0].valeur)) + " €" }),
+            el("small", { text: "+ " + fmtN.format(Math.round(k[1].valeur)) + " € en cours · vente + frais TTC" })]);
+        })() : null,
         reglages(a).factures ? (function () {
           var rf = resumeFactures(facturesDe(a));
           return el("div", {}, [el("dt", { text: "À encaisser" }), el("dd", { class: "petit", text: fmtN.format(Math.round(rf.attente)) + " €" }),
@@ -1038,8 +1044,11 @@
     }
     var tri = clients.slice().sort(function (x, y) {
       if (r.champs) {
-        var ix = etapes.indexOf(x.etape), iy = etapes.indexOf(y.etape);
+        // Étape la plus avancée d'abord (les affaires abandonnées en bas), puis la signature la plus récente
+        var ix = estAbandonne(x) ? -1 : etapes.indexOf(x.etape), iy = estAbandonne(y) ? -1 : etapes.indexOf(y.etape);
         if (ix !== iy) return iy - ix;
+        var sx = valeurChamp(x, "date_acte") || valeurChamp(x, "date_compromis") || "", sy = valeurChamp(y, "date_acte") || valeurChamp(y, "date_compromis") || "";
+        if (sx !== sy) return sx < sy ? 1 : -1;
         return (+y.montant || 0) - (+x.montant || 0);
       }
       var dx = x.prochaine_action_le || "9999", dy = y.prochaine_action_le || "9999";
@@ -1076,7 +1085,8 @@
     var corps = [];
     clients.forEach(function (c) {
       var ouvert = S.ouvert === c.id;
-      corps.push(el("tr", { class: "ligne-affaire" + (ouvert ? " ouverte" : "") + (estAbandonne(c) ? " abandon" : ""), onclick: function () { S.ouvert = ouvert ? null : c.id; dessiner(); } }, [
+      corps.push(el("tr", { class: "ligne-affaire" + (ouvert ? " ouverte" : "") + (estAbandonne(c) ? " abandon" : "") + (S.vientDeBouger === c.id ? " vient-de-bouger" : ""), "data-id": c.id,
+        onclick: function () { S.ouvert = ouvert ? null : c.id; dessiner(); } }, [
         el("th", { scope: "row" }, [el("button", { type: "button", "aria-expanded": ouvert ? "true" : "false", text: c.nom })]),
         el("td", {}, [el("span", { class: "puce" + ((r.etapes_gagnees || []).indexOf(c.etape) >= 0 ? " gagne" : ""), text: c.etape || "—" })])
       ].concat(visibles.filter(function (ch) { return ch.type !== "euros"; }).map(function (ch) { return cellule(ch, c); }),
@@ -1162,11 +1172,20 @@
         if (v === "" && x.ch.taux && prix) v = String(Math.round(prix * x.ch.taux));
         if (v === "") delete donnees[x.ch.cle]; else donnees[x.ch.cle] = x.ch.type === "euros" ? +v : v;
       });
-      var maj = { etape: etape.value || null, type: type.value, montant: prix, contact: contact.value.trim() || null, donnees: donnees,
+      // Une date de signature saisie fait avancer l'étape (ex. Berkay : compromis, puis acte où la commission est due)
+      var nouvelleEtape = etape.value || null, avant = nouvelleEtape;
+      (r.etapes_auto || []).forEach(function (regle) {
+        if (donnees[regle.champ] && !estAbandonne({ etape: nouvelleEtape }) && etapes.indexOf(nouvelleEtape) < etapes.indexOf(regle.etape)) nouvelleEtape = regle.etape;
+      });
+      var maj = { etape: nouvelleEtape, type: type.value, montant: prix, contact: contact.value.trim() || null, donnees: donnees,
         prochaine_action: action.value.trim() || null, prochaine_action_le: actionLe.value || null, notes: notes.value.trim() || null };
       Object.assign(c, maj);
-      db.from("clients").update(maj).eq("id", c.id).then(verifier).then(function () { signaler("Fiche enregistrée"); });
+      db.from("clients").update(maj).eq("id", c.id).then(verifier).then(function () { signaler(nouvelleEtape !== avant ? "Fiche enregistrée · passée en « " + nouvelleEtape + " »" : "Fiche enregistrée"); });
+      if (r.champs) { S.ouvert = null; S.vientDeBouger = c.id; }
       dessiner();
+      // La ligne enregistrée a pris sa nouvelle place : on la montre et on la fait briller un instant
+      var ligne = app.querySelector('.ligne-affaire[data-id="' + c.id + '"]');
+      if (ligne) { ligne.scrollIntoView({ block: "center", behavior: mouvementReduit ? "auto" : "smooth" }); setTimeout(function () { S.vientDeBouger = null; }, 1600); }
     });
     var hist = S.suivis.filter(function (s) { return s.client_id === c.id; });
     var typeS = el("select", { "aria-label": "Type de suivi" }, Object.keys(TYPES_SUIVI).map(function (t) { return el("option", { value: t, text: TYPES_SUIVI[t] }); }));

@@ -1269,21 +1269,144 @@
     ]);
   }
   // Vue de toutes les recommandations du projet (le tableau PRT complet), avec export Excel au même format
+  // ---------- Exports Excel mis en forme aux couleurs du projet (ExcelJS chargé à la demande) ----------
+  // Classeur : bandeau (logo, titre, sous-titre), chiffres clés, tableau à en-tête en dégradé, lignes alternées,
+  // filtres, en-tête figé, impression paysage ajustée à la largeur ; feuilles de synthèse en option.
+  var MARQUES_EXCEL = {
+    "evoa-courtage": { logo: "assets/marques/evoa.png", logoTaille: [168, 63], c1: "204E99", c2: "38297C", fond: "F2F5FB", texte: "2B2B2E", police: "Montserrat",
+      signature: "EVOA Courtage · L'assurance qui évolue avec vous" }
+  };
+  function chargerExcelJS() {
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    return new Promise(function (ok, ko) {
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+      s.onload = function () { ok(window.ExcelJS); }; s.onerror = function () { ko(new Error("bibliothèque Excel non chargée")); };
+      document.head.appendChild(s);
+    });
+  }
+  function imageBase64(url) {
+    return fetch(url).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) {
+      if (!b) return null;
+      return new Promise(function (ok) { var f = new FileReader(); f.onload = function () { ok(String(f.result).split(",")[1]); }; f.readAsDataURL(b); });
+    }).catch(function () { return null; });
+  }
+  // d = { projet, titre, sousTitre, fichier, chiffres: [[libellé, valeur]], colonnes: [{ titre, largeur, type: texte|date|euros|case, fond? }],
+  //       lignes: [[…]], surligner?: (ligne) => "RRGGBB", feuilles?: [{ nom, colonnes, lignes }] }
+  function exporterExcel(d) {
+    var m = MARQUES_EXCEL[d.projet] || { c1: "1D1C19", c2: "4D483E", fond: "F4F3F0", texte: "1D1C19", police: "Calibri", signature: nomActivite(d.projet) };
+    var argb = function (h) { return "FF" + h; };
+    var police = function (o) { return Object.assign({ name: m.police, color: { argb: argb(m.texte) }, size: 10 }, o || {}); };
+    var filet = { style: "thin", color: { argb: "FFDCE1EB" } };
+    signaler("Préparation du fichier Excel…");
+    return Promise.all([chargerExcelJS(), m.logo ? imageBase64(m.logo) : Promise.resolve(null)]).then(function (r) {
+      var ExcelJS = r[0], logo = r[1];
+      var wb = new ExcelJS.Workbook(); wb.creator = "Cockpit AR Conseil"; wb.created = new Date();
+      var ncol = d.colonnes.length;
+      var ws = wb.addWorksheet(d.titre.slice(0, 31), { views: [{ state: "frozen", ySplit: 8, showGridLines: false }],
+        pageSetup: { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: .4, right: .4, top: .5, bottom: .6, header: .2, footer: .3 } },
+        headerFooter: { oddFooter: "&L&8" + m.signature + "&R&8Page &P / &N" } });
+      ws.columns = d.colonnes.map(function (c) { return { width: c.largeur || 16 }; });
+      // Bandeau : logo à gauche, titre et sous-titre à droite du logo
+      ws.getRow(1).height = 26; ws.getRow(2).height = 30; ws.getRow(3).height = 18; ws.getRow(4).height = 10;
+      if (logo) ws.addImage(wb.addImage({ base64: logo, extension: "png" }), { tl: { col: 0.15, row: 0.4 }, ext: { width: m.logoTaille[0], height: m.logoTaille[1] } });
+      var colTitre = logo ? 3 : 1;
+      ws.mergeCells(2, colTitre, 2, ncol); ws.mergeCells(3, colTitre, 3, ncol);
+      Object.assign(ws.getCell(2, colTitre), { value: d.titre, font: police({ size: 20, bold: true, color: { argb: argb(m.c1) } }), alignment: { vertical: "middle" } });
+      Object.assign(ws.getCell(3, colTitre), { value: d.sousTitre, font: police({ size: 10, color: { argb: "FF7A7F8C" } }) });
+      // Liseré dégradé sous le bandeau
+      for (var i = 1; i <= ncol; i++) ws.getCell(5, i).fill = { type: "gradient", gradient: "angle", degree: 0,
+        stops: [{ position: 0, color: { argb: argb(m.c1) } }, { position: 1, color: { argb: argb(m.c2) } }] };
+      ws.getRow(5).height = 4;
+      // Chiffres clés : libellé en petit, valeur en grand, sur deux colonnes chacun
+      ws.getRow(6).height = 34;
+      (d.chiffres || []).slice(0, Math.floor(ncol / 2)).forEach(function (k, j) {
+        var c = 1 + j * 2; ws.mergeCells(6, c, 6, c + 1);
+        Object.assign(ws.getCell(6, c), { value: { richText: [{ text: k[0].toUpperCase() + "\n", font: police({ size: 8, color: { argb: "FF7A7F8C" } }) },
+          { text: String(k[1]), font: police({ size: 15, bold: true, color: { argb: argb(m.c1) } }) }] },
+          alignment: { vertical: "middle", horizontal: "left", wrapText: true, indent: 1 },
+          fill: { type: "pattern", pattern: "solid", fgColor: { argb: argb(m.fond) } }, border: { left: { style: "medium", color: { argb: argb(m.c1) } } } });
+      });
+      ws.getRow(7).height = 10;
+      // En-tête du tableau (ligne 8) : dégradé de la marque, ou couleur propre à la colonne (cases du PRT)
+      var tete = ws.getRow(8); tete.height = 24;
+      d.colonnes.forEach(function (c, j) {
+        var cell = tete.getCell(j + 1);
+        cell.value = c.titre;
+        cell.font = police({ bold: true, size: 10, color: { argb: c.fond ? "FF1D1C19" : "FFFFFFFF" } });
+        cell.alignment = { vertical: "middle", horizontal: c.type === "case" ? "center" : "left", indent: c.type === "case" ? 0 : 1 };
+        cell.fill = c.fond ? { type: "pattern", pattern: "solid", fgColor: { argb: argb(c.fond) } }
+          : { type: "gradient", gradient: "angle", degree: 0, stops: [{ position: 0, color: { argb: argb(m.c1) } }, { position: 1, color: { argb: argb(m.c2) } }] };
+      });
+      // Lignes
+      d.lignes.forEach(function (l, k) {
+        var row = ws.getRow(9 + k); row.height = 20;
+        var teinte = d.surligner && d.surligner(l, k);
+        d.colonnes.forEach(function (c, j) {
+          var cell = row.getCell(j + 1), v = l[j];
+          if (c.type === "case") v = v ? "✓" : "";
+          else if (c.type === "date" && v) v = lireJour(v);
+          else if (c.type === "euros" && v !== "" && v != null) v = +v;
+          cell.value = v === "" ? null : v;
+          cell.font = police(c.type === "case" ? { bold: true, size: 12, color: { argb: argb(m.c1) } } : j === 0 ? { bold: true } : {});
+          cell.alignment = { vertical: "middle", horizontal: c.type === "case" ? "center" : c.type === "euros" ? "right" : "left", indent: c.type === "case" ? 0 : 1, wrapText: c.type === "texte-long" };
+          if (c.type === "date") cell.numFmt = "dd/mm/yyyy";
+          if (c.type === "euros") cell.numFmt = "#,##0.00 €";
+          var fond = teinte || (c.fond ? melanger(c.fond, "FFFFFF", .55) : k % 2 ? m.fond : "FFFFFF");
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(fond) } };
+          cell.border = { bottom: filet };
+        });
+      });
+      ws.autoFilter = { from: { row: 8, column: 1 }, to: { row: 8 + d.lignes.length, column: ncol } };
+      ws.pageSetup.printTitlesRow = "8:8";
+      // Feuilles de synthèse
+      (d.feuilles || []).forEach(function (f) {
+        var s2 = wb.addWorksheet(f.nom.slice(0, 31), { views: [{ state: "frozen", ySplit: 1, showGridLines: false }] });
+        s2.columns = f.colonnes.map(function (c) { return { width: c.largeur || 16 }; });
+        var t = s2.getRow(1); t.height = 24;
+        f.colonnes.forEach(function (c, j) {
+          Object.assign(t.getCell(j + 1), { value: c.titre, font: police({ bold: true, color: { argb: "FFFFFFFF" } }), alignment: { vertical: "middle", indent: 1 },
+            fill: { type: "gradient", gradient: "angle", degree: 0, stops: [{ position: 0, color: { argb: argb(m.c1) } }, { position: 1, color: { argb: argb(m.c2) } }] } });
+        });
+        f.lignes.forEach(function (l, k) {
+          var row = s2.getRow(2 + k); row.height = 20;
+          l.forEach(function (v, j) {
+            Object.assign(row.getCell(j + 1), { value: v, font: police(j === 0 ? { bold: true } : {}), alignment: { vertical: "middle", indent: 1, horizontal: typeof v === "number" ? "center" : "left" },
+              fill: { type: "pattern", pattern: "solid", fgColor: { argb: argb(k % 2 ? m.fond : "FFFFFF") } }, border: { bottom: filet } });
+          });
+        });
+      });
+      return wb.xlsx.writeBuffer();
+    }).then(function (buf) {
+      var url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      var lien = el("a", { href: url, download: d.fichier }); document.body.appendChild(lien); lien.click(); lien.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      signaler("Fichier Excel prêt : " + d.fichier);
+      return buf;
+    }).catch(function (e) { signaler("Export impossible : " + e.message); });
+  }
+  function melanger(h1, h2, t) {
+    var a = parseInt(h1, 16), b = parseInt(h2, 16), m = function (s) { return Math.round(((a >> s) & 255) * (1 - t) + ((b >> s) & 255) * t); };
+    return [16, 8, 0].map(function (s) { return ("0" + m(s).toString(16)).slice(-2); }).join("").toUpperCase();
+  }
   function exporterPRT(a, recos) {
-    var faire = function () {
-      var lignes = [["Recomandeur", "Nom", "PRENOM", "Adresse", "Tél.", "Appelé", "RDV", "Commentaire", "Reçue le"]].concat(recos.map(function (x) {
-        return [nomClient(x.client_id), x.nom || "", x.prenom || "", x.adresse || "", x.contact || "", appele(x) ? "X" : "", rdvPris(x) ? "X" : "", x.notes || "", x.recue_le || ""];
-      }));
-      var ws = XLSX.utils.aoa_to_sheet(lignes);
-      ws["!cols"] = [23, 17, 17, 24, 15, 8, 8, 30, 12].map(function (w) { return { wch: w }; });
-      var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "GLOBAL");
-      XLSX.writeFile(wb, "Recommandations " + nomCourt(a.nom) + " " + isoJour(new Date()).slice(0, 7) + ".xlsx");
-    };
-    if (window.XLSX) return faire();
-    var s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    s.onload = faire; s.onerror = function () { signaler("Export impossible : bibliothèque Excel non chargée"); };
-    document.head.appendChild(s);
+    var tri = recos.slice().sort(function (x, y) { return nomClient(x.client_id).localeCompare(nomClient(y.client_id)) || String(y.recue_le).localeCompare(String(x.recue_le)); });
+    var parClient = {};
+    tri.forEach(function (x) { var k = nomClient(x.client_id); var p = parClient[k] = parClient[k] || [k, 0, 0, 0]; p[1]++; if (appele(x)) p[2]++; if (rdvPris(x)) p[3]++; });
+    var aujourdhui = fmt(new Date(), { day: "numeric", month: "long", year: "numeric" });
+    return exporterExcel({
+      projet: a.id, titre: "Recommandations clients", fichier: "Recommandations " + nomCourt(a.nom) + " " + isoJour(new Date()) + ".xlsx",
+      sousTitre: "Tableau PRT · " + tri.length + " personne" + (tri.length > 1 ? "s" : "") + " recommandée" + (tri.length > 1 ? "s" : "") + " · exporté le " + aujourdhui,
+      chiffres: [["Recommandations", tri.length], ["À appeler", tri.filter(function (x) { return !appele(x); }).length],
+        ["Appelés", tri.filter(appele).length], ["RDV pris", tri.filter(rdvPris).length], ["Recommandeurs", Object.keys(parClient).length]],
+      colonnes: [{ titre: "Recommandeur", largeur: 24 }, { titre: "Nom", largeur: 18 }, { titre: "Prénom", largeur: 16 }, { titre: "Adresse", largeur: 30 },
+        { titre: "Tél.", largeur: 16 }, { titre: "Appelé", largeur: 9, type: "case", fond: "BFEFF0" }, { titre: "RDV", largeur: 9, type: "case", fond: "FFF0A3" },
+        { titre: "Commentaire", largeur: 34 }, { titre: "Reçue le", largeur: 13, type: "date" }],
+      lignes: tri.map(function (x) { return [nomClient(x.client_id), (x.nom || "").toUpperCase(), x.prenom || "", x.adresse || "", x.contact || "", appele(x), rdvPris(x), x.notes || "", x.recue_le || ""]; }),
+      surligner: function (l) { return l[6] ? "E6F4EC" : null; },
+      feuilles: [{ nom: "Par recommandeur", colonnes: [{ titre: "Recommandeur", largeur: 28 }, { titre: "Recommandations", largeur: 18 }, { titre: "Appelés", largeur: 12 }, { titre: "RDV pris", largeur: 12 }],
+        lignes: Object.keys(parClient).map(function (k) { return parClient[k]; }).sort(function (x, y) { return y[1] - x[1]; }) }]
+    });
   }
   function sectionRecommandations(a) {
     var toutes = (S.recommandations || []).filter(function (x) { return x.activite_id === a.id; });

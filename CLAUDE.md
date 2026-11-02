@@ -1,22 +1,29 @@
-# Cockpit AR Conseil — consignes pour Claude
+# Cockpit d'Antonin — consignes pour Claude
 
-Site statique (GitHub Pages, dépôt PUBLIC) : `index.html`, `assets/style.css`, `assets/app.js`.
-Données CHIFFRÉES dans `data/coffre.json`, accès par identifiant + mot de passe (outil : `outils/coffre.mjs`).
-Pas de build, pas de dépendance. Langue : français. Charte : noir et or AR Conseil (Cinzel pour les titres).
+Site statique (GitHub Pages, dépôt PUBLIC ar-conseil/cockpit) : `index.html`, `assets/app.js`, `assets/style.css`.
+Données dans **Supabase** (projet perso, un seul utilisateur, inscriptions fermées). Pas de build ; supabase-js en CDN.
+Langue : français, sans émoticônes.
 
-## Mettre à jour les données
-- Identifiants : variables d'environnement `COCKPIT_IDENTIFIANT` / `COCKPIT_MOT_DE_PASSE`, sinon les demander
-  à l'utilisateur. Ne JAMAIS les écrire dans un fichier du dépôt, un commit ou un message de commit.
-- Workflow : `node outils/coffre.mjs ouvrir` -> modifier `.donnees/<activite>.json` -> `node outils/coffre.mjs fermer`
-  -> commit de `data/coffre.json` uniquement. `.donnees/` ne doit jamais être commité (il est dans .gitignore).
-- Format des fichiers décrit dans README.md.
-- Sources habituelles via les connecteurs : Qonto (trésorerie, factures, transactions), HubSpot (pipeline,
-  leads, deals d'Evoa Courtage), Google Agenda (agenda), Gmail (relances), Google Drive (tableurs du club et du camp).
-- Après une mise à jour : `miseAJour` = date du jour, `exemple` = false, `sources` = connecteurs réellement utilisés.
-- Agenda : seulement les événements à venir, au format `AAAA-MM-JJTHH:MM`.
-- Même chiffrées, rester sobre : pas d'IBAN, de numéros de sécurité sociale ni de détails de santé de clients.
-- Valider le JSON avant `fermer` : `python3 -m json.tool .donnees/<fichier>.json`.
+## Design (voulu par Antonin : un vrai site, surtout pas un « dashboard Claude »)
+Style éditorial clair : papier `#f3efe7`, encre `#17150f`, grands titres en Instrument Serif, texte en Inter Tight,
+filets fins, chaque projet porte sa couleur (activites.couleur). Pas de tuiles d'indicateurs, de cartes à ombres ni de thème noir et or.
+Accueil = l'heure en grand + phrase du moment, frise horizontale de la journée (temps réel), les 4 projets côte à côte.
+Page projet = en-tête à la couleur du projet, frise du jour du projet, tâches + agenda, clients et suivis, chiffres, notes.
 
-## Vérifier le rendu
-`python3 -m http.server 8765` puis Playwright (préinstallé) sur http://localhost:8765/#<activite>,
-en remplissant `#identifiant` et `#mot-de-passe` puis en cliquant sur le bouton « Se connecter ».
+## Où sont les choses
+- Schéma : `supabase/migrations/` (activites, agendas, evenements, taches, clients, suivis, semaine_type).
+- Synchro des agendas : Edge Function `supabase/functions/sync-agendas` (liens iCal secrets -> table evenements),
+  toutes les 5 min par pg_cron et via le bouton « En direct ». Lecture iCal testable hors Supabase (`ical.ts`).
+- Mise en route / mise à jour : `outils/deployer.sh` (lit `~/.cockpit/supabase.env` et `~/.cockpit/agendas.env`).
+- Données de départ : `outils/donnees-depart.mjs` (depuis `.donnees/*.json`, jamais commité).
+
+## Règles
+- Jamais de secret dans le dépôt : jeton CLI, mot de passe de la base, adresses iCal et clé de synchro restent dans
+  `~/.cockpit/`. Seule la clé publique « anon » va dans `assets/config.js`.
+- Ne jamais lancer `supabase login` : le CLI du Mac est connecté au compte du club (hvb-app). Utiliser
+  `SUPABASE_ACCESS_TOKEN` depuis `~/.cockpit/supabase.env`.
+- `ics_url` n'est jamais lisible par le navigateur (droits par colonne) : ne pas l'ajouter aux `select` du site.
+- Nouvelles tables : RLS + politique `to authenticated`, `grant` explicites (authenticated et service_role),
+  et `alter publication supabase_realtime add table` si la page doit se mettre à jour en direct.
+- Données sobres : pas d'IBAN, de numéros de sécurité sociale ni de détails de santé ; particuliers d'Evoa en initiales.
+- Agents (à venir) : service_role côté serveur, écrire dans les mêmes tables (taches, suivis, activites.kpis).

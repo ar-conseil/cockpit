@@ -1,99 +1,41 @@
-# Cockpit AR Conseil
+# Cockpit
 
-Tableau de bord de mes activités : une vue d'ensemble et un dashboard par activité.
+Mon poste de pilotage : la journée en direct (tous mes agendas réunis) et mes quatre projets côte à côte,
+puis une page par projet avec ses tâches, ses clients, ses suivis et ses chiffres.
 
-| Activité | Adresse |
-|---|---|
-| Vue d'ensemble | `/` |
-| Palomano | `/#palomano` |
-| Evoa Courtage | `/#evoa-courtage` |
-| Harnes Volley | `/#harnes-volley` |
-| Camp Rouzier Maréchal | `/#camp-rouzier-marechal` |
+| Page | Adresse | Touche |
+|---|---|---|
+| Aujourd'hui | `/` | 0 |
+| Palomano | `/#palomano` | 1 |
+| Evoa Courtage | `/#evoa-courtage` | 2 |
+| Harnes Volley | `/#harnes-volley` | 3 |
+| Camp Rouzier Maréchal | `/#camp-rouzier-marechal` | 4 |
+| Berkay (apport d'affaires immobilier) | `/#berkay` | 5 |
+| Wealthy · Perso | `/#perso` | 6 |
 
-Le site est fait de fichiers statiques (HTML, CSS, JavaScript), sans installation ni compilation.
+Autres raccourcis : **N** nouvelle tâche, **←/→** jour précédent ou suivant, **T** revenir à aujourd'hui.
 
-## Accès protégé
+## Comment ça marche
 
-Le dépôt et le site sont publics, mais **les données sont chiffrées** dans `data/coffre.json`
-(PBKDF2-SHA256 + AES-GCM 256). Sans l'identifiant et le mot de passe, ce fichier est illisible.
-Le déchiffrement se fait dans le navigateur au moment de la connexion. Rien n'est envoyé à un serveur.
+- **Supabase** garde tout : projets, tâches, clients, suivis, semaine type et rendez-vous. Connexion par e-mail et
+  mot de passe ; personne d'autre ne peut s'inscrire.
+- **Agendas** : chaque agenda (Google, Outlook Palomano, Outlook Evoa…) est relu par son adresse iCal secrète toutes
+  les 5 minutes. Chaque rendez-vous est rangé dans un projet (mots-clés ou agenda d'origine) ; un clic dessus permet
+  de le reclasser. Lecture seule : les rendez-vous se créent dans Google ou Outlook.
+- **Temps réel** : une tâche cochée, un rendez-vous synchronisé ou un chiffre mis à jour apparaît sans recharger.
+- **Colonnes propres à un projet** : Berkay a un tableau d'affaires comme dans Excel (prix du bien, commission sur
+  la vente, part des frais Berkay, total). Une commission laissée vide est calculée avec le taux du projet
+  (1,5 % et 0,6 % du prix). Les commissions signées et en cours sont recalculées en direct. Ces colonnes se règlent
+  dans `activites.reglages`, donc un autre projet peut avoir les siennes.
+- **Semaine type** : les créneaux prévus par projet apparaissent hachurés dans la frise, et chaque projet affiche
+  ses heures de la semaine par rapport à son objectif.
 
-- L'identifiant et le mot de passe **ne sont écrits nulle part dans le dépôt**. Garde-les dans ton gestionnaire de mots de passe.
-- « Rester connecté sur cet appareil » garde la clé dans le navigateur jusqu'à « Se déconnecter ».
-- Changer le mot de passe déconnecte tous les appareils.
-- Mot de passe perdu = données illisibles. Il faudra alors refaire le coffre (voir plus bas).
+## Mise en route (une fois)
 
-## Mettre le site en ligne (une seule fois)
+1. Créer le projet Supabase « cockpit » (région Paris) et un jeton d'accès, puis remplir `~/.cockpit/supabase.env`.
+2. Coller les adresses iCal secrètes dans `~/.cockpit/agendas.env`.
+3. `outils/deployer.sh --depart <dossier>` : tables, fonction de synchro, cron, données de départ et `assets/config.js`.
+4. Supabase : Authentication > Users > Add user (mon e-mail et un mot de passe), puis se connecter sur le site.
+5. GitHub : Settings > Pages > Deploy from a branch, `main`, `/ (root)`.
 
-1. **Settings → Pages** du dépôt.
-2. *Source* : **Deploy from a branch**, branche **main**, dossier **/ (root)**, puis **Save**.
-3. Après 1 à 2 minutes, l'adresse s'affiche en haut de la page (du type `https://ar-conseil.github.io/cockpit/`).
-
-Avec un compte GitHub gratuit, Pages ne marche que si le dépôt est **public** (Settings → General → Change visibility).
-Les données restent protégées par le chiffrement. Ne mets jamais de fichier de données non chiffré dans le dépôt.
-
-## Mettre à jour les chiffres
-
-Le plus simple : ouvre une session Claude Code (claude.ai/code) sur ce dépôt et demande par exemple
-« mets à jour le dashboard Evoa Courtage avec HubSpot » ou « ajoute une tâche à Harnes Volley ».
-Claude ouvre le coffre, modifie, le referme et publie. Le site se met à jour en 1 à 2 minutes.
-
-Pour ne pas avoir à redonner le mot de passe à chaque session, ajoute dans les réglages de ton
-environnement cloud Claude les variables `COCKPIT_IDENTIFIANT` et `COCKPIT_MOT_DE_PASSE`.
-
-À la main, sur un ordinateur avec Node.js :
-
-```bash
-node outils/coffre.mjs ouvrir     # déchiffre vers .donnees/ (jamais publié, ignoré par git)
-# … modifier les fichiers .donnees/*.json …
-node outils/coffre.mjs fermer     # rechiffre vers data/coffre.json, puis commit + push
-```
-
-Changer l'identifiant ou le mot de passe :
-
-```bash
-node outils/coffre.mjs ouvrir
-COCKPIT_NOUVEL_IDENTIFIANT=… COCKPIT_NOUVEAU_MOT_DE_PASSE=… node outils/coffre.mjs changer
-```
-
-## Format d'un fichier d'activité (dans `.donnees/`)
-
-```json
-{
-  "id": "palomano",                  // = nom du fichier, sert d'adresse (#palomano)
-  "nom": "Palomano",
-  "description": "Une phrase sous le titre.",
-  "couleur": "#3fb8a6",              // couleur de repère de l'activité
-  "miseAJour": "2026-11-02",
-  "exemple": true,                   // passe à false (ou supprime) quand les chiffres sont réels
-  "sources": ["Qonto", "Gmail"],
-  "kpis": [
-    { "label": "CA facturé (mois)", "valeur": 18450, "unite": "€",
-      "precedent": 16200,            // optionnel : affiche l'évolution en %
-      "objectif": 22000,             // optionnel : affiche une jauge
-      "detail": "texte libre",       // optionnel
-      "alerte": true }               // optionnel : met la tuile en orange
-  ],
-  "serie": { "titre": "CA par mois", "unite": "€",
-             "points": [ { "label": "oct.", "valeur": 16200 } ] },
-  "pipeline": [ { "etape": "Lead", "nombre": 9 } ],      // optionnel
-  "taches": [ { "titre": "…", "echeance": "2026-11-05",
-                "priorite": "haute|moyenne|basse",
-                "statut": "a-faire|en-cours|bloque|fait" } ],
-  "agenda": [ { "date": "2026-11-04T10:00", "titre": "…" } ],
-  "liens": [ { "label": "Qonto", "url": "https://app.qonto.com" } ],
-  "notes": "Texte libre."
-}
-```
-
-Les commentaires `//` ci-dessus sont des explications : ils ne doivent pas apparaître dans les vrais fichiers JSON.
-
-**Ajouter une activité** : crée `.donnees/mon-activite.json` sur ce modèle, ajoute `"mon-activite"` dans `.donnees/activites.json`, puis `fermer`.
-
-## Tester sur un ordinateur
-
-```bash
-python3 -m http.server 8000
-```
-
-puis ouvrir http://localhost:8000 (un double-clic sur `index.html` ne suffit pas : le navigateur bloque la lecture du coffre).
+Ajouter un agenda plus tard : le coller dans `~/.cockpit/agendas.env` et relancer `outils/deployer.sh`.

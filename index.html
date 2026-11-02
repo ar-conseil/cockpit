@@ -4,46 +4,88 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <title>Cockpit AR Conseil</title>
+  <meta name="theme-color" content="#f3efe7">
+  <title>Cockpit · Antonin Rouzier</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Figtree:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-  <header class="masthead">
-    <div class="masthead-inner">
-      <a class="brand" href="#" aria-label="Cockpit AR Conseil, vue d'ensemble">
-        <span class="brand-rule" aria-hidden="true"><i></i><b>✦</b><i></i></span>
-        <span class="brand-name">AR Conseil</span>
-        <span class="brand-rule" aria-hidden="true"><i></i><b>✦</b><i></i></span>
-      </a>
-      <p class="today" id="today"></p>
-      <button type="button" class="deconnexion" id="deconnexion" hidden>Se déconnecter</button>
+  <header class="nav" id="nav" hidden>
+    <div class="nav-inner">
+      <a class="logo" href="#" aria-label="Aujourd'hui"><span>AR</span><em>Cockpit</em></a>
+      <nav class="liens-projets" id="projets" aria-label="Projets"></nav>
+      <div class="nav-droite">
+        <button type="button" class="direct" id="btn-synchro" title="Relire tous les agendas maintenant"><i></i><span id="etat-synchro">En direct</span></button>
+        <button type="button" class="btn-texte" id="btn-rdv" title="Nouveau rendez-vous (touche R)">+ Rendez-vous</button>
+        <button type="button" class="btn-plein" id="btn-ajout" title="Nouvelle tâche (touche N)">Nouvelle tâche</button>
+        <button type="button" class="btn-texte" id="deconnexion" title="Se déconnecter">Quitter</button>
+      </div>
     </div>
-    <nav class="tabs" id="tabs" aria-label="Activités" hidden></nav>
   </header>
 
-  <section class="connexion page" id="connexion" hidden>
-    <form class="carte-connexion" id="form-connexion" autocomplete="on">
-      <h1>Accès réservé</h1>
-      <p>Les données du cockpit sont chiffrées. Connecte-toi pour les afficher.</p>
-      <label for="identifiant">Identifiant</label>
-      <input id="identifiant" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+  <section class="connexion" id="connexion" hidden>
+    <form class="form-connexion" id="form-connexion" autocomplete="on">
+      <p class="surtitre">Antonin Rouzier</p>
+      <h1>Cockpit</h1>
+      <label for="email">E-mail</label>
+      <input id="email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <label for="mot-de-passe">Mot de passe</label>
       <input id="mot-de-passe" name="password" type="password" autocomplete="current-password" required>
-      <label class="case" for="rester"><input id="rester" type="checkbox"> Rester connecté sur cet appareil</label>
-      <button type="submit">Se connecter</button>
+      <button type="submit" class="btn-plein">Entrer</button>
+      <button type="button" class="btn-texte" id="oubli">Mot de passe oublié</button>
       <p class="message" id="message-connexion" role="status" aria-live="polite"></p>
     </form>
   </section>
 
-  <main id="app" class="page" hidden></main>
+  <main id="app" hidden></main>
 
-  <footer class="foot page">
-    <p>Cockpit AR Conseil · données chiffrées, lisibles uniquement après connexion.</p>
-  </footer>
+  <dialog id="ajout-rapide" class="dialogue">
+    <form method="dialog" id="form-ajout">
+      <p class="surtitre">Nouvelle tâche</p>
+      <input id="ajout-titre" name="titre" type="text" placeholder="Que faut-il faire ?" required autocomplete="off">
+      <div class="rangee">
+        <select id="ajout-activite" name="activite" aria-label="Projet"></select>
+        <input id="ajout-echeance" name="echeance" type="date" aria-label="Échéance">
+        <select id="ajout-priorite" name="priorite" aria-label="Priorité">
+          <option value="haute">Priorité haute</option><option value="moyenne" selected>Priorité normale</option><option value="basse">Priorité basse</option>
+        </select>
+      </div>
+      <div class="rangee fin">
+        <button type="button" class="btn-texte" id="ajout-annuler">Annuler</button>
+        <button type="submit" class="btn-plein">Ajouter</button>
+      </div>
+    </form>
+  </dialog>
 
+  <dialog id="rdv" class="dialogue">
+    <form method="dialog" id="form-rdv">
+      <p class="surtitre" id="rdv-surtitre">Rendez-vous</p>
+      <input id="rdv-titre" type="text" placeholder="Titre du rendez-vous" required autocomplete="off" aria-label="Titre">
+      <div class="rangee">
+        <label class="champ"><span>Jour</span><input id="rdv-jour" type="date" required></label>
+        <label class="champ"><span>Début</span><input id="rdv-debut" type="time" step="300"></label>
+        <label class="champ"><span>Fin</span><input id="rdv-fin" type="time" step="300"></label>
+        <label class="champ case"><input id="rdv-journee" type="checkbox"> <span>Toute la journée</span></label>
+      </div>
+      <input id="rdv-lieu" type="text" placeholder="Lieu ou lien de visio" autocomplete="off" aria-label="Lieu">
+      <div class="rangee">
+        <label class="champ"><span>Agenda</span><select id="rdv-agenda"></select></label>
+        <label class="champ"><span>Projet</span><select id="rdv-projet"></select></label>
+      </div>
+      <p class="vide" id="rdv-info"></p>
+      <div class="rangee fin">
+        <button type="button" class="btn-texte danger" id="rdv-supprimer">Supprimer</button>
+        <span class="espace"></span>
+        <button type="button" class="btn-texte" id="rdv-annuler">Annuler</button>
+        <button type="submit" class="btn-plein" id="rdv-ok">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="assets/config.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>

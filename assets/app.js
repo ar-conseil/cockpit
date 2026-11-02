@@ -1082,6 +1082,9 @@
       return el("td", { class: ch.type === "euros" ? "nb" : "", text: ch.type === "euros" ? argent(+v) : (v || "–") });
     };
     var nbCol = 4 + visibles.length + (r.total ? 1 : 0);
+    var textes = visibles.filter(function (ch) { return ch.type !== "euros" && ch.type !== "date"; }),
+        euros = visibles.filter(function (ch) { return ch.type === "euros"; }),
+        dates = visibles.filter(function (ch) { return ch.type === "date"; });
     var corps = [];
     clients.forEach(function (c) {
       var ouvert = S.ouvert === c.id;
@@ -1089,10 +1092,11 @@
         onclick: function () { S.ouvert = ouvert ? null : c.id; dessiner(); } }, [
         el("th", { scope: "row" }, [el("button", { type: "button", "aria-expanded": ouvert ? "true" : "false", text: c.nom })]),
         el("td", {}, [el("span", { class: "puce" + ((r.etapes_gagnees || []).indexOf(c.etape) >= 0 ? " gagne" : ""), text: c.etape || "—" })])
-      ].concat(visibles.filter(function (ch) { return ch.type !== "euros"; }).map(function (ch) { return cellule(ch, c); }),
+      ].concat(textes.map(function (ch) { return cellule(ch, c); }),
         [el("td", { class: "nb", text: argent(+c.montant) })],
-        visibles.filter(function (ch) { return ch.type === "euros"; }).map(function (ch) { return cellule(ch, c); }),
+        euros.map(function (ch) { return cellule(ch, c); }),
         r.total ? [el("td", { class: "nb total", text: argent(totalClient(a, c)) })] : [],
+        dates.map(function (ch) { return cellule(ch, c); }),
         [(function () {
           var j = c.prochaine_action_le ? joursDepuis(lireJour(c.prochaine_action_le)) : null;
           return el("td", { class: "suite" + (j != null && j < 0 ? " retard" : j === 0 ? " auj" : ""), title: c.prochaine_action || "",
@@ -1103,15 +1107,18 @@
     var actifs = clients.filter(function (c) { return !estAbandonne(c); });
     var somme = function (f) { return actifs.reduce(function (s, c) { return s + (+f(c) || 0); }, 0); };
     var pied = el("tr", {}, [el("th", { scope: "row", text: "Total" }), el("td", { text: actifs.length + " affaires" })]
-      .concat(visibles.filter(function (ch) { return ch.type !== "euros"; }).map(function () { return el("td"); }),
+      .concat(textes.map(function () { return el("td"); }),
         [el("td", { class: "nb", text: argent(somme(function (c) { return c.montant; })) })],
-        visibles.filter(function (ch) { return ch.type === "euros"; }).map(function (ch) { return el("td", { class: "nb", text: argent(somme(function (c) { return valeurChamp(c, ch.cle); })) }); }),
-        r.total ? [el("td", { class: "nb total", text: argent(somme(function (c) { return totalClient(a, c); })) })] : [], [el("td")]));
+        euros.map(function (ch) { return el("td", { class: "nb", text: argent(somme(function (c) { return valeurChamp(c, ch.cle); })) }); }),
+        r.total ? [el("td", { class: "nb total", text: argent(somme(function (c) { return totalClient(a, c); })) })] : [],
+        dates.map(function () { return el("td"); }), [el("td")]));
     var tete = el("tr", {}, [el("th", { scope: "col", text: "Client" }), el("th", { scope: "col", text: "Étape" })]
-      .concat(visibles.filter(function (ch) { return ch.type !== "euros"; }).map(function (ch) { return el("th", { scope: "col", text: ch.label }); }),
+      .concat(textes.map(function (ch) { return el("th", { scope: "col", text: ch.label }); }),
         [el("th", { scope: "col", class: "nb", text: r.libelle_montant || "Montant" })],
-        visibles.filter(function (ch) { return ch.type === "euros"; }).map(function (ch) { return el("th", { scope: "col", class: "nb", text: ch.label }); }),
-        r.total ? [el("th", { scope: "col", class: "nb", text: r.total.label })] : [], [el("th", { scope: "col", text: r.libelle_relance || "Relance" })]));
+        euros.map(function (ch) { return el("th", { scope: "col", class: "nb", text: ch.label }); }),
+        r.total ? [el("th", { scope: "col", class: "nb total", text: r.total.label })] : [],
+        dates.map(function (ch) { return el("th", { scope: "col", text: ch.label.replace(/ signé le$/, "") }); }),
+        [el("th", { scope: "col", text: r.libelle_relance || "Relance" })]));
     return el("div", { class: "tableau-defile", style: "--c:" + a.couleur }, [el("table", { class: "affaires" }, [el("thead", {}, [tete]), el("tbody", {}, corps), el("tfoot", {}, [pied])])]);
   }
 
@@ -1124,7 +1131,7 @@
       el("span", { class: "montant", text: c.montant ? nombre(+c.montant, "€") : "" }),
       el("span", { class: "action" }, [c.prochaine_action || "", c.prochaine_action_le ? el("em", { class: j < 0 ? "retard" : j === 0 ? "auj" : "", text: quand(lireJour(c.prochaine_action_le)) }) : null])
     ]);
-    if (!ouvert) return el("li", { class: "client" }, [tete]);
+    if (!ouvert) return el("li", { class: "client" + (S.vientDeBouger === c.id ? " vient-de-bouger" : ""), "data-id": c.id }, [tete]);
     return el("li", { class: "client ouvert" }, [tete, ficheClient(c, etapes, a)]);
   }
 
@@ -1138,6 +1145,25 @@
       var aide = ch.taux ? " (vide = " + fmtN.format(ch.taux * 100) + " % du prix)" : "";
       return { ch: ch, input: el("input", { type: ch.type === "euros" ? "number" : ch.type === "date" ? "date" : "text", step: "any", value: v == null ? "" : v, placeholder: ch.label + (ch.type === "euros" ? " €" : "") + aide, "aria-label": ch.label, title: ch.label + aide }) };
     });
+    // Commission totale (ex. Berkay : vente + frais), recalculée pendant la saisie ; une case vide prend le taux du projet
+    var totalFiche = null;
+    if (r.total) {
+      var valeurTotal = el("b", {}), detailTotal = el("small", {});
+      totalFiche = el("div", { class: "total-fiche", style: "--c:" + a.couleur }, [el("span", { text: r.total.label }), valeurTotal, detailTotal]);
+      var recalculer = function () {
+        var prix = montant.value === "" ? 0 : +montant.value, morceaux = [];
+        var t = r.total.de.reduce(function (somme, cle) {
+          var x = champs.filter(function (y) { return y.ch.cle === cle; })[0], v = x ? x.input.value.trim() : valeurChamp(c, cle);
+          var n = v === "" || v == null ? (x && x.ch.taux && prix ? Math.round(prix * x.ch.taux) : 0) : +v;
+          if (x) morceaux.push(x.ch.label.replace(/^Comm\. /, "").replace(/ TTC$/, "") + " " + fmtN.format(n) + " €");
+          return somme + n;
+        }, 0);
+        valeurTotal.textContent = fmtN.format(Math.round(t)) + " €";
+        detailTotal.textContent = morceaux.join(" + ");
+      };
+      [montant].concat(champs.map(function (x) { return x.input; })).forEach(function (i) { i.addEventListener("input", recalculer); });
+      recalculer();
+    }
     var contact = el("input", { type: "text", value: c.contact || "", placeholder: "Contact (nom, téléphone, e-mail)", "aria-label": "Contact" });
     var action = el("input", { type: "text", value: c.prochaine_action || "", placeholder: "Prochaine action", "aria-label": "Prochaine action" });
     var actionLe = el("input", { type: "date", value: c.prochaine_action_le || "", "aria-label": "Date de la prochaine action" });
@@ -1145,6 +1171,7 @@
     var fiche = el("form", { class: "fiche" }, [
       el("div", { class: "rangee" }, [etape, r.champs ? null : type, montant]),
       champs.length ? el("div", { class: "rangee champs" }, champs.map(function (x) { return el("label", {}, [el("span", { text: x.ch.label }), x.input]); })) : null,
+      totalFiche,
       contact, el("div", { class: "rangee" }, [action, actionLe]), notes,
       el("div", { class: "rangee" }, [
         el("button", { type: "submit", class: "btn-plein", text: "Enregistrer" }),
@@ -1181,10 +1208,10 @@
         prochaine_action: action.value.trim() || null, prochaine_action_le: actionLe.value || null, notes: notes.value.trim() || null };
       Object.assign(c, maj);
       db.from("clients").update(maj).eq("id", c.id).then(verifier).then(function () { signaler(nouvelleEtape !== avant ? "Fiche enregistrée · passée en « " + nouvelleEtape + " »" : "Fiche enregistrée"); });
-      if (r.champs) { S.ouvert = null; S.vientDeBouger = c.id; }
+      S.ouvert = null; S.vientDeBouger = c.id; // la fiche se referme, la ligne reprend sa place mise à jour
       dessiner();
       // La ligne enregistrée a pris sa nouvelle place : on la montre et on la fait briller un instant
-      var ligne = app.querySelector('.ligne-affaire[data-id="' + c.id + '"]');
+      var ligne = app.querySelector('.ligne-affaire[data-id="' + c.id + '"], .client[data-id="' + c.id + '"]');
       if (ligne) { ligne.scrollIntoView({ block: "center", behavior: mouvementReduit ? "auto" : "smooth" }); setTimeout(function () { S.vientDeBouger = null; }, 1600); }
     });
     var hist = S.suivis.filter(function (s) { return s.client_id === c.id; });

@@ -395,7 +395,7 @@ main { margin-left: var(--l-cote); padding: 0 var(--marge) 96px; --marge: max(cl
 .affaires thead th { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--encre-3); padding-top: 14px; }
 .affaires .nb { text-align: right; font-variant-numeric: tabular-nums; }
 .affaires td.nb { font: 500 14px/1 var(--mono); letter-spacing: -.02em; }
-.affaires td.total { font-weight: 400; color: var(--c); }
+.affaires td.total, .affaires th.total { font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 6%, transparent); }
 .affaires tbody th { font-weight: 600; }
 .affaires tbody th button { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
 .ligne-affaire { cursor: pointer; }
@@ -741,6 +741,12 @@ main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: co
 /* Ligne d'affaire qui vient d'être enregistrée : elle brille un instant à sa nouvelle place */
 @keyframes vient-de-bouger { 0% { background: color-mix(in srgb, var(--c) 28%, transparent); } 100% { background: transparent; } }
 .ligne-affaire.vient-de-bouger > * { animation: vient-de-bouger 1.6s ease-out both; }
+.client.vient-de-bouger { animation: vient-de-bouger 1.6s ease-out both; border-radius: 10px; }
+.total-fiche { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 2px 14px; padding: 12px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--c) 8%, var(--blanc)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 22%, transparent); }
+.total-fiche span { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 70%, var(--encre)); }
+.total-fiche b { justify-self: end; font: 700 22px/1.1 var(--mono); color: color-mix(in srgb, var(--c) 85%, var(--encre)); }
+.total-fiche small { grid-column: 1 / -1; font-size: 12.5px; color: var(--encre-3); }
 
 /* ---------- Victor : le point du matin ---------- */
 .victor {

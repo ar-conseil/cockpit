@@ -64,7 +64,7 @@
     return fmt(d, { day: "numeric", month: "short" });
   }
   function duree(ms) {
-    var m = Math.max(0, Math.round(ms / 60000));
+    var m = Math.max(0, Math.ceil(ms / 60000 - 0.01));
     if (m < 60) return m + " min";
     var h = Math.floor(m / 60), r = m % 60;
     return h + " h" + (r ? " " + pad(r) : "");
@@ -206,7 +206,7 @@
     [{ id: "", nom: "Aujourd'hui", couleur: "var(--encre)" }].concat(S.activites).forEach(function (a, i) {
       var n = a.id ? tachesDuJour(iso, a.id).filter(function (t) { return t.statut !== "fait"; }).length : 0;
       var lien = el("a", { href: "#" + a.id, style: "--c:" + a.couleur, title: "Touche " + i }, [
-        a.id ? el("i") : null, el("span", { text: a.nom.replace(" Courtage", "").replace(" Rouzier Maréchal", "").replace(" Volley", "") }),
+        a.id ? el("i") : null, el("span", { text: a.nom.replace(" Courtage", "").replace(" Rouzier Maréchal", "").replace(" Volley", "").replace(" Gestion Privée", "") }),
         n ? el("sup", { text: String(n) }) : null
       ]);
       if (a.id === S.route) lien.setAttribute("aria-current", "page");
@@ -453,54 +453,166 @@
       ])
     ]);
   }
+  // ---------- Aujourd'hui : calendrier du jour (vue verticale, en direct) ----------
+  var H_HEURE = 60; // pixels par heure
+  function calendrierJour(jour) {
+    var p = planJour(jour), maintenant = new Date(), estAuj = memeJour(jour, maintenant);
+    var rdvs = p.horaires.slice().sort(function (a, b) { return a.s - b.s || b.e - a.e; });
+    var tous = rdvs.concat(p.blocs);
+    var h0 = Math.min(7, Math.floor(Math.min.apply(null, tous.map(function (x) { return x.s; }).concat([24])))),
+        h1 = Math.max(21, Math.ceil(Math.max.apply(null, tous.map(function (x) { return x.e; }).concat([0]))));
+    var y = function (h) { return (h - h0) * H_HEURE; };
+    var cal = el("div", { class: "cal", style: "height:" + y(h1) + "px", "data-h0": h0,
+      title: "Cliquer sur un créneau libre pour ajouter un rendez-vous",
+      onclick: function (ev) {
+        if (ev.target !== cal && !ev.target.classList.contains("cal-ligne")) return;
+        var r = cal.getBoundingClientRect(), h = h0 + (ev.clientY - r.top) / H_HEURE;
+        var d = new Date(jour); d.setHours(Math.floor(h), Math.floor((h % 1) * 2) * 30, 0, 0);
+        ouvrirRdv(null, d);
+      } });
+    for (var h = h0; h <= h1; h++) {
+      cal.appendChild(el("div", { class: "cal-ligne", style: "top:" + y(h) + "px" }, [el("span", { text: pad(h) + ":00" })]));
+      if (h < h1) cal.appendChild(el("div", { class: "cal-ligne demi", style: "top:" + y(h + 0.5) + "px" }));
+    }
+    p.blocs.forEach(function (b) {
+      cal.appendChild(el("div", { class: "cal-prevu", style: "top:" + y(b.s) + "px;height:" + Math.max(16, y(b.e) - y(b.s) - 2) + "px;--c:" + couleur(b.activite) },
+        [el("span", { text: b.libelle + (b.activite ? " · " + nomActivite(b.activite) : "") })]));
+    });
+    // Rendez-vous qui se chevauchent : côte à côte.
+    var groupes = [], g = null;
+    rdvs.forEach(function (x) { if (!g || x.s >= g.fin) { g = { items: [], fin: x.e }; groupes.push(g); } g.items.push(x); g.fin = Math.max(g.fin, x.e); });
+    groupes.forEach(function (gr) {
+      var cols = [];
+      gr.items.forEach(function (x) {
+        var c = cols.findIndex(function (fin) { return fin <= x.s + 1e-6; });
+        if (c < 0) { c = cols.length; cols.push(0); }
+        cols[c] = x.e; x.col = c;
+      });
+      gr.items.forEach(function (x) {
+        var e = x.ev, d = new Date(e.debut), f = new Date(e.fin), n = cols.length, haut = Math.max(24, y(x.e) - y(x.s) - 3);
+        var etat = f < maintenant ? " passe" : d <= maintenant ? " en-cours" : "";
+        cal.appendChild(el("button", {
+          type: "button", class: "cal-rdv" + etat + (haut < 40 ? " court" : ""),
+          style: "top:" + y(x.s) + "px;height:" + haut + "px;left:calc(64px + (100% - 72px) * " + x.col / n + ");width:calc((100% - 72px) / " + n + " - 4px);--c:" + couleur(x.activite),
+          title: (e.titre || "") + "\n" + hm(d) + "–" + hm(f) + " · " + nomActivite(x.activite) + (e.lieu ? "\n" + e.lieu : ""),
+          onclick: function () { ouvrirRdv(e); }
+        }, [el("b", { text: e.titre || "(sans titre)" }), el("span", { text: hm(d) + " – " + hm(f) + (e.lieu ? " · " + e.lieu.split("\n")[0] : "") })]));
+      });
+    });
+    if (estAuj) {
+      var n = hDec(maintenant);
+      if (n >= h0 && n <= h1) cal.appendChild(el("div", { class: "cal-maintenant", id: "cal-maintenant", style: "top:" + y(n) + "px" }, [el("span", { text: hm(maintenant) })]));
+    }
+    var journee = p.journee.map(function (e) {
+      return el("button", { type: "button", class: "journee", style: "--c:" + couleur(actEv(e)), onclick: function () { ouvrirRdv(e); } }, [el("i"), e.titre || "(sans titre)"]);
+    });
+    var vide = !rdvs.length && !p.journee.length;
+    return el("div", { class: "cal-cadre" }, [
+      journee.length ? el("div", { class: "journees" }, journee) : null,
+      el("div", { class: "cal-defile", id: "cal-defile" }, [cal]),
+      vide ? el("p", { class: "vide cal-vide", text: S.agendas.length ? "Aucun rendez-vous ce jour-là. Cliquez dans le calendrier pour en ajouter un." : "Aucun agenda connecté : allez dans Agendas pour relier Google ou Outlook." }) : null
+    ]);
+  }
+
+  // Ce qui se passe maintenant et juste après (mis à jour toutes les 20 s).
+  function blocMaintenant() {
+    var n = new Date(), p = planJour(n), hN = hDec(n);
+    var courant = p.horaires.filter(function (x) { return new Date(x.ev.debut) <= n && n < new Date(x.ev.fin); })[0];
+    var bloc = !courant && p.blocs.filter(function (b) { return b.s <= hN && hN < b.e; })[0];
+    var suivant = S.evenements.filter(function (e) { return !e.journee && new Date(e.debut) > n; })[0];
+    var lignes = [];
+    if (courant) lignes.push(el("div", { class: "moment actuel", style: "--c:" + couleur(courant.activite) }, [
+      el("span", { class: "etiquette", text: "En cours · encore " + duree(new Date(courant.ev.fin) - n) }),
+      el("button", { type: "button", onclick: function () { ouvrirRdv(courant.ev); } }, [courant.ev.titre || "(sans titre)"]),
+      el("small", { text: nomActivite(courant.activite) + " · jusqu'à " + hm(new Date(courant.ev.fin)) })]));
+    else if (bloc) lignes.push(el("div", { class: "moment moment-prevu", style: "--c:" + couleur(bloc.activite) }, [
+      el("span", { class: "etiquette", text: "Créneau prévu · jusqu'à " + hTexte(bloc.e) }), el("b", { text: bloc.libelle }),
+      el("small", { text: bloc.activite ? nomActivite(bloc.activite) : "Semaine type" })]));
+    else lignes.push(el("div", { class: "moment libre" }, [el("span", { class: "etiquette", text: "Maintenant" }), el("b", { text: "Créneau libre" })]));
+    if (suivant) {
+      var d = new Date(suivant.debut), dans = d - n;
+      lignes.push(el("div", { class: "moment suivant" + (dans < 15 * 60000 ? " imminent" : ""), style: "--c:" + couleur(actEv(suivant)) }, [
+        el("span", { class: "etiquette", text: memeJour(d, n) ? "Ensuite · dans " + duree(dans) : "Prochain rendez-vous · " + quand(d) }),
+        el("button", { type: "button", onclick: function () { ouvrirRdv(suivant); } }, [suivant.titre || "(sans titre)"]),
+        el("small", { text: hm(d) + " · " + nomActivite(actEv(suivant)) + (suivant.lieu ? " · " + suivant.lieu.split("\n")[0] : "") })]));
+    }
+    return el("div", { class: "moments", id: "bloc-maintenant" }, lignes);
+  }
+
+  function panneauAFaire(iso) {
+    var duJour = trierTaches(tachesDuJour(iso));
+    var retard = trierTaches(tachesEnRetard(iso));
+    var rel = relances(iso);
+    var facts = S.factures.filter(factureEnRetard);
+    var ouvertes = duJour.filter(function (t) { return t.statut !== "fait"; }).length;
+    var parties = [
+      el("div", { class: "panneau-tete" }, [el("h2", { text: "À faire" }),
+        el("span", { class: "compte", text: ouvertes ? ouvertes + " aujourd'hui" : duJour.length ? "tout est fait" : "rien de daté" })]),
+      champAjout(S.route || "perso", new Date(iso), "Ajouter une tâche pour aujourd'hui…"),
+      listeTaches(duJour, { projet: true, date: false }, "Aucune tâche datée d'aujourd'hui.")
+    ];
+    if (retard.length) parties.push(el("details", { class: "groupe", open: S.voirRetards }, [
+      el("summary", { onclick: function (ev) { ev.preventDefault(); S.voirRetards = !S.voirRetards; dessiner(); } }, [
+        el("span", { class: "pastille-compte retard", text: String(retard.length) }), "En retard", el("small", { text: "à faire en premier ou à reporter" })]),
+      listeTaches(retard, { projet: true }, "")]));
+    if (rel.length) parties.push(el("div", { class: "groupe" }, [
+      el("p", { class: "groupe-titre" }, [el("span", { class: "pastille-compte", text: String(rel.length) }), "À relancer"]),
+      el("ul", { class: "relances" }, rel.slice(0, 8).map(function (c) {
+        var j = joursDepuis(lireJour(c.prochaine_action_le));
+        return el("li", { style: "--c:" + couleur(c.activite_id) }, [el("a", { href: "#" + c.activite_id, onclick: function () { S.ouvert = c.id; } }, [
+          el("i"), el("b", { text: c.nom }), el("span", { text: (c.prochaine_action || "Relancer") }), el("em", { class: j < 0 ? "retard" : "", text: quand(lireJour(c.prochaine_action_le)) })])]);
+      }))]));
+    if (facts.length) parties.push(el("div", { class: "groupe" }, [
+      el("p", { class: "groupe-titre" }, [el("span", { class: "pastille-compte retard", text: String(facts.length) }), "Factures en retard"]),
+      el("ul", { class: "relances" }, facts.map(function (fa) {
+        return el("li", { style: "--c:" + couleur(fa.activite_id) }, [el("a", { href: "#" + fa.activite_id, onclick: function () { S.factureOuverte = fa.id; } }, [
+          el("i"), el("b", { text: (fa.numero ? "N° " + fa.numero + " · " : "") + fmtN.format(Math.round(ttc(fa))) + " €" }), el("span", { text: fa.destinataire || nomActivite(fa.activite_id) }),
+          el("em", { class: "retard", text: "+" + (-joursDepuis(lireJour(fa.echeance))) + " j" })])]);
+      }))]));
+    return el("section", { class: "panneau a-faire" }, parties);
+  }
+
+  function carteProjet(a, iso) {
+    var ouvertes = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; });
+    var retard = tachesEnRetard(iso, a.id).length, rdv = prochainRdv(a.id), k = kpisProjet(a)[0];
+    return el("a", { class: "carte-projet", href: "#" + a.id, style: "--c:" + a.couleur }, [
+      el("div", { class: "carte-tete" }, [el("i"), el("b", { text: a.nom }), el("kbd", { text: String(S.activites.indexOf(a) + 1) })]),
+      el("p", { class: "carte-rdv", text: rdv ? (memeJour(new Date(rdv.debut), new Date()) ? hm(new Date(rdv.debut)) : quand(new Date(rdv.debut))) + " · " + (rdv.titre || "rendez-vous") : "Aucun rendez-vous prévu" }),
+      el("div", { class: "carte-chiffres" }, [
+        el("span", {}, [el("b", { text: String(ouvertes.length) }), " tâches", retard ? el("em", { text: " · " + retard + " en retard" }) : null]),
+        k ? el("span", {}, [el("b", { text: nombre(k.valeur, k.unite) }), " " + k.label.toLowerCase()]) : null
+      ])
+    ]);
+  }
+
   function vueAccueil() {
-    var f = document.createDocumentFragment(), iso = isoJour(S.jour), estAuj = memeJour(S.jour, new Date());
-    if (estAuj) f.appendChild(hero());
-
-    f.appendChild(el("section", { class: "section journee-section" }, [
-      el("div", { class: "entete" }, [
-        el("h2", {}, [estAuj ? "Ma journée" : el("span", { class: "cap", text: fmt(S.jour, { weekday: "long", day: "numeric", month: "long" }) })]),
-        selecteurJours()
+    var f = document.createDocumentFragment(), iso = isoJour(S.jour), n = new Date(), estAuj = memeJour(S.jour, n);
+    f.appendChild(el("header", { class: "entete-jour" }, [
+      el("div", {}, [
+        el("p", { class: "surtitre", text: (n.getHours() < 12 ? "Bonjour" : n.getHours() < 18 ? "Bon après-midi" : "Bonsoir") + " Antonin" }),
+        el("h1", { class: "cap", text: fmt(S.jour, { weekday: "long", day: "numeric", month: "long" }) })
       ]),
-      frise(S.jour),
-      el("p", { class: "legende" }, [el("span", { class: "hachure" }), "créneaux de la semaine type · un clic sur un rendez-vous pour le changer de projet"].concat(
-        !estAuj ? [" · ", el("button", { type: "button", class: "btn-texte", text: "Revenir à aujourd'hui", onclick: function () { changerJour(new Date()); } })] : []))
+      estAuj ? el("div", { class: "horloge-jour", id: "grande-heure", text: hm(n) }) : null,
+      el("div", { class: "nav-jours" }, [
+        el("button", { type: "button", class: "btn-icone", "aria-label": "Jour précédent", title: "Jour précédent (←)", text: "←", onclick: function () { changerJour(ajouterJours(S.jour, -1)); } }),
+        el("button", { type: "button", class: "btn-contour" + (estAuj ? " actif" : ""), text: "Aujourd'hui", onclick: function () { changerJour(new Date()); } }),
+        el("button", { type: "button", class: "btn-icone", "aria-label": "Jour suivant", title: "Jour suivant (→)", text: "→", onclick: function () { changerJour(ajouterJours(S.jour, 1)); } }),
+        selecteurJours()
+      ])
     ]));
-
-    f.appendChild(el("section", { class: "section" }, [
-      el("div", { class: "entete" }, [el("h2", { text: "Mes projets" }), el("p", { class: "aside", text: estAuj ? "Ce qui compte aujourd'hui dans chacun" : "Pour le " + fmt(S.jour, { day: "numeric", month: "long" }) })]),
-      el("div", { class: "colonnes" }, projets().map(function (a) { return colonneProjet(a, iso); }))
+    f.appendChild(el("div", { class: "grille-aujourdhui" }, [
+      el("section", { class: "panneau calendrier" }, [
+        el("div", { class: "panneau-tete" }, [el("h2", { text: "Calendrier" }),
+          el("span", { class: "compte", text: planJour(S.jour).horaires.length + " rendez-vous" }),
+          el("button", { type: "button", class: "btn-contour petit", text: "+ Rendez-vous", onclick: function () { ouvrirRdv(null); } })]),
+        calendrierJour(S.jour)
+      ]),
+      el("div", { class: "colonne-droite" }, [estAuj ? blocMaintenant() : null, panneauAFaire(iso)])
     ]));
-
-    var perso = activite("perso");
-    var retardTotal = tachesEnRetard(iso);
-    var bas = [];
-    if (perso) {
-      var tp = trierTaches(tachesDuJour(iso, "perso").concat(tachesEnRetard(iso, "perso")));
-      bas.push(el("div", { class: "bas-bloc", style: "--c:" + perso.couleur }, [
-        el("h3", {}, [el("a", { href: "#perso", text: perso.nom })]), listeTaches(tp, {}, "Rien côté perso."), champAjout("perso", new Date(iso), "+ Tâche perso")
-      ]));
-    }
-    if (retardTotal.length) {
-      bas.push(el("div", { class: "bas-bloc" }, [
-        el("h3", {}, [el("button", { type: "button", class: "btn-texte titre-bouton", "aria-expanded": S.voirRetards ? "true" : "false", onclick: function () { S.voirRetards = !S.voirRetards; dessiner(); } },
-          [retardTotal.length + " tâches en retard", el("span", { text: S.voirRetards ? " — masquer" : " — afficher" })])]),
-        S.voirRetards ? listeTaches(trierTaches(retardTotal), { projet: true }, "") : el("p", { class: "vide", text: "À replanifier (bouton « Demain ») ou à faire en premier." })
-      ]));
-    }
-    var facturesRetard = S.factures.filter(factureEnRetard);
-    if (facturesRetard.length) {
-      bas.push(el("div", { class: "bas-bloc" }, [
-        el("h3", { text: facturesRetard.length + " facture" + (facturesRetard.length > 1 ? "s" : "") + " à relancer" }),
-        el("ul", { class: "relances" }, facturesRetard.map(function (fa) {
-          var act = activite(fa.activite_id);
-          return el("li", {}, [el("a", { href: "#" + fa.activite_id, onclick: function () { S.factureOuverte = fa.id; } }, [
-            el("b", { text: (fa.numero ? "N° " + fa.numero + " · " : "") + fmtN.format(Math.round(ttc(fa))) + " € · " + (act ? act.nom : "") }),
-            el("span", { class: "retard", text: fa.objet + " — échéance dépassée de " + (-joursDepuis(lireJour(fa.echeance))) + " j" })])]);
-        }))
-      ]));
-    }
-    if (bas.length) f.appendChild(el("section", { class: "section bas" }, bas));
+    f.appendChild(el("section", { class: "section projets-section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Projets" }), el("p", { class: "aside", text: "touches 1 à " + S.activites.length })]),
+      el("div", { class: "cartes-projets" }, S.activites.map(function (a) { return carteProjet(a, iso); }))
+    ]));
     return f;
   }
 
@@ -891,7 +1003,8 @@
     var d = e ? new Date(e.debut) : null, f = e ? new Date(e.fin) : null;
     if (!e) { // nouveau : prochaine demi-heure du jour choisi, une heure
       d = new Date(jour || S.jour); var n = new Date();
-      if (memeJour(d, n)) d.setHours(n.getHours() + (n.getMinutes() >= 30 ? 1 : 0), n.getMinutes() >= 30 ? 0 : 30, 0, 0); else d.setHours(9, 0, 0, 0);
+      if (jour && (jour.getHours() || jour.getMinutes())) { /* heure choisie d'un clic dans le calendrier */ }
+      else if (memeJour(d, n)) d.setHours(n.getHours() + (n.getMinutes() >= 30 ? 1 : 0), n.getMinutes() >= 30 ? 0 : 30, 0, 0); else d.setHours(9, 0, 0, 0);
       f = new Date(d.getTime() + 3600000);
     }
     $("rdv-surtitre").textContent = e ? (modifiable ? "Modifier le rendez-vous" : "Rendez-vous (lecture seule)") : "Nouveau rendez-vous";
@@ -1035,11 +1148,17 @@
     if (S.route && !a && S.route !== "agendas") S.route = "";
     dessinerNav();
     dessinerSynchro();
-    var y = window.scrollY;
+    var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
+    S.calScroll = defileAvant ? defileAvant.scrollTop : null;
     app.textContent = "";
     app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
     window.scrollTo(0, y);
+    var defile = document.getElementById("cal-defile"), ligne = document.getElementById("cal-maintenant");
+    if (defile && S.calCale !== isoJour(S.jour) + S.route) {
+      S.calCale = isoJour(S.jour) + S.route;
+      defile.scrollTop = ligne ? Math.max(0, ligne.offsetTop - defile.clientHeight / 3) : (9 - (+defile.firstChild.dataset.h0)) * H_HEURE;
+    } else if (defile && S.calScroll != null) defile.scrollTop = S.calScroll;
     // Sur petit écran, la frise défile : on la cale pour que l'heure actuelle soit visible.
     app.querySelectorAll(".frise-defile").forEach(function (d) {
       var c = d.querySelector(".curseur");
@@ -1077,6 +1196,9 @@
     var n = new Date();
     var h = document.getElementById("grande-heure"); if (h) h.textContent = hm(n);
     if (!enSaisie()) { var p = document.getElementById("phrase"); if (p) p.replaceWith(phraseDuMoment()); }
+    if (!enSaisie()) { var bm = document.getElementById("bloc-maintenant"); if (bm) bm.replaceWith(blocMaintenant()); }
+    var cm = document.getElementById("cal-maintenant");
+    if (cm) { cm.style.top = (hDec(n) - +cm.parentNode.dataset.h0) * H_HEURE + "px"; cm.firstChild.textContent = hm(n); }
     var c = document.getElementById("curseur");
     if (c) {
       var h0 = +c.dataset.h0, h1 = +c.dataset.h1;

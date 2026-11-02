@@ -4,7 +4,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { ecrireRdv, jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
 
-const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type" };
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cle-synchro",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {

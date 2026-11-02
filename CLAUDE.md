@@ -4,11 +4,13 @@ Site statique (GitHub Pages, dépôt PUBLIC ar-conseil/cockpit) : `index.html`, 
 Données dans **Supabase** (projet perso, un seul utilisateur, inscriptions fermées). Pas de build ; supabase-js en CDN.
 Langue : français, sans émoticônes.
 
-## Design (voulu par Antonin : un vrai site, surtout pas un « dashboard Claude »)
-Style éditorial clair : papier `#f3efe7`, encre `#17150f`, grands titres en Instrument Serif, texte en Inter Tight,
-filets fins, chaque projet porte sa couleur (activites.couleur). Pas de tuiles d'indicateurs, de cartes à ombres ni de thème noir et or.
-Accueil = l'heure en grand + phrase du moment, frise horizontale de la journée (temps réel), les 4 projets côte à côte.
-Page projet = en-tête à la couleur du projet, frise du jour du projet, tâches + agenda, clients et suivis, chiffres, notes.
+## Design (voulu par Antonin : un vrai site professionnel, surtout pas un « dashboard Claude »)
+Clair et net, façon outils SaaS haut de gamme : papier `#f3efe7`, panneaux blancs à bord fin (rayon 14 px),
+police **Geist** (titres 600, resserrés) et **Geist Mono** pour heures et montants. Chaque projet porte sa couleur.
+Pas d'Instrument Serif ni de thème noir et or (refusés).
+Aujourd'hui = en-tête (date, heure), calendrier du jour vertical en direct (ligne rouge, clic = nouveau RDV) à gauche,
+« maintenant / ensuite » + « à faire » (tâches, retards, relances, factures) à droite, cartes projets en bas.
+Page projet = en-tête à la couleur du projet, frise du jour du projet, tâches + agenda, clients, factures, chiffres, notes.
 
 ## Où sont les choses
 - Schéma : `supabase/migrations/` (activites, agendas, evenements, taches, clients, suivis, semaine_type).

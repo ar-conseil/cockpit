@@ -135,7 +135,9 @@
       db.from("suivis").select("*").order("le", { ascending: false }).limit(500),
       db.from("semaine_type").select("*").order("debut"),
       db.from("factures").select("*"),
-      db.from("comptes_agenda").select("id, fournisseur, email, derniere_erreur, cree_le").order("cree_le")
+      db.from("comptes_agenda").select("id, fournisseur, email, derniere_erreur, cree_le").order("cree_le"),
+      db.from("briefings").select("*").eq("jour", isoJour(new Date())).maybeSingle(),
+      db.from("propositions").select("*").eq("statut", "proposee").order("cree_le")
     ]).then(function (r) {
       r.forEach(verifier);
       S.activites = r[0].data; S.agendas = r[1].data;
@@ -151,6 +153,7 @@
         .filter(function (e) { var k = (e.titre || "") + "|" + e.debut + "|" + e.fin; if (vus[k]) return false; vus[k] = true; return true; })
         .sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
+      S.briefing = r[9].data; S.propositions = r[10].data || [];
     });
   }
   var redessinPrevu = null;
@@ -810,6 +813,68 @@
     ]);
   }
 
+  // ---------- Victor : le point du matin (briefing préparé par la routine du Mac, tâches proposées à partir des mails) ----------
+  function pastilleProjetSiConnu(id) { return id && activite(id) ? pastilleProjet(id) : null; }
+  function traiterProposition(p, accepter, projet) {
+    S.propositions = S.propositions.filter(function (x) { return x.id !== p.id; });
+    var fin = db.from("propositions").update({ statut: accepter ? "acceptee" : "ecartee", traitee_le: new Date().toISOString() }).eq("id", p.id).then(verifier);
+    if (accepter) {
+      var source = p.source && (p.source.de || p.source.objet) ? "Mail de " + (p.source.de || "?") + (p.source.objet ? " : « " + p.source.objet + " »" : "") : null;
+      creerTache({ titre: p.titre, activite_id: projet, echeance: p.echeance, priorite: p.priorite || "moyenne", notes: [p.notes, source].filter(Boolean).join(" · ") || null });
+    } else { avecTransition(dessiner, "carte"); signaler("Écartée : " + p.titre); }
+    return fin;
+  }
+  function carteProposition(p) {
+    var choix = el("select", { class: "proposition-projet", "aria-label": "Projet" }, optionsActivites(p.activite_id || (S.activites[0] && S.activites[0].id)));
+    var src = p.source || {};
+    return el("li", { class: "proposition", style: "--vt:p-" + p.id }, [
+      el("div", { class: "proposition-texte" }, [
+        el("b", { text: p.titre }),
+        el("small", { text: [src.boite, src.de, src.objet ? "« " + src.objet + " »" : null].filter(Boolean).join(" · ") }),
+        p.notes ? el("p", { text: p.notes }) : null
+      ]),
+      el("div", { class: "proposition-actions" }, [
+        choix,
+        p.echeance ? el("span", { class: "carte-date", text: quand(lireJour(p.echeance)) }) : null,
+        el("button", { type: "button", class: "btn-plein petit", text: "Ajouter", onclick: function () { traiterProposition(p, true, choix.value); } }),
+        el("button", { type: "button", class: "btn-texte", text: "Écarter", onclick: function () { traiterProposition(p, false); } })
+      ])
+    ]);
+  }
+  function blocVictor() {
+    var b = S.briefing, props = S.propositions || [];
+    var tete = el("header", { class: "victor-tete" }, [
+      el("span", { class: "victor-avatar", "aria-hidden": "true", text: "V" }),
+      el("div", {}, [el("h2", { text: "Le point de Victor" }),
+        el("p", { text: b ? "Préparé à " + hm(new Date(b.mise_a_jour)) + (b.orias_minutes ? " · " + Math.round(b.orias_minutes / 6) / 10 + " h d'ORIAS dans l'agenda" : "") : "Victor passe chaque matin à 6 h 30 : il lit vos mails, prépare la journée et place 2 h d'ORIAS." })])
+    ]);
+    var parties = [tete];
+    if (b) {
+      if (b.resume) parties.push(el("p", { class: "victor-resume", text: b.resume }));
+      var colonnes = [];
+      if ((b.priorites || []).length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "À faire aujourd'hui" }),
+        el("ol", { class: "victor-priorites" }, b.priorites.map(function (x) {
+          return el("li", {}, [el("b", { text: x.titre }), el("small", {}, [pastilleProjetSiConnu(x.activite_id), x.pourquoi ? el("span", { text: x.pourquoi }) : null])]);
+        }))]));
+      if ((b.planning || []).length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "Emploi du temps" }),
+        el("ul", { class: "victor-planning" }, b.planning.map(function (x) {
+          return el("li", { class: x.type === "orias" ? "orias" : "", style: "--c:" + couleur(x.activite_id) }, [
+            el("time", { text: x.debut + (x.fin ? "–" + x.fin : "") }), el("span", { text: x.titre || "(sans titre)" })]);
+        }))]));
+      if ((b.mails || []).length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "Mails à traiter" }),
+        el("ul", { class: "victor-mails" }, b.mails.map(function (m) {
+          return el("li", {}, [el("small", { text: [m.boite, m.de].filter(Boolean).join(" · ") }), el("b", { text: m.objet || "(sans objet)" }),
+            m.action || m.resume ? el("span", { text: m.action || m.resume }) : null]);
+        }))]));
+      if (colonnes.length) parties.push(el("div", { class: "victor-grille" }, colonnes));
+    }
+    if (props.length) parties.push(el("div", { class: "victor-propositions" }, [
+      el("h3", { text: "Victor propose " + props.length + " tâche" + (props.length > 1 ? "s" : "") + " d'après vos mails" }),
+      el("ul", {}, props.map(carteProposition))
+    ]));
+    return el("section", { class: "victor", "aria-label": "Le point de Victor" }, parties);
+  }
+
   function vueAccueil() {
     var f = document.createDocumentFragment(), iso = isoJour(S.jour), n = new Date(), estAuj = memeJour(S.jour, n);
     f.appendChild(el("header", { class: "entete-jour" }, [
@@ -825,6 +890,7 @@
         selecteurJours()
       ])
     ]));
+    if (estAuj) f.appendChild(blocVictor());
     f.appendChild(el("div", { class: "grille-aujourdhui" }, [
       el("section", { class: "panneau calendrier" }, [
         el("div", { class: "panneau-tete" }, [el("h2", { text: "Calendrier" }),
@@ -1601,7 +1667,7 @@
       router();
       if (!canal) {
         canal = db.channel("cockpit");
-        ["evenements", "taches", "clients", "suivis", "activites", "factures"].forEach(function (table) {
+        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions"].forEach(function (table) {
           canal.on("postgres_changes", { event: "*", schema: "public", table: table }, function () {
             if (enSaisie() || dialogue.open || dlgRdv.open || S.glisse) { attenteSaisie = true; return; }
             rechargerPuisDessiner();

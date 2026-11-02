@@ -32,4 +32,8 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
 - Nouvelles tables : RLS + politique `to authenticated`, `grant` explicites (authenticated et service_role),
   et `alter publication supabase_realtime add table` si la page doit se mettre à jour en direct.
 - Données sobres : pas d'IBAN, de numéros de sécurité sociale ni de détails de santé ; particuliers d'Evoa en initiales.
-- Agents (à venir) : service_role côté serveur, écrire dans les mêmes tables (taches, suivis, activites.kpis).
+- Victor (assistant du matin) : routine planifiée de l'app Claude sur le Mac, chaque jour vers 6 h 30
+  (~/.claude/scheduled-tasks/victor-point-du-matin). Elle lit Gmail (arouzier, + Camp/Evoa/Harnes transférés) et Outlook
+  Palomano en LECTURE SEULE, puis `outils/victor.py publier` écrit `briefings` et `propositions` et place jusqu'à 2 h de
+  « Formation ORIAS » (8 h – 19 h, en semaine) via agenda-ecrire (clé de synchro). Le site affiche « Le point de Victor »
+  sur Aujourd'hui ; une proposition acceptée devient une tâche. Notes du jour dans ~/.cockpit/victor/ (jamais dans le dépôt).

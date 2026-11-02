@@ -12,8 +12,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   const jeton = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  const { data: u } = await db.auth.getUser(jeton);
-  if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  // Le site passe la session de l'utilisateur ; Victor (routine du Mac) passe la clé de synchro.
+  const parCle = !!Deno.env.get("CLE_SYNCHRO") && req.headers.get("x-cle-synchro") === Deno.env.get("CLE_SYNCHRO");
+  if (!parCle) {
+    const { data: u } = await db.auth.getUser(jeton);
+    if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  }
 
   const b = await req.json().catch(() => ({}));
   const action = b.action as "creer" | "modifier" | "supprimer";

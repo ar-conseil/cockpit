@@ -636,7 +636,7 @@ html.en-glisse, html.en-glisse * { cursor: grabbing !important; -webkit-user-sel
 .ajout-carte input:hover, .ajout-carte input:focus { background: color-mix(in srgb, var(--blanc) 70%, transparent); outline: none; }
 .ajout-projet { display: none; max-width: 110px; font-size: 12px; padding: 4px 6px; border-radius: 8px; }
 .ajout-carte:focus-within .ajout-projet { display: block; }
-html[data-transition="carte"] .carte-tache { view-transition-name: var(--vt); }
+html[data-transition="carte"] .carte-tache, html[data-transition="carte"] .proposition { view-transition-name: var(--vt); }
 html[data-transition="carte"]::view-transition-old(root), html[data-transition="carte"]::view-transition-new(root) { animation: 160ms ease both fondu-entre; }
 html[data-transition="carte"]::view-transition-old(root) { animation-name: fondu-sort; }
 ::view-transition-group(*) { animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
@@ -705,6 +705,47 @@ main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: co
 .bouton-lien-fleche { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--encre-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform .18s var(--doux), stroke .18s; }
 .bouton-lien:hover .bouton-lien-fleche { transform: translate(2px, -2px); stroke: var(--c); }
 @media (max-width: 640px) { .boutons-liens { grid-template-columns: 1fr; } }
+
+/* ---------- Victor : le point du matin ---------- */
+.victor {
+  position: relative; display: grid; gap: 18px; margin: 4px 0 24px; padding: 22px 24px 24px; border-radius: 18px; background: var(--blanc);
+  box-shadow: 0 0 0 1px var(--filet), 0 18px 40px -28px rgb(15 15 15 / .35); overflow: hidden;
+}
+.victor::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, #204e99, #7a5cf0, #ef818e, #f7d589); }
+.victor-tete { display: flex; align-items: center; gap: 14px; }
+.victor-tete h2 { margin: 0; font: 650 18px/1.2 var(--sans); letter-spacing: -.015em; }
+.victor-tete p { margin: 2px 0 0; font-size: 13px; color: var(--encre-3); }
+.victor-avatar { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: #fff; font: 700 18px var(--sans);
+  background: linear-gradient(135deg, #204e99, #7a5cf0); box-shadow: 0 8px 18px -10px #4a3fd0; }
+.victor-resume { margin: 0; max-width: 78ch; font: 450 clamp(16px, 1.4vw, 18px)/1.55 var(--sans); color: var(--encre); text-wrap: pretty; }
+.victor-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.victor-col { display: grid; gap: 10px; align-content: start; padding: 14px 16px; border-radius: 14px; background: color-mix(in srgb, var(--papier-2) 55%, transparent); }
+.victor h3 { margin: 0; font: 600 12px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--encre-3); }
+.victor ol, .victor ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.victor-priorites { counter-reset: p; }
+.victor-priorites li { counter-increment: p; display: grid; grid-template-columns: 24px 1fr; gap: 2px 10px; }
+.victor-priorites li::before { content: counter(p); grid-row: span 2; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: var(--encre); color: var(--papier); font: 600 12px var(--mono); }
+.victor-priorites b, .victor-mails b { font-weight: 600; font-size: 14px; line-height: 1.35; }
+.victor-priorites small { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--encre-3); }
+.victor-priorites .pt { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 6px; background: var(--blanc); }
+.victor-priorites .pt::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.victor-planning li { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; padding-left: 10px; border-left: 3px solid var(--c); font-size: 13.5px; }
+.victor-planning time { font: 500 12px var(--mono); color: var(--encre-2); }
+.victor-planning li.orias { background: color-mix(in srgb, #204e99 8%, transparent); border-radius: 0 8px 8px 0; padding: 4px 0 4px 10px; font-weight: 600; }
+.victor-mails li { display: grid; gap: 1px; }
+.victor-mails small { font-size: 12px; color: var(--encre-3); }
+.victor-mails span { font-size: 13px; color: var(--encre-2); }
+.victor-propositions { display: grid; gap: 10px; }
+.proposition { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 14px; border-radius: 12px;
+  background: var(--blanc); box-shadow: 0 0 0 1px var(--filet); transition: box-shadow .18s; }
+.proposition:hover { box-shadow: 0 0 0 1px var(--filet-fort), 0 8px 20px -14px rgb(15 15 15 / .35); }
+.proposition-texte { display: grid; gap: 2px; min-width: 0; flex: 1 1 320px; }
+.proposition-texte b { font-weight: 600; font-size: 14px; }
+.proposition-texte small { font-size: 12px; color: var(--encre-3); }
+.proposition-texte p { margin: 4px 0 0; font-size: 13px; color: var(--encre-2); }
+.proposition-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.proposition-projet { font-size: 13px; padding: 6px 8px; max-width: 190px; }
+.btn-plein.petit { padding: 7px 12px; font-size: 12.5px; }
 
 /* ---------- Fluidité : transitions entre pages, apparition au défilement ---------- */
 ::view-transition-old(root) { animation: 110ms ease-in both fondu-sort; }

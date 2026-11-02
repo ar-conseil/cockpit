@@ -1550,8 +1550,8 @@
   }
   // L'entreprise individuelle numérote ses factures en une seule suite continue, tous clients confondus.
   function numeroSuivant() {
-    var max = 0, largeur = 3;
-    S.factures.forEach(function (f) { var m = String(f.numero || "").match(/(\d+)\s*$/); if (m) { max = Math.max(max, +m[1]); largeur = Math.max(largeur, m[1].length); } });
+    var max = 0, largeur = 1; // même présentation que le dernier numéro (Tiime : 28, 29…)
+    S.factures.forEach(function (f) { var m = String(f.numero || "").match(/(\d+)\s*$/); if (m && +m[1] >= max) { max = +m[1]; largeur = m[1].length; } });
     return String(max + 1).padStart(largeur, "0");
   }
   function creerFacture(a, base) {

@@ -1,0 +1,42 @@
+{
+  "id": "palomano",
+  "nom": "Palomano",
+  "description": "Activité principale : clients, facturation et trésorerie.",
+  "couleur": "#3fb8a6",
+  "miseAJour": "2026-11-02",
+  "exemple": true,
+  "sources": ["Qonto", "Gmail", "Google Agenda"],
+  "kpis": [
+    { "label": "CA facturé (mois)", "valeur": 18450, "unite": "€", "precedent": 16200, "objectif": 22000 },
+    { "label": "Trésorerie", "valeur": 42310, "unite": "€", "precedent": 39870 },
+    { "label": "Factures impayées", "valeur": 3, "unite": "", "detail": "6 840 € en attente", "alerte": true },
+    { "label": "Devis en cours", "valeur": 5, "unite": "", "detail": "31 500 € potentiels" }
+  ],
+  "serie": {
+    "titre": "CA facturé par mois",
+    "unite": "€",
+    "points": [
+      { "label": "juin", "valeur": 14200 },
+      { "label": "juil.", "valeur": 12800 },
+      { "label": "août", "valeur": 9600 },
+      { "label": "sept.", "valeur": 17300 },
+      { "label": "oct.", "valeur": 16200 },
+      { "label": "nov.", "valeur": 18450 }
+    ]
+  },
+  "taches": [
+    { "titre": "Relancer la facture F-2026-041", "echeance": "2026-11-03", "priorite": "haute", "statut": "a-faire" },
+    { "titre": "Envoyer le devis refonte site", "echeance": "2026-11-06", "priorite": "moyenne", "statut": "en-cours" },
+    { "titre": "Préparer la TVA d'octobre", "echeance": "2026-11-15", "priorite": "haute", "statut": "a-faire" },
+    { "titre": "Mettre à jour les CGV", "echeance": "2026-11-30", "priorite": "basse", "statut": "a-faire" }
+  ],
+  "agenda": [
+    { "date": "2026-11-04T10:00", "titre": "Point client — lancement projet" },
+    { "date": "2026-11-12T14:30", "titre": "Rendez-vous expert-comptable" }
+  ],
+  "liens": [
+    { "label": "Qonto", "url": "https://app.qonto.com" },
+    { "label": "Gmail", "url": "https://mail.google.com" }
+  ],
+  "notes": "Données d'exemple à remplacer par les vrais chiffres."
+}

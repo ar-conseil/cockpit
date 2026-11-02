@@ -1,0 +1,39 @@
+{
+  "id": "harnes-volley",
+  "nom": "Harnes Volley",
+  "description": "Club : licenciés, matchs, budget de saison et partenaires.",
+  "couleur": "#ef8a4f",
+  "miseAJour": "2026-11-02",
+  "exemple": true,
+  "sources": ["Google Drive", "Google Agenda", "Qonto"],
+  "kpis": [
+    { "label": "Licenciés", "valeur": 186, "unite": "", "precedent": 171, "objectif": 200 },
+    { "label": "Budget saison consommé", "valeur": 41, "unite": "%", "detail": "sur 85 000 €" },
+    { "label": "Partenaires actifs", "valeur": 12, "unite": "", "precedent": 10 },
+    { "label": "Cotisations à encaisser", "valeur": 17, "unite": "", "detail": "licences non réglées", "alerte": true }
+  ],
+  "serie": {
+    "titre": "Licenciés cumulés sur la saison",
+    "unite": "",
+    "points": [
+      { "label": "juin", "valeur": 38 },
+      { "label": "juil.", "valeur": 62 },
+      { "label": "août", "valeur": 95 },
+      { "label": "sept.", "valeur": 152 },
+      { "label": "oct.", "valeur": 171 },
+      { "label": "nov.", "valeur": 186 }
+    ]
+  },
+  "taches": [
+    { "titre": "Relancer les licences non réglées", "echeance": "2026-11-07", "priorite": "haute", "statut": "a-faire" },
+    { "titre": "Organiser les transports du déplacement", "echeance": "2026-11-05", "priorite": "moyenne", "statut": "en-cours" },
+    { "titre": "Envoyer le bilan aux partenaires", "echeance": "2026-11-20", "priorite": "basse", "statut": "a-faire" }
+  ],
+  "agenda": [
+    { "date": "2026-11-08T20:00", "titre": "Match à domicile — équipe 1" },
+    { "date": "2026-11-13T19:00", "titre": "Réunion du bureau" },
+    { "date": "2026-11-15T18:00", "titre": "Match à l'extérieur — équipe 1" }
+  ],
+  "liens": [],
+  "notes": "Données d'exemple à remplacer par les vrais chiffres."
+}

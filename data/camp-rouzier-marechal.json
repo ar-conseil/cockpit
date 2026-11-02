@@ -1,0 +1,37 @@
+{
+  "id": "camp-rouzier-marechal",
+  "nom": "Camp Rouzier Maréchal",
+  "description": "Camp : inscriptions, paiements, encadrement et logistique.",
+  "couleur": "#a3cf57",
+  "miseAJour": "2026-11-02",
+  "exemple": true,
+  "sources": ["Google Drive", "Gmail", "Qonto"],
+  "kpis": [
+    { "label": "Inscrits", "valeur": 64, "unite": "", "precedent": 51, "objectif": 90 },
+    { "label": "Places restantes", "valeur": 26, "unite": "" },
+    { "label": "Acomptes reçus", "valeur": 9600, "unite": "€", "objectif": 13500 },
+    { "label": "Encadrants confirmés", "valeur": 7, "unite": "", "detail": "9 nécessaires", "alerte": true }
+  ],
+  "serie": {
+    "titre": "Inscriptions cumulées par semaine",
+    "unite": "",
+    "points": [
+      { "label": "S40", "valeur": 12 },
+      { "label": "S41", "valeur": 23 },
+      { "label": "S42", "valeur": 37 },
+      { "label": "S43", "valeur": 45 },
+      { "label": "S44", "valeur": 51 },
+      { "label": "S45", "valeur": 64 }
+    ]
+  },
+  "taches": [
+    { "titre": "Recruter 2 encadrants supplémentaires", "echeance": "2026-11-10", "priorite": "haute", "statut": "en-cours" },
+    { "titre": "Confirmer l'hébergement et la restauration", "echeance": "2026-11-14", "priorite": "moyenne", "statut": "a-faire" },
+    { "titre": "Envoyer le programme aux familles", "echeance": "2026-11-21", "priorite": "basse", "statut": "a-faire" }
+  ],
+  "agenda": [
+    { "date": "2026-11-06T18:30", "titre": "Visio avec les encadrants" }
+  ],
+  "liens": [],
+  "notes": "Données d'exemple à remplacer par les vrais chiffres."
+}

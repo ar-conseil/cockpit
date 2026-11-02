@@ -670,7 +670,7 @@ html[data-transition="carte"]::view-transition-old(root) { animation-name: fondu
 }
 
 /* ---------- Chartes des projets : couverture, logo, police du titre, boutons de liens ---------- */
-.couverture { position: relative; height: clamp(120px, 19vh, 190px); margin: 0 calc(-1 * var(--marge)); background: var(--couverture); }
+.couverture { position: relative; height: clamp(90px, 13vh, 140px); margin: 0 calc(-1 * var(--marge)); background: var(--couverture); }
 .couverture::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgb(0 0 0 / .06)); }
 .hero-projet.avec-couverture { background: none; padding-top: 0; }
 .hero-projet.avec-couverture .icone-projet.grande {
@@ -793,6 +793,67 @@ main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: co
 .hero-projet .hero-chiffres > .chiffre-commissions { background: color-mix(in srgb, var(--c) 7%, var(--blanc)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 25%, transparent); }
 .hero-projet .hero-chiffres > .chiffre-commissions dd { color: color-mix(in srgb, var(--c) 85%, var(--encre)); }
 .hero-projet > .boutons-liens { margin-top: 0; }
+
+/* ---------- Pages de projet : présentation à grands boutons, une page par rubrique ---------- */
+.tuiles-projet { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 12px; padding-top: 26px; }
+.tuile {
+  display: flex; align-items: center; gap: 14px; min-width: 0; padding: 16px 16px 16px 14px; border-radius: 16px; text-decoration: none; color: var(--encre);
+  background: var(--blanc); box-shadow: 0 0 0 1px var(--filet), 0 1px 2px rgb(15 15 15 / .04); transition: transform .2s var(--doux), box-shadow .2s;
+}
+.tuile:hover { transform: translateY(-3px); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 40%, var(--filet)), 0 16px 32px -18px color-mix(in srgb, var(--c) 70%, transparent); }
+.tuile:active { transform: translateY(-1px) scale(.99); }
+.tuile:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.tuile-icone { width: 46px; height: 46px; border-radius: 13px; background: color-mix(in srgb, var(--c) 12%, transparent); color: color-mix(in srgb, var(--c) 85%, var(--encre)); }
+.tuile-icone svg { width: 22px; height: 22px; stroke-width: 1.5; }
+.tuile-texte { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.tuile-texte b { font: 650 16px/1.25 var(--sans); letter-spacing: -.01em; }
+.tuile-texte small { font-size: 13px; color: var(--encre-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tuile-fleche { color: var(--encre-3); transition: transform .2s var(--doux), color .2s; }
+.tuile:hover .tuile-fleche { transform: translateX(3px); color: var(--c); }
+
+.entete-rubrique { position: sticky; top: var(--haut-nav, 48px); z-index: 15; display: grid; gap: 10px; margin: 0 calc(-1 * var(--marge)); padding: 18px var(--marge) 0;
+  background: var(--papier); border-bottom: 1px solid var(--filet); }
+.retour-projet { justify-self: start; display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 6px; border-radius: 9px; text-decoration: none;
+  color: var(--encre-2); font: 500 13.5px var(--sans); transition: background .15s, color .15s; }
+.retour-projet:hover { background: var(--survol); color: var(--encre); }
+.retour-projet .icone svg { width: 16px; height: 16px; }
+.entete-rubrique h1 { margin: 0; font: 700 clamp(26px, 3vw, 34px)/1.1 var(--police-marque, var(--sans)); letter-spacing: -.025em; }
+.entete-rubrique h1.titre-majuscules, .entete-rubrique h1.titre-majuscules-larges { text-transform: uppercase; letter-spacing: 0; font-weight: 700; }
+.entete-rubrique h1.titre-majuscules-larges { font-weight: 400; }
+.entete-rubrique h1.titre-italique { font-style: italic; }
+.entete-rubrique h1.titre-capitales-fines { text-transform: uppercase; font-weight: 500; letter-spacing: .06em; }
+.mini-menu { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin-bottom: -1px; }
+.mini-menu::-webkit-scrollbar { display: none; }
+.mini-menu a { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px 11px; text-decoration: none; color: var(--encre-3);
+  font: 500 13.5px var(--sans); border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; }
+.mini-menu a:hover { color: var(--encre); }
+.mini-menu a[aria-current="page"] { color: var(--encre); border-bottom-color: var(--c); font-weight: 600; }
+.mini-menu .icone { width: 16px; height: 16px; }
+.mini-menu .icone svg { width: 15px; height: 15px; }
+
+.cote-projet-ouvert { display: grid; gap: 1px; }
+.cote-sous-menu { display: grid; gap: 1px; margin: 2px 0 6px 18px; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--c) 45%, var(--filet)); }
+.cote-sous-menu .cote-lien { padding: 4px 8px; font-size: 13px; }
+.cote-sous-menu .cote-lien .icone { width: 16px; height: 16px; }
+.cote-sous-menu .cote-lien .icone svg { width: 14px; height: 14px; }
+.cote-sous-menu .cote-lien[aria-current="page"] { background: color-mix(in srgb, var(--c) 12%, transparent); color: var(--encre); }
+
+.liens-projet { display: grid; gap: 10px; padding-top: 22px; }
+.hero-projet.avec-couverture { padding-bottom: 22px; gap: 16px; }
+.tuiles-projet { padding-top: 20px; }
+
+@media (max-width: 640px) {
+  .hero-projet .hero-chiffres { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .hero-projet .hero-chiffres > div { padding: 10px 12px; }
+  .hero-projet .hero-chiffres dd { font-size: 22px; }
+  .hero-projet .hero-chiffres dd.petit { font-size: 14px; }
+  .tuiles-projet { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tuile { flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; }
+  .tuile-icone { width: 38px; height: 38px; border-radius: 11px; }
+  .tuile-texte small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .tuile-fleche { display: none; }
+  .hero-projet h1 { font-size: 34px; }
+}
 
 /* ---------- Victor : le point du matin ---------- */
 .victor {

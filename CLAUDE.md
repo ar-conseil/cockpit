@@ -11,7 +11,9 @@ Fond blanc, barre latérale #f8f7f5, police **Geist** (titres 700 resserrés) et
 En-tête de page : grande icône, titre, halo de la couleur du projet. Pas d'Instrument Serif ni de thème noir et or (refusés).
 Aujourd'hui = en-tête (date, heure), calendrier du jour vertical en direct (ligne rouge, clic = nouveau RDV) à gauche,
 « maintenant / ensuite » + « à faire » (tâches, retards, relances, factures) à droite, cartes projets en bas.
-Page projet = en-tête, rubriques collées, tableau des tâches, frise du jour, agenda, clients, factures, chiffres, notes.
+Page projet = présentation (#projet : couverture, logo, chiffres en cartes, grands boutons vers chaque rubrique, liens utiles)
+et une page par rubrique (#projet/taches, /agenda, /clients, /recos, /factures, /chiffres, /notes) avec flèche retour,
+mini-menu et sous-menu dans la barre latérale ; Échap revient à la présentation, ← → changent de rubrique. Pas de longue page à faire défiler.
 Tâches : colonnes Tâches / En cours / En révision / Terminé (statuts a-faire, en-cours, en-revision, fait), cartes
 glissées à la souris ou au doigt (appui long) ; page « Tâches » (#taches, touche B) pour tous les projets, vue Liste en option.
 Fluidité : seule la page change (transition de vue), le menu reste en place ; pas de flou d'arrière-plan (coûteux au défilement).

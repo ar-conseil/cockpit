@@ -237,7 +237,14 @@
   var ICONES = {
     aujourdhui: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>',
     taches: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg>',
-    agendas: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>'
+    agendas: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>',
+    clients: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.8 13.5c.6-2.4 2.2-3.6 4.2-3.6s3.6 1.2 4.2 3.6"/><circle cx="11.5" cy="6" r="2"/><path d="M11 9.9c1.6 0 2.8 1 3.3 3"/></svg>',
+    recos: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.9l-3.4 1.8.7-3.8-2.8-2.7 3.8-.5z"/></svg>',
+    factures: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.8h9v12.4l-1.8-1.1-1.8 1.1L7.1 13l-1.8 1.2-1.8-1.1z"/><path d="M5.8 5.5h4.4M5.8 8h4.4M5.8 10.5h2.6"/></svg>',
+    chiffres: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></svg>',
+    notes: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h7l3 3v8H3z"/><path d="M10 2.5v3h3M5.5 8.5h5M5.5 11h3.5"/></svg>',
+    retour: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>',
+    fleche: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>'
   };
   function icone(nom, classe) { var s = el("span", { class: "icone " + (classe || "") }); s.innerHTML = ICONES[nom]; return s; }
   function nomCourt(nom) { return nom.replace(" Courtage", "").replace(" Rouzier Maréchal", "").replace(" Volley", "").replace(" Gestion Privée", ""); }
@@ -273,13 +280,22 @@
     ]));
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [el("p", { class: "cote-titre", text: "Projets" })].concat(S.activites.map(function (a, i) {
       var n = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }).length;
-      return lienCote("#" + a.id, a.id === S.route, [iconeProjet(a), el("span", { text: a.nom })], n, String(i + 1));
+      var lien = lienCote("#" + a.id, a.id === S.route && !S.rubrique, [iconeProjet(a), el("span", { text: a.nom })], n, String(i + 1));
+      if (a.id !== S.route) return lien;
+      // Projet ouvert : ses rubriques en sous-menu, pour passer de l'une à l'autre sans descendre dans la page
+      return el("div", { class: "cote-projet-ouvert", style: "--c:" + a.couleur }, [lien,
+        el("div", { class: "cote-sous-menu" }, rubriquesDe(a).map(function (x) {
+          return lienCote("#" + a.id + "/" + x.id, S.rubrique === x.id, [icone(x.icone), el("span", { text: x.nom })]);
+        }))]);
     }))));
     // Fil d'Ariane de la barre du haut
     var fil = document.getElementById("fil"), a = activite(S.route);
     fil.textContent = "";
     fil.append(el("a", { href: "#", text: "Cockpit" }), el("span", { class: "fil-sep", text: "/" }),
-      a ? el("span", { class: "fil-page" }, [iconeProjet(a), a.nom]) : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : "Aujourd'hui" }));
+      a ? (S.rubrique ? el("a", { class: "fil-page", href: "#" + a.id }, [iconeProjet(a), a.nom]) : el("span", { class: "fil-page" }, [iconeProjet(a), a.nom]))
+        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : "Aujourd'hui" }));
+    var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
+    if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
   }
   // Menu sur téléphone : la barre latérale glisse par-dessus la page.
   function menu(ouvert) {
@@ -666,13 +682,13 @@
       el("div", { class: "bloc" }, [
         el("p", { class: "etiquette", text: "À faire" + (retard.length ? " · " + retard.length + " en retard" : "") }),
         listeTaches(priorites.slice(0, 5), {}, "Rien d'urgent cette semaine."),
-        reste > 0 ? el("a", { class: "retards-lien", href: "#" + a.id, text: "et " + reste + " autre" + (reste > 1 ? "s" : "") + " →" }) : null,
+        reste > 0 ? el("a", { class: "retards-lien", href: "#" + a.id + "/taches", text: "et " + reste + " autre" + (reste > 1 ? "s" : "") + " →" }) : null,
         champAjout(a.id, new Date(iso), "+ Tâche pour aujourd'hui")
       ]),
       rel.length ? el("div", { class: "bloc" }, [
         el("p", { class: "etiquette", text: "À relancer" }),
         el("ul", { class: "relances" }, rel.slice(0, 4).map(function (c) {
-          return el("li", {}, [el("a", { href: "#" + a.id, onclick: function () { S.ouvert = c.id; } }, [el("b", { text: c.nom }), el("span", { text: c.prochaine_action || quand(lireJour(c.prochaine_action_le)) })])]);
+          return el("li", {}, [el("a", { href: "#" + a.id + "/clients", onclick: function () { S.ouvert = c.id; } }, [el("b", { text: c.nom }), el("span", { text: c.prochaine_action || quand(lireJour(c.prochaine_action_le)) })])]);
         }).concat(rel.length > 4 ? [el("li", { class: "vide", text: "et " + (rel.length - 4) + " autres" })] : []))
       ]) : null,
       el("div", { class: "pied-colonne" }, [
@@ -791,13 +807,13 @@
       el("p", { class: "groupe-titre" }, [el("span", { class: "pastille-compte", text: String(rel.length) }), "À relancer"]),
       el("ul", { class: "relances" }, rel.slice(0, 8).map(function (c) {
         var j = joursDepuis(lireJour(c.prochaine_action_le));
-        return el("li", { style: "--c:" + couleur(c.activite_id) }, [el("a", { href: "#" + c.activite_id, onclick: function () { S.ouvert = c.id; } }, [
+        return el("li", { style: "--c:" + couleur(c.activite_id) }, [el("a", { href: "#" + c.activite_id + "/clients", onclick: function () { S.ouvert = c.id; } }, [
           el("i"), el("b", { text: c.nom }), el("span", { text: (c.prochaine_action || "Relancer") }), el("em", { class: j < 0 ? "retard" : "", text: quand(lireJour(c.prochaine_action_le)) })])]);
       }))]));
     if (facts.length) parties.push(el("div", { class: "groupe" }, [
       el("p", { class: "groupe-titre" }, [el("span", { class: "pastille-compte retard", text: String(facts.length) }), "Factures en retard"]),
       el("ul", { class: "relances" }, facts.map(function (fa) {
-        return el("li", { style: "--c:" + couleur(fa.activite_id) }, [el("a", { href: "#" + fa.activite_id, onclick: function () { S.factureOuverte = fa.id; } }, [
+        return el("li", { style: "--c:" + couleur(fa.activite_id) }, [el("a", { href: "#" + fa.activite_id + "/factures", onclick: function () { S.factureOuverte = fa.id; } }, [
           el("i"), el("b", { text: (fa.numero ? "N° " + fa.numero + " · " : "") + fmtN.format(Math.round(ttc(fa))) + " €" }), el("span", { text: fa.destinataire || nomActivite(fa.activite_id) }),
           el("em", { class: "retard", text: "+" + (-joursDepuis(lireJour(fa.echeance))) + " j" })])]);
       }))]));
@@ -937,13 +953,69 @@
       } });
     })))]);
   }
+  // Rubriques d'un projet : chacune a sa page (#projet/rubrique), la présentation (#projet) y mène par de grands boutons
+  function rubriquesDe(a) {
+    var r = reglages(a), avecClients = r.champs || (a.etapes || []).length || S.clients.some(function (c) { return c.activite_id === a.id; });
+    return [
+      { id: "taches", nom: "Tâches", icone: "taches" },
+      { id: "agenda", nom: "Agenda", icone: "agendas" },
+      avecClients ? { id: "clients", nom: r.titre_clients || "Clients", icone: "clients" } : null,
+      r.recommandations ? { id: "recos", nom: "Recommandations", icone: "recos" } : null,
+      r.factures ? { id: "factures", nom: "Factures", icone: "factures" } : null,
+      kpisProjet(a).length ? { id: "chiffres", nom: "Chiffres", icone: "chiffres" } : null,
+      { id: "notes", nom: "Notes", icone: "notes" }
+    ].filter(Boolean);
+  }
+  function rubriqueActive(a) { return rubriquesDe(a).some(function (x) { return x.id === S.rubrique; }) ? S.rubrique : ""; }
+  // Résumé en direct affiché sur chaque bouton de la présentation
+  function resumeRubrique(a, id) {
+    var iso = isoJour(new Date()), argent = function (v) { return fmtN.format(Math.round(v)) + " €"; };
+    if (id === "taches") {
+      var ouv = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }).length, ret = tachesEnRetard(iso, a.id).length;
+      return ouv ? ouv + " ouverte" + (ouv > 1 ? "s" : "") + (ret ? " · " + ret + " en retard" : "") : "Rien en cours";
+    }
+    if (id === "agenda") { var rdv = prochainRdv(a.id); return rdv ? (rdv.titre || "Rendez-vous") + " · " + quand(new Date(rdv.debut)) + " à " + hm(new Date(rdv.debut)) : "Rien dans les 60 jours"; }
+    if (id === "clients") {
+      var cs = S.clients.filter(function (c) { return c.activite_id === a.id && !estAbandonne(c); });
+      if (reglages(a).total) return cs.length + " affaires · " + argent(kpisProjet(a)[0].valeur) + " signés";
+      var somme = cs.reduce(function (t, c) { return t + (+c.montant || 0); }, 0);
+      return cs.length + " fiche" + (cs.length > 1 ? "s" : "") + (somme ? " · " + argent(somme) : "");
+    }
+    if (id === "recos") return compteRecos((S.recommandations || []).filter(function (x) { return x.activite_id === a.id; }));
+    if (id === "factures") { var rf = resumeFactures(facturesDe(a)); return rf.attente ? argent(rf.attente) + " à encaisser" + (rf.nbRetard ? " · " + rf.nbRetard + " en retard" : "") : "Tout est encaissé"; }
+    if (id === "chiffres") { var k = kpisProjet(a)[0]; return k ? k.label + " : " + (typeof k.valeur === "number" ? fmtN.format(k.valeur) : k.valeur) + (k.unite ? " " + k.unite : "") : ""; }
+    if (id === "notes") return (a.notes || "").split("\n")[0].slice(0, 70) || "Notes libres du projet";
+    return "";
+  }
+  function tuilesProjet(a) {
+    return el("nav", { class: "tuiles-projet", style: "--c:" + a.couleur, "aria-label": "Rubriques de " + a.nom }, rubriquesDe(a).map(function (x) {
+      return el("a", { class: "tuile", href: "#" + a.id + "/" + x.id }, [
+        icone(x.icone, "tuile-icone"), el("span", { class: "tuile-texte" }, [el("b", { text: x.nom }), el("small", { text: resumeRubrique(a, x.id) })]), icone("fleche", "tuile-fleche")
+      ]);
+    }));
+  }
+  // En-tête d'une rubrique : flèche de retour vers la présentation et mini-menu des rubriques
+  function enteteRubrique(a, rub) {
+    var ch = CHARTES[a.id] || {}, x = rubriquesDe(a).filter(function (y) { return y.id === rub; })[0];
+    var retour = el("a", { class: "retour-projet", href: "#" + a.id, title: "Retour à la présentation (Échap)" }, [icone("retour"), iconeProjet(a), el("span", { text: a.nom })]);
+    return el("header", { class: "entete-rubrique", style: "--c:" + a.couleur + (ch.police ? ";--police-marque:" + ch.police : "") }, [
+      retour,
+      el("h1", { class: ch.style ? "titre-" + ch.style : "", text: x ? x.nom : "" }),
+      el("nav", { class: "mini-menu", "aria-label": "Rubriques" }, rubriquesDe(a).map(function (y) {
+        var l = el("a", { href: "#" + a.id + "/" + y.id }, [icone(y.icone), y.nom]);
+        if (y.id === rub) l.setAttribute("aria-current", "page");
+        return l;
+      }))
+    ]);
+  }
   function vueProjet(a) {
-    var f = document.createDocumentFragment(), n = new Date(), iso = isoJour(n);
+    var f = document.createDocumentFragment(), n = new Date(), iso = isoJour(n), rub = rubriqueActive(a);
     var ouvertes = trierTaches(S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }));
     var rdv = prochainRdv(a.id);
     var ch = CHARTES[a.id] || {};
-    f.appendChild(el("div", { class: "couverture", style: "--couverture:" + couvertureDe(a), "aria-hidden": "true" }));
-    f.appendChild(el("section", { class: "hero-projet avec-couverture" + (ch.style ? " titre-" + ch.style : ""), style: "--c:" + a.couleur + (ch.police ? ";--police-marque:" + ch.police : "") }, [
+    if (rub) f.appendChild(enteteRubrique(a, rub));
+    else f.appendChild(el("div", { class: "couverture", style: "--couverture:" + couvertureDe(a), "aria-hidden": "true" }));
+    if (!rub) f.appendChild(el("section", { class: "hero-projet avec-couverture" + (ch.style ? " titre-" + ch.style : ""), style: "--c:" + a.couleur + (ch.police ? ";--police-marque:" + ch.police : "") }, [
       el("div", {}, [
         iconeProjet(a, true),
         el("p", { class: "surtitre", text: "Projet " + String(S.activites.indexOf(a) + 1).padStart(2, "0") }),
@@ -965,11 +1037,14 @@
           return el("div", {}, [el("dt", { text: "À encaisser" }), el("dd", { class: "petit", text: fmtN.format(Math.round(rf.attente)) + " €" }),
             el("small", { class: rf.nbRetard ? "retard" : "", text: rf.nbRetard ? rf.nbRetard + " facture(s) en retard" : rf.aEmettre ? fmtN.format(Math.round(rf.aEmettre)) + " € à émettre" : "à jour" })]);
         })() : null
-      ]),
-      (a.liens || []).length ? boutonsLiens(a.liens) : null
+      ])
     ]));
 
-    f.appendChild(ongletsProjet(a));
+    if (!rub) {
+      f.appendChild(tuilesProjet(a));
+      if ((a.liens || []).length) f.appendChild(el("section", { class: "liens-projet", style: "--c:" + a.couleur }, [el("p", { class: "etiquette", text: "Liens utiles" }), boutonsLiens(a.liens)]));
+      return f;
+    }
 
     var prochains = S.evenements.filter(function (e) { return actEv(e) === a.id && new Date(e.fin) >= n && new Date(e.debut) < ajouterJours(debutJour(n), 15); });
     var vueT = lirePref("vue-taches-projet", "tableau");
@@ -987,24 +1062,16 @@
     var tachesProjet = S.taches.filter(function (t) { return t.activite_id === a.id; });
     var sectionFrise = el("section", { class: "section" }, [el("div", { class: "entete" }, [el("h2", { text: "Aujourd'hui dans ce projet" })]), frise(n, a.id)]);
     // Les tâches d'abord, comme un tableau Notion ; en liste, elles partagent la largeur avec l'agenda.
-    if (vueT === "tableau") {
-      f.appendChild(el("section", { class: "section", id: "s-taches" }, [enteteTaches, tableauTaches(tachesProjet, { activite: a.id })]));
-      f.appendChild(sectionFrise);
-      f.appendChild(el("section", { class: "section" }, [blocAgenda]));
-    } else {
-      f.appendChild(el("section", { class: "section deux", id: "s-taches" }, [
-        el("div", {}, [enteteTaches, listeNotion(tachesProjet, {}), champAjout(a.id, null, "+ Ajouter une tâche (sans date)")]),
-        blocAgenda
-      ]));
-      f.appendChild(sectionFrise);
-    }
-
-    if (reglages(a).champs || (a.etapes || []).length || S.clients.some(function (c) { return c.activite_id === a.id; })) f.appendChild(sectionClients(a));
-    if (reglages(a).recommandations) f.appendChild(sectionRecommandations(a));
-    if (reglages(a).factures) f.appendChild(sectionFactures(a));
+    if (rub === "taches") f.appendChild(el("section", { class: "section", id: "s-taches" }, vueT === "tableau"
+      ? [enteteTaches, tableauTaches(tachesProjet, { activite: a.id })]
+      : [enteteTaches, listeNotion(tachesProjet, {}), champAjout(a.id, null, "+ Ajouter une tâche (sans date)")]));
+    if (rub === "agenda") { f.appendChild(sectionFrise); f.appendChild(el("section", { class: "section" }, [blocAgenda])); }
+    if (rub === "clients") f.appendChild(sectionClients(a));
+    if (rub === "recos") f.appendChild(sectionRecommandations(a));
+    if (rub === "factures") f.appendChild(sectionFactures(a));
 
     var kpis = kpisProjet(a);
-    if (kpis.length) {
+    if (rub === "chiffres" && kpis.length) {
       var maj = reglages(a).total ? "Calculés en direct à partir des affaires" : a.mise_a_jour ? "Mis à jour le " + fmt(new Date(a.mise_a_jour), { day: "numeric", month: "long" }) + ((a.sources || []).length ? " · " + a.sources.join(", ") : "") : "";
       f.appendChild(el("section", { class: "section" }, [
         el("div", { class: "entete", id: "s-chiffres" }, [el("h2", { text: "Les chiffres" }), el("p", { class: "aside", text: maj })]),
@@ -1026,7 +1093,11 @@
     var notes = el("textarea", { class: "notes", rows: "6", "aria-label": "Notes du projet", placeholder: "Notes libres, enregistrées automatiquement." });
     notes.value = a.notes || "";
     notes.addEventListener("change", function () { a.notes = notes.value; db.from("activites").update({ notes: notes.value }).eq("id", a.id).then(verifier).then(function () { signaler("Notes enregistrées"); }); });
-    f.appendChild(el("section", { class: "section", id: "s-notes" }, [el("div", { class: "entete" }, [el("h2", { text: "Notes" })]), notes]));
+    if (rub === "notes") f.appendChild(el("section", { class: "section", id: "s-notes" }, [el("div", { class: "entete" }, [el("h2", { text: "Notes" })]), notes]));
+    // Le titre de la rubrique est déjà en tête de page : on retire celui de la section s'il le répète
+    var nomRub = (rubriquesDe(a).filter(function (x) { return x.id === rub; })[0] || {}).nom;
+    var h2 = f.querySelector(".section .entete h2");
+    if (h2 && (h2.textContent === nomRub || (rub === "chiffres" && h2.textContent === "Les chiffres"))) h2.remove();
     return f;
   }
   function serie(s, c) {
@@ -1921,13 +1992,16 @@
       var c = d.querySelector(".curseur");
       if (c && d.scrollWidth > d.clientWidth) d.scrollLeft = Math.max(0, c.offsetLeft - d.clientWidth / 3);
     });
-    document.title = (a ? a.nom : S.route === "agendas" ? "Agendas" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
+    var rubT = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
+    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
     var hh = document.getElementById("horloge-haut"), mt = new Date(); hh.textContent = fmt(mt, { weekday: "long", day: "numeric", month: "long" }) + " · " + hm(mt);
     mesurerNav(); suivreRubriques();
   }
   function router() {
     var h = decodeURIComponent(location.hash.replace(/^#/, "")), m = h.match(/^([^?]*)\?message=(.*)$/);
     S.route = m ? m[1] : h; S.message = m ? m[2] : "";
+    // Pages de projet : #palomano (présentation) ou #palomano/taches, #palomano/factures…
+    var morceaux = S.route.split("/"); S.route = morceaux[0]; S.rubrique = morceaux[1] || "";
     if (m) history.replaceState(null, "", "#" + m[1]);
     S.edition = null; S.voirFaites = false;
     if (!activite(S.route)) { S.ouvert = null; S.factureOuverte = null; }
@@ -2028,6 +2102,11 @@
     else if (ev.key === "r" || ev.key === "R") { ev.preventDefault(); ouvrirRdv(null); }
     else if (!S.route && ev.key === "ArrowLeft") changerJour(ajouterJours(S.jour, -1));
     else if (!S.route && ev.key === "ArrowRight") changerJour(ajouterJours(S.jour, 1));
+    else if (ev.key === "Escape" && activite(S.route) && S.rubrique) location.hash = S.route;
+    else if (activite(S.route) && S.rubrique && (ev.key === "ArrowLeft" || ev.key === "ArrowRight")) {
+      var rs = rubriquesDe(activite(S.route)), k = rs.findIndex(function (x) { return x.id === S.rubrique; }) + (ev.key === "ArrowRight" ? 1 : -1);
+      if (rs[k]) location.hash = S.route + "/" + rs[k].id;
+    }
     else if (ev.key === "b" || ev.key === "B") location.hash = "taches";
     else if (ev.key === "t" || ev.key === "T") { location.hash = ""; changerJour(new Date()); }
   });

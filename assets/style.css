@@ -655,7 +655,7 @@ html[data-transition="carte"]::view-transition-old(root) { animation-name: fondu
 .ligne-tache.faite .lien-titre { color: var(--encre-3); text-decoration: line-through; }
 .liste-notion .cellule { border: 1px solid transparent; background: none; padding: 4px 6px; border-radius: 6px; font-size: 13px; color: var(--encre-2); cursor: pointer; }
 .liste-notion .cellule:hover, .liste-notion .cellule:focus { border-color: var(--filet); background: var(--blanc); outline: none; }
-.liste-notion input.cellule { font-family: var(--mono); font-size: 12px; }
+.liste-notion input[type="date"].cellule { font-family: var(--mono); font-size: 12px; }
 .liste-notion .cellule.retard { color: var(--rouge); }
 .liste-notion .prio.haute { color: var(--rouge); font-weight: 500; }
 .liste-notion .prio.basse { color: var(--encre-3); }
@@ -705,6 +705,27 @@ main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: co
 .bouton-lien-fleche { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--encre-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform .18s var(--doux), stroke .18s; }
 .bouton-lien:hover .bouton-lien-fleche { transform: translate(2px, -2px); stroke: var(--c); }
 @media (max-width: 640px) { .boutons-liens { grid-template-columns: 1fr; } }
+
+/* ---------- Recommandations d'un client (Evoa) ---------- */
+.recommandations { grid-column: 1 / -1; display: grid; gap: 10px; padding-top: 6px; }
+.reco-tete { display: flex; align-items: baseline; gap: 12px; }
+.reco-compte { font-size: 12.5px; color: var(--encre-3); }
+.recommandations table { min-width: 0; table-layout: fixed; }
+.recommandations th:nth-child(5), .recommandations td:nth-child(5) { width: 150px; }
+.recommandations th:nth-child(6), .recommandations td:nth-child(6) { width: 130px; }
+.recommandations th:last-child, .recommandations td:last-child { width: 96px; }
+.recommandations td { padding: 4px 6px; }
+.recommandations .cellule { width: 100%; }
+.recommandations input[type="date"].cellule { width: 136px; }
+.statut-reco { --teinte: #8f8c85; appearance: none; -webkit-appearance: none; border-radius: 999px !important; padding: 3px 10px !important; font-weight: 500;
+  background: color-mix(in srgb, var(--teinte) 15%, transparent) !important; color: color-mix(in srgb, var(--teinte) 65%, var(--encre)) !important; }
+.statut-reco.a-appeler { --teinte: #d9822b; }
+.statut-reco.contacte { --teinte: #2e7dd1; }
+.statut-reco.rdv-pris { --teinte: #7a5cf0; }
+.statut-reco.devenu-client { --teinte: #3b9a62; }
+.reco.sans-suite input { color: var(--encre-3); }
+.reco-actions { white-space: nowrap; text-align: right; }
+.ligne-ajout td { background: color-mix(in srgb, var(--papier-2) 40%, transparent); }
 
 /* ---------- Victor : le point du matin ---------- */
 .victor {

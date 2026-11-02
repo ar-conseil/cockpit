@@ -137,7 +137,8 @@
       db.from("factures").select("*"),
       db.from("comptes_agenda").select("id, fournisseur, email, derniere_erreur, cree_le").order("cree_le"),
       db.from("briefings").select("*").eq("jour", isoJour(new Date())).maybeSingle(),
-      db.from("propositions").select("*").eq("statut", "proposee").order("cree_le")
+      db.from("propositions").select("*").eq("statut", "proposee").order("cree_le"),
+      db.from("recommandations").select("*").order("recue_le", { ascending: false })
     ]).then(function (r) {
       r.forEach(verifier);
       S.activites = r[0].data; S.agendas = r[1].data;
@@ -153,7 +154,7 @@
         .filter(function (e) { var k = (e.titre || "") + "|" + e.debut + "|" + e.fin; if (vus[k]) return false; vus[k] = true; return true; })
         .sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
-      S.briefing = r[9].data; S.propositions = r[10].data || [];
+      S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || [];
     });
   }
   var redessinPrevu = null;
@@ -1180,7 +1181,68 @@
     var journal = el("ol", { class: "journal" }, hist.length ? hist.map(function (s) {
       return el("li", {}, [el("time", { text: fmt(new Date(s.le), { day: "numeric", month: "short" }) }), el("b", { text: TYPES_SUIVI[s.type] || s.type }), el("span", { text: s.contenu })]);
     }) : [el("li", { class: "vide", text: "Pas encore d'échange noté." })]);
-    return el("div", { class: "client-corps", onclick: function (ev) { ev.stopPropagation(); } }, [fiche, el("div", { class: "historique" }, [el("p", { class: "etiquette", text: "Historique" }), formS, journal])]);
+    return el("div", { class: "client-corps", onclick: function (ev) { ev.stopPropagation(); } }, [fiche, el("div", { class: "historique" }, [el("p", { class: "etiquette", text: "Historique" }), formS, journal]),
+      r.recommandations ? tableauRecommandations(c) : null]);
+  }
+
+  // ---------- Recommandations (parrainage) : les personnes qu'un client recommande, notées à chaque rendez-vous ----------
+  var STATUTS_RECO = { "a-appeler": "À appeler", "contacte": "Contacté", "rdv-pris": "RDV pris", "devenu-client": "Devenu client", "sans-suite": "Sans suite" };
+  function majReco(x, champ, valeur) {
+    var maj = {}; maj[champ] = valeur === "" ? null : valeur;
+    if (champ === "nom" && !valeur) return;
+    Object.assign(x, maj);
+    db.from("recommandations").update(maj).eq("id", x.id).then(verifier);
+  }
+  function tableauRecommandations(c) {
+    var recos = (S.recommandations || []).filter(function (x) { return x.client_id === c.id; });
+    var cellule = function (x, champ, type, place) {
+      return el("td", {}, [el("input", { type: type || "text", class: "cellule", value: x[champ] || "", placeholder: place || "", "aria-label": place || champ,
+        onchange: function (ev) { majReco(x, champ, ev.target.value.trim()); } })]);
+    };
+    var lignes = recos.map(function (x) {
+      return el("tr", { class: "reco " + x.statut }, [
+        cellule(x, "nom", "text", "Nom"), cellule(x, "contact", "text", "Téléphone ou e-mail"), cellule(x, "lien", "text", "Lien"), cellule(x, "besoin", "text", "Besoin"),
+        cellule(x, "recue_le", "date", "Reçue le"),
+        el("td", {}, [el("select", { class: "cellule statut-reco " + x.statut, "aria-label": "Statut", onchange: function (ev) { majReco(x, "statut", ev.target.value); dessiner(); } },
+          Object.keys(STATUTS_RECO).map(function (k) { return el("option", { value: k, selected: k === x.statut, text: STATUTS_RECO[k] }); }))]),
+        cellule(x, "notes", "text", "Notes"),
+        el("td", { class: "reco-actions" }, [
+          el("button", { type: "button", class: "btn-texte", title: "Créer la tâche d'appel", text: "Tâche", onclick: function () {
+            creerTache({ titre: "Appeler " + x.nom + " (recommandé par " + c.nom + ")", activite_id: c.activite_id, client_id: c.id, echeance: isoJour(new Date()), priorite: "moyenne", notes: [x.besoin, x.contact].filter(Boolean).join(" · ") || null });
+          } }),
+          el("button", { type: "button", class: "btn-texte danger", title: "Supprimer", "aria-label": "Supprimer la recommandation", text: "×", onclick: function () {
+            if (!confirm("Supprimer la recommandation « " + x.nom + " » ?")) return;
+            S.recommandations = S.recommandations.filter(function (y) { return y.id !== x.id; });
+            db.from("recommandations").delete().eq("id", x.id).then(verifier); dessiner();
+          } })
+        ])
+      ]);
+    });
+    // Ligne d'ajout : date du rendez-vous du jour par défaut
+    var nNom = el("input", { type: "text", class: "cellule", placeholder: "+ Personne recommandée", "aria-label": "Nom de la personne recommandée" });
+    var nContact = el("input", { type: "text", class: "cellule", placeholder: "Téléphone ou e-mail", "aria-label": "Contact" });
+    var nLien = el("input", { type: "text", class: "cellule", placeholder: "Lien", "aria-label": "Lien avec le client" });
+    var nBesoin = el("input", { type: "text", class: "cellule", placeholder: "Besoin", "aria-label": "Besoin" });
+    var nDate = el("input", { type: "date", class: "cellule", value: isoJour(new Date()), "aria-label": "Reçue le" });
+    var ajouter = function () {
+      if (!nNom.value.trim()) { nNom.focus(); return; }
+      db.from("recommandations").insert({ client_id: c.id, activite_id: c.activite_id, nom: nNom.value.trim(), contact: nContact.value.trim() || null,
+        lien: nLien.value.trim() || null, besoin: nBesoin.value.trim() || null, recue_le: nDate.value || isoJour(new Date()) }).select().single().then(verifier).then(function (res) {
+        S.recommandations.unshift(res.data); dessiner(); signaler("Recommandation ajoutée : " + res.data.nom);
+        var champ = document.querySelector(".recommandations .ligne-ajout input"); if (champ) champ.focus();
+      });
+    };
+    [nNom, nContact, nLien, nBesoin, nDate].forEach(function (i) { i.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); ajouter(); } }); });
+    var aAppeler = recos.filter(function (x) { return x.statut === "a-appeler"; }).length;
+    return el("div", { class: "recommandations" }, [
+      el("div", { class: "reco-tete" }, [el("p", { class: "etiquette", text: "Recommandations" }),
+        el("span", { class: "reco-compte", text: recos.length ? recos.length + " recommandée" + (recos.length > 1 ? "s" : "") + (aAppeler ? " · " + aAppeler + " à appeler" : "") : "À compléter à chaque rendez-vous" })]),
+      el("div", { class: "liste-notion" }, [el("table", {}, [
+        el("thead", {}, [el("tr", {}, ["Personne", "Contact", "Lien", "Besoin", "Reçue le", "Statut", "Notes", ""].map(function (t) { return el("th", { text: t }); }))]),
+        el("tbody", {}, lignes.concat([el("tr", { class: "ligne-ajout" }, [el("td", {}, [nNom]), el("td", {}, [nContact]), el("td", {}, [nLien]), el("td", {}, [nBesoin]), el("td", {}, [nDate]),
+          el("td", { colspan: 2 }), el("td", {}, [el("button", { type: "button", class: "btn-plein petit", text: "Ajouter", onclick: ajouter })])])]))
+      ])])
+    ]);
   }
 
   // ---------- Factures (projets avec reglages.factures : Berkay, Wealthy, Evoa) ----------
@@ -1667,7 +1729,7 @@
       router();
       if (!canal) {
         canal = db.channel("cockpit");
-        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions"].forEach(function (table) {
+        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations"].forEach(function (table) {
           canal.on("postgres_changes", { event: "*", schema: "public", table: table }, function () {
             if (enSaisie() || dialogue.open || dlgRdv.open || S.glisse) { attenteSaisie = true; return; }
             rechargerPuisDessiner();

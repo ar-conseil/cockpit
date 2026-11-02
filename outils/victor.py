@@ -9,7 +9,8 @@ Accès lus dans ~/.cockpit/ (supabase.env, cle-synchro) : rien de secret dans le
 Format de note.json :
   { "resume": "…", "priorites": [{ "titre", "activite_id", "pourquoi" }],
     "mails": [{ "boite", "de", "objet", "resume", "action" }],
-    "propositions": [{ "cle", "titre", "activite_id", "notes", "echeance", "priorite", "source": { "boite", "de", "objet", "recu_le" } }] }
+    "propositions": [{ "cle", "titre", "activite_id", "notes", "echeance", "priorite", "source": { "boite", "de", "objet", "recu_le" } }],
+    "factures": [{ "numero", "activite_id": "berkay|wealthy", "objet", "montant_ttc", "emise_le", "statut": "emise|payee|annulee" }] }  (mails Tiime)
 """
 import json, os, sys, urllib.request
 from datetime import datetime, timedelta
@@ -182,6 +183,26 @@ def publier(fichier):
             on conflict (jour) do update set resume = excluded.resume, priorites = excluded.priorites, mails = excluded.mails,
               planning = excluded.planning, orias_minutes = excluded.orias_minutes, mise_a_jour = now()""")
 
+    # Factures repérées dans les mails Tiime : créées si absentes, statut seulement avancé (jamais de retour en arrière)
+    rang = {"a-emettre": 0, "emise": 1, "payee": 2, "annulee": 3}
+    factures_maj = 0
+    for f in note.get("factures", []):
+        num, act = str(f.get("numero") or "").strip(), f.get("activite_id")
+        if not num or act not in ("berkay", "wealthy"):
+            continue
+        st = f.get("statut") if f.get("statut") in rang else "emise"
+        ligne = {"numero": num, "activite_id": act, "objet": (f.get("objet") or "Facture")[:200], "destinataire": "BERKAY" if act == "berkay" else "WEALTHY GESTION PRIVEE",
+                 "emise_le": f.get("emise_le") or str(jour), "montant_ttc": f.get("montant_ttc") or 0, "statut": st}
+        r = sql(f"""with n as (select * from jsonb_populate_record(null::factures, {litteral(ligne)}::jsonb)),
+                ins as (insert into factures (numero, activite_id, objet, destinataire, emise_le, montant_ht, tva, montant_ttc, statut, notes)
+                        select numero, activite_id, objet, destinataire, emise_le, montant_ttc, 0, montant_ttc, statut, 'Ajoutée par Victor depuis un mail Tiime.' from n
+                        where not exists (select 1 from factures f where f.numero = n.numero and f.activite_id = n.activite_id) returning id)
+                update factures f set statut = n.statut, payee_le = case when n.statut = 'payee' then coalesce(f.payee_le, current_date) else f.payee_le end
+                from n where f.numero = n.numero and f.activite_id = n.activite_id
+                  and (case f.statut when 'a-emettre' then 0 when 'emise' then 1 when 'payee' then 2 else 3 end) < {rang[st]}
+                returning f.id""")
+        factures_maj += len(r)
+
     nouvelles = 0
     for p in note.get("propositions", []):
         if not p.get("cle") or not p.get("titre"):
@@ -195,7 +216,7 @@ def publier(fichier):
                     on conflict (cle) do nothing returning id""")
         nouvelles += len(r)
     print(json.dumps({"ok": True, "jour": str(jour), "orias_minutes": orias, "creneaux_poses": [f"{d//60:02d}:{d%60:02d}-{f//60:02d}:{f%60:02d}" for d, f in poses],
-                      "propositions_nouvelles": nouvelles, "mails": len(note.get("mails", []))}, ensure_ascii=False))
+                      "propositions_nouvelles": nouvelles, "factures": len(note.get("factures", [])), "mails": len(note.get("mails", []))}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

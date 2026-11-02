@@ -221,7 +221,7 @@
       couverture: "linear-gradient(115deg, #204e99 0%, #2b3f8f 55%, #38297c 100%)", bouton: "linear-gradient(115deg, #204e99, #38297c)" },
     "harnes-volley": { icone: "assets/marques/harnes.png", police: '"Barlow Condensed", var(--sans)', style: "majuscules",
       couverture: "linear-gradient(105deg, #0e0e0f 0 56%, #d01818 56% 61%, #0e0e0f 61% 64%, #8f0000 64% 100%)" },
-    "berkay": { police: 'Arial, "Helvetica Neue", var(--sans)', style: "italique", couverture: "linear-gradient(115deg, #123208, #2a5a1c)" },
+    "berkay": { icone: "assets/marques/berkay-icone.svg", police: 'Arial, "Helvetica Neue", var(--sans)', style: "italique", couverture: "linear-gradient(115deg, #123208, #2a5a1c)" },
     "wealthy": { icone: "assets/marques/wealthy-icone.png", police: '"Bodoni Moda", Didot, serif', style: "capitales-fines",
       couverture: "linear-gradient(180deg, #f4efe6, #e6ddcd)" }
   };

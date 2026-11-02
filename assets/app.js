@@ -139,7 +139,17 @@
     ]).then(function (r) {
       r.forEach(verifier);
       S.activites = r[0].data; S.agendas = r[1].data;
-      S.evenements = r[2].data.filter(function (e) { return !e.annule; }).sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
+      // Un même rendez-vous présent dans deux agendas (invitation partagée) n'apparaît qu'une fois ;
+      // on garde la copie modifiable, puis celle d'un agenda sans projet imposé.
+      var vus = {};
+      S.evenements = r[2].data.filter(function (e) { return !e.annule; })
+        .sort(function (x, y) {
+          var imposeX = (S.agendas.filter(function (g) { return g.id === x.agenda_id; })[0] || {}).activite_id ? 1 : 0;
+          var imposeY = (S.agendas.filter(function (g) { return g.id === y.agenda_id; })[0] || {}).activite_id ? 1 : 0;
+          return ((x.activite_forcee ? 0 : 1) - (y.activite_forcee ? 0 : 1)) || (imposeX - imposeY) || (y.modifiable - x.modifiable);
+        })
+        .filter(function (e) { var k = (e.titre || "") + "|" + e.debut + "|" + e.fin; if (vus[k]) return false; vus[k] = true; return true; })
+        .sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
     });
   }

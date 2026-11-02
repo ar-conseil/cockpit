@@ -6,7 +6,7 @@
 import ICAL from "npm:ical.js@2.1.0";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { extraireOccurrences } from "./ical.ts";
-import { jetonAcces, lireRdv, type Compte } from "../_partage/fournisseurs.ts";
+import { jetonAcces, lireRdv, listerAgendas, projetParDefaut, type Compte } from "../_partage/fournisseurs.ts";
 
 const URL = Deno.env.get("SUPABASE_URL")!;
 const CLE_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -32,6 +32,21 @@ Deno.serve(async (req) => {
     if (!data?.user) return json({ erreur: "non autorisé" }, 401);
   }
 
+  // Comptes connectés sans agenda (lecture interrompue à la connexion) : on récupère leur liste d'agendas.
+  const { data: comptes } = await db.from("comptes_agenda").select("*, agendas(id)");
+  for (const c of comptes ?? []) {
+    if ((c.agendas ?? []).length) continue;
+    try {
+      const liste = await listerAgendas(c as Compte, await jetonAcces(db, c as Compte));
+      for (const a of liste) {
+        await db.from("agendas").upsert({ compte_id: c.id, externe_id: a.externe_id, nom: a.nom, ecriture: a.ecriture, actif: a.actif,
+          activite_id: projetParDefaut(a.nom, a.principal ? c.email : "") }, { onConflict: "compte_id,externe_id", ignoreDuplicates: true });
+      }
+    } catch (e) {
+      await db.from("comptes_agenda").update({ derniere_erreur: (e instanceof Error ? e.message : String(e)).slice(0, 300) }).eq("id", c.id);
+    }
+  }
+
   const { data: activites } = await db.from("activites").select("id, mots_cles");
   const { data: agendas, error } = await db.from("agendas")
     .select("id, nom, activite_id, ics_url, externe_id, ecriture, compte_id, comptes_agenda(*)").eq("actif", true);
@@ -39,7 +54,9 @@ Deno.serve(async (req) => {
 
   const maintenant = new Date();
   const debut = new Date(maintenant.getTime() - 7 * JOUR), fin = new Date(maintenant.getTime() + 60 * JOUR);
+  // Un agenda rangé dans un projet (Famille -> Perso, Palomano -> Palomano) l'emporte ; sinon, les mots-clés décident.
   const classer = (titre: string | null, lieu: string | null, defaut: string | null) => {
+    if (defaut) return defaut;
     const texte = `${titre ?? ""} ${lieu ?? ""}`.toLowerCase();
     for (const a of activites ?? []) {
       if ((a.mots_cles ?? []).some((m: string) => m && texte.includes(m.toLowerCase()))) return a.id;

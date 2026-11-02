@@ -6,7 +6,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
 
 const CLE_SYNCHRO = Deno.env.get("CLE_SYNCHRO") ?? "";
-const MAX = 40, TEXTE = 2500;
+const MAX = 80, TEXTE = 2500;
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { "Content-Type": "application/json" } });
 const b64 = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
 const sansHtml = (h: string) => h.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ")

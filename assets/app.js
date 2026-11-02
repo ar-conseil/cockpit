@@ -912,7 +912,7 @@
   // Onglets de la page : chacun fait défiler jusqu'à sa rubrique.
   function ongletsProjet(a) {
     var r = reglages(a), avecClients = r.champs || (a.etapes || []).length || S.clients.some(function (c) { return c.activite_id === a.id; });
-    var onglets = [["s-taches", "Tâches"], avecClients ? ["s-clients", r.titre_clients || "Clients"] : null, r.factures ? ["s-factures", "Factures"] : null,
+    var onglets = [["s-taches", "Tâches"], avecClients ? ["s-clients", r.titre_clients || "Clients"] : null, r.recommandations ? ["s-recos", "Recommandations"] : null, r.factures ? ["s-factures", "Factures"] : null,
       kpisProjet(a).length ? ["s-chiffres", "Chiffres"] : null, ["s-notes", "Notes"]].filter(Boolean);
     return el("nav", { class: "barre-rubriques", style: "--c:" + a.couleur, "aria-label": "Rubriques du projet" }, [el("div", { class: "rubriques" }, [
       el("span", { class: "rubriques-nom" }, [el("i"), a.nom])
@@ -979,6 +979,7 @@
     }
 
     if (reglages(a).champs || (a.etapes || []).length || S.clients.some(function (c) { return c.activite_id === a.id; })) f.appendChild(sectionClients(a));
+    if (reglages(a).recommandations) f.appendChild(sectionRecommandations(a));
     if (reglages(a).factures) f.appendChild(sectionFactures(a));
 
     var kpis = kpisProjet(a);
@@ -1193,55 +1194,108 @@
     Object.assign(x, maj);
     db.from("recommandations").update(maj).eq("id", x.id).then(verifier);
   }
-  function tableauRecommandations(c) {
-    var recos = (S.recommandations || []).filter(function (x) { return x.client_id === c.id; });
-    var cellule = function (x, champ, type, place) {
-      return el("td", {}, [el("input", { type: type || "text", class: "cellule", value: x[champ] || "", placeholder: place || "", "aria-label": place || champ,
+  // Tableau au format PRT d'Evoa : Recommandeur | Nom | Prénom | Adresse | Tél. | Appelé | RDV | Commentaire (+ date du rendez-vous)
+  function appele(x) { return ["contacte", "rdv-pris", "devenu-client"].indexOf(x.statut) >= 0; }
+  function rdvPris(x) { return ["rdv-pris", "devenu-client"].indexOf(x.statut) >= 0; }
+  function nomClient(id) { var c = S.clients.filter(function (y) { return y.id === id; })[0]; return c ? c.nom : "—"; }
+  function ligneReco(x, avecRecommandeur) {
+    var cellule = function (champ, type, place) {
+      return el("td", {}, [el("input", { type: type || "text", class: "cellule", value: x[champ] || "", placeholder: place, "aria-label": place,
         onchange: function (ev) { majReco(x, champ, ev.target.value.trim()); } })]);
     };
-    var lignes = recos.map(function (x) {
-      return el("tr", { class: "reco " + x.statut }, [
-        cellule(x, "nom", "text", "Nom"), cellule(x, "contact", "text", "Téléphone ou e-mail"), cellule(x, "lien", "text", "Lien"), cellule(x, "besoin", "text", "Besoin"),
-        cellule(x, "recue_le", "date", "Reçue le"),
-        el("td", {}, [el("select", { class: "cellule statut-reco " + x.statut, "aria-label": "Statut", onchange: function (ev) { majReco(x, "statut", ev.target.value); dessiner(); } },
-          Object.keys(STATUTS_RECO).map(function (k) { return el("option", { value: k, selected: k === x.statut, text: STATUTS_RECO[k] }); }))]),
-        cellule(x, "notes", "text", "Notes"),
-        el("td", { class: "reco-actions" }, [
-          el("button", { type: "button", class: "btn-texte", title: "Créer la tâche d'appel", text: "Tâche", onclick: function () {
-            creerTache({ titre: "Appeler " + x.nom + " (recommandé par " + c.nom + ")", activite_id: c.activite_id, client_id: c.id, echeance: isoJour(new Date()), priorite: "moyenne", notes: [x.besoin, x.contact].filter(Boolean).join(" · ") || null });
-          } }),
-          el("button", { type: "button", class: "btn-texte danger", title: "Supprimer", "aria-label": "Supprimer la recommandation", text: "×", onclick: function () {
-            if (!confirm("Supprimer la recommandation « " + x.nom + " » ?")) return;
-            S.recommandations = S.recommandations.filter(function (y) { return y.id !== x.id; });
-            db.from("recommandations").delete().eq("id", x.id).then(verifier); dessiner();
-          } })
-        ])
-      ]);
-    });
-    // Ligne d'ajout : date du rendez-vous du jour par défaut
-    var nNom = el("input", { type: "text", class: "cellule", placeholder: "+ Personne recommandée", "aria-label": "Nom de la personne recommandée" });
-    var nContact = el("input", { type: "text", class: "cellule", placeholder: "Téléphone ou e-mail", "aria-label": "Contact" });
-    var nLien = el("input", { type: "text", class: "cellule", placeholder: "Lien", "aria-label": "Lien avec le client" });
-    var nBesoin = el("input", { type: "text", class: "cellule", placeholder: "Besoin", "aria-label": "Besoin" });
-    var nDate = el("input", { type: "date", class: "cellule", value: isoJour(new Date()), "aria-label": "Reçue le" });
+    var coche = function (classe, actif, titre, siCoche, sinon) {
+      return el("td", { class: "case-prt " + classe }, [el("input", { type: "checkbox", class: "coche", checked: actif, "aria-label": titre, title: titre,
+        onchange: function (ev) { majReco(x, "statut", ev.target.checked ? siCoche : sinon); dessiner(); } })]);
+    };
+    return el("tr", { class: "reco " + x.statut }, [
+      avecRecommandeur ? el("td", { class: "recommandeur", text: nomClient(x.client_id) }) : null,
+      cellule("nom", "text", "Nom"), cellule("prenom", "text", "Prénom"), cellule("adresse", "text", "Adresse"), cellule("contact", "tel", "Tél."),
+      coche("prt-appele", appele(x), "Appelé", "contacte", "a-appeler"),
+      coche("prt-rdv", rdvPris(x), "RDV pris", "rdv-pris", "contacte"),
+      cellule("notes", "text", "Commentaire"), cellule("recue_le", "date", "Reçue le"),
+      el("td", { class: "reco-actions" }, [
+        el("button", { type: "button", class: "btn-texte", title: "Créer la tâche d'appel", text: "Tâche", onclick: function () {
+          creerTache({ titre: "Appeler " + [x.prenom, x.nom].filter(Boolean).join(" ") + " (recommandé par " + nomClient(x.client_id) + ")", activite_id: x.activite_id,
+            client_id: x.client_id, echeance: isoJour(new Date()), priorite: "moyenne", notes: [x.contact, x.notes].filter(Boolean).join(" · ") || null });
+        } }),
+        el("button", { type: "button", class: "btn-texte danger", "aria-label": "Supprimer la recommandation", title: "Supprimer", text: "×", onclick: function () {
+          if (!confirm("Supprimer la recommandation « " + [x.prenom, x.nom].filter(Boolean).join(" ") + " » ?")) return;
+          S.recommandations = S.recommandations.filter(function (y) { return y.id !== x.id; });
+          db.from("recommandations").delete().eq("id", x.id).then(verifier); dessiner();
+        } })
+      ])
+    ]);
+  }
+  // Ligne de saisie rapide (Entrée pour ajouter) ; dans la vue globale, on choisit le recommandeur.
+  function ligneAjoutReco(client, activiteId) {
+    var choix = client ? null : el("select", { class: "cellule", "aria-label": "Recommandeur" },
+      S.clients.filter(function (c) { return c.activite_id === activiteId; }).map(function (c) { return el("option", { value: c.id, text: c.nom }); }));
+    var champ = function (place, type) { return el("input", { type: type || "text", class: "cellule", placeholder: place, "aria-label": place }); };
+    var nNom = champ("+ Nom"), nPrenom = champ("Prénom"), nAdresse = champ("Adresse"), nTel = champ("Tél.", "tel"), nNotes = champ("Commentaire"), nDate = champ("Reçue le", "date");
+    nDate.value = isoJour(new Date());
     var ajouter = function () {
-      if (!nNom.value.trim()) { nNom.focus(); return; }
-      db.from("recommandations").insert({ client_id: c.id, activite_id: c.activite_id, nom: nNom.value.trim(), contact: nContact.value.trim() || null,
-        lien: nLien.value.trim() || null, besoin: nBesoin.value.trim() || null, recue_le: nDate.value || isoJour(new Date()) }).select().single().then(verifier).then(function (res) {
-        S.recommandations.unshift(res.data); dessiner(); signaler("Recommandation ajoutée : " + res.data.nom);
-        var champ = document.querySelector(".recommandations .ligne-ajout input"); if (champ) champ.focus();
+      if (!nNom.value.trim() && !nPrenom.value.trim()) { nNom.focus(); return; }
+      var clientId = client ? client.id : choix && choix.value;
+      if (!clientId) { signaler("Choisissez le client qui recommande"); return; }
+      db.from("recommandations").insert({ client_id: clientId, activite_id: client ? client.activite_id : activiteId, nom: nNom.value.trim() || nPrenom.value.trim(),
+        prenom: nNom.value.trim() ? nPrenom.value.trim() || null : null, adresse: nAdresse.value.trim() || null, contact: nTel.value.trim() || null,
+        notes: nNotes.value.trim() || null, recue_le: nDate.value || isoJour(new Date()) }).select().single().then(verifier).then(function (res) {
+        S.recommandations.unshift(res.data); dessiner(); signaler("Recommandation ajoutée : " + [res.data.prenom, res.data.nom].filter(Boolean).join(" "));
+        var c = document.querySelector(".tableau-prt .ligne-ajout input"); if (c) c.focus();
       });
     };
-    [nNom, nContact, nLien, nBesoin, nDate].forEach(function (i) { i.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); ajouter(); } }); });
-    var aAppeler = recos.filter(function (x) { return x.statut === "a-appeler"; }).length;
+    [nNom, nPrenom, nAdresse, nTel, nNotes, nDate].forEach(function (i) { i.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); ajouter(); } }); });
+    return el("tr", { class: "ligne-ajout" }, [choix ? el("td", {}, [choix]) : null, el("td", {}, [nNom]), el("td", {}, [nPrenom]), el("td", {}, [nAdresse]), el("td", {}, [nTel]),
+      el("td", { class: "case-prt prt-appele" }), el("td", { class: "case-prt prt-rdv" }), el("td", {}, [nNotes]), el("td", {}, [nDate]),
+      el("td", {}, [el("button", { type: "button", class: "btn-plein petit", text: "Ajouter", onclick: ajouter })])]);
+  }
+  function tableauPRT(recos, client, activiteId) {
+    var global = !client;
+    var titres = (global ? ["Recommandeur"] : []).concat(["Nom", "Prénom", "Adresse", "Tél.", "Appelé", "RDV", "Commentaire", "Reçue le", ""]);
+    return el("div", { class: "liste-notion tableau-prt" + (global ? " global" : "") }, [el("table", {}, [
+      el("thead", {}, [el("tr", {}, titres.map(function (t) { return el("th", { class: t === "Appelé" ? "case-prt prt-appele" : t === "RDV" ? "case-prt prt-rdv" : "", text: t }); }))]),
+      el("tbody", {}, recos.map(function (x) { return ligneReco(x, global); }).concat([ligneAjoutReco(client, activiteId)]))
+    ])]);
+  }
+  function compteRecos(recos) {
+    var aAppeler = recos.filter(function (x) { return x.statut === "a-appeler"; }).length, rdv = recos.filter(rdvPris).length;
+    return recos.length ? recos.length + " recommandation" + (recos.length > 1 ? "s" : "") + (aAppeler ? " · " + aAppeler + " à appeler" : "") + (rdv ? " · " + rdv + " RDV" : "") : "À compléter à chaque rendez-vous";
+  }
+  function tableauRecommandations(c) {
+    var recos = (S.recommandations || []).filter(function (x) { return x.client_id === c.id; });
     return el("div", { class: "recommandations" }, [
-      el("div", { class: "reco-tete" }, [el("p", { class: "etiquette", text: "Recommandations" }),
-        el("span", { class: "reco-compte", text: recos.length ? recos.length + " recommandée" + (recos.length > 1 ? "s" : "") + (aAppeler ? " · " + aAppeler + " à appeler" : "") : "À compléter à chaque rendez-vous" })]),
-      el("div", { class: "liste-notion" }, [el("table", {}, [
-        el("thead", {}, [el("tr", {}, ["Personne", "Contact", "Lien", "Besoin", "Reçue le", "Statut", "Notes", ""].map(function (t) { return el("th", { text: t }); }))]),
-        el("tbody", {}, lignes.concat([el("tr", { class: "ligne-ajout" }, [el("td", {}, [nNom]), el("td", {}, [nContact]), el("td", {}, [nLien]), el("td", {}, [nBesoin]), el("td", {}, [nDate]),
-          el("td", { colspan: 2 }), el("td", {}, [el("button", { type: "button", class: "btn-plein petit", text: "Ajouter", onclick: ajouter })])])]))
-      ])])
+      el("div", { class: "reco-tete" }, [el("p", { class: "etiquette", text: "Recommandations" }), el("span", { class: "reco-compte", text: compteRecos(recos) })]),
+      tableauPRT(recos, c)
+    ]);
+  }
+  // Vue de toutes les recommandations du projet (le tableau PRT complet), avec export Excel au même format
+  function exporterPRT(a, recos) {
+    var faire = function () {
+      var lignes = [["Recomandeur", "Nom", "PRENOM", "Adresse", "Tél.", "Appelé", "RDV", "Commentaire", "Reçue le"]].concat(recos.map(function (x) {
+        return [nomClient(x.client_id), x.nom || "", x.prenom || "", x.adresse || "", x.contact || "", appele(x) ? "X" : "", rdvPris(x) ? "X" : "", x.notes || "", x.recue_le || ""];
+      }));
+      var ws = XLSX.utils.aoa_to_sheet(lignes);
+      ws["!cols"] = [23, 17, 17, 24, 15, 8, 8, 30, 12].map(function (w) { return { wch: w }; });
+      var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "GLOBAL");
+      XLSX.writeFile(wb, "Recommandations " + nomCourt(a.nom) + " " + isoJour(new Date()).slice(0, 7) + ".xlsx");
+    };
+    if (window.XLSX) return faire();
+    var s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = faire; s.onerror = function () { signaler("Export impossible : bibliothèque Excel non chargée"); };
+    document.head.appendChild(s);
+  }
+  function sectionRecommandations(a) {
+    var toutes = (S.recommandations || []).filter(function (x) { return x.activite_id === a.id; });
+    var recos = S.recosAAppeler ? toutes.filter(function (x) { return !appele(x); }) : toutes;
+    return el("section", { class: "section", id: "s-recos" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Recommandations" }), el("p", { class: "aside", text: compteRecos(toutes) }),
+        el("div", { class: "vues" }, [["toutes", "Toutes"], ["appeler", "À appeler"]].map(function (v) {
+          return el("button", { type: "button", role: "tab", "aria-selected": (v[0] === "appeler") === !!S.recosAAppeler ? "true" : "false", text: v[1],
+            onclick: function () { S.recosAAppeler = v[0] === "appeler"; avecTransition(dessiner, "jour"); } });
+        })),
+        el("button", { type: "button", class: "btn-contour", text: "Exporter en Excel", onclick: function () { exporterPRT(a, toutes); } })]),
+      tableauPRT(recos, null, a.id)
     ]);
   }
 

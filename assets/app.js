@@ -135,7 +135,7 @@
       db.from("suivis").select("*").order("le", { ascending: false }).limit(500),
       db.from("semaine_type").select("*").order("debut"),
       db.from("factures").select("*"),
-      db.from("comptes_agenda").select("id, fournisseur, email, derniere_erreur, cree_le").order("cree_le"),
+      db.from("comptes_agenda").select("id, fournisseur, email, usage, derniere_erreur, cree_le").order("cree_le"),
       db.from("briefings").select("*").eq("jour", isoJour(new Date())).maybeSingle(),
       db.from("propositions").select("*").eq("statut", "proposee").order("cree_le"),
       db.from("recommandations").select("*").order("recue_le", { ascending: false })
@@ -1445,8 +1445,8 @@
   });
 
   // ---------- Page Agendas : comptes connectés et agendas suivis ----------
-  function connecter(fournisseur) {
-    db.functions.invoke("agenda-connexion", { body: { fournisseur: fournisseur } }).then(function (r) {
+  function connecter(fournisseur, usage) {
+    db.functions.invoke("agenda-connexion", { body: { fournisseur: fournisseur, usage: usage || "agenda" } }).then(function (r) {
       if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { throw new Error(j.erreur || r.error.message); });
       if (r.error) throw r.error;
       if (r.data.erreur) throw new Error(r.data.erreur);
@@ -1491,7 +1491,7 @@
     if (S.message) f.appendChild(el("p", { class: "bandeau", role: "status", text: S.message }));
     f.appendChild(el("section", { class: "section" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Comptes connectés" })]),
-      el("ul", { class: "agenda" }, S.comptes.length ? S.comptes.map(function (c) {
+      el("ul", { class: "agenda" }, S.comptes.filter(function (c) { return c.usage !== "mail"; }).length ? S.comptes.filter(function (c) { return c.usage !== "mail"; }).map(function (c) {
         return el("li", { class: "compte" }, [
           el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
           el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : (c.fournisseur === "google" ? "Google Agenda" : "Outlook / Microsoft 365") + " · lecture et écriture" })]),
@@ -1501,6 +1501,26 @@
           } })
         ]);
       }) : [el("li", { class: "vide", text: "Aucun compte connecté pour l'instant." })])
+    ]));
+    // Boîtes mail lues chaque matin par Victor (lecture seule : rien n'est envoyé, déplacé ni marqué lu)
+    var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
+    f.appendChild(el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Boîtes mail de Victor" }),
+        el("p", { class: "aside", text: "Lecture seule, chaque matin. Gmail arouzier et Outlook Palomano sont lus par les connecteurs de Claude ; Harnes (IONOS) par outils/ionos.sh." })]),
+      el("div", { class: "liens-boutons rangee" }, [
+        el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Gmail", onclick: function () { connecter("google", "mail"); } }),
+        el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Outlook", onclick: function () { connecter("microsoft", "mail"); } })
+      ]),
+      el("ul", { class: "agenda" }, boites.length ? boites.map(function (c) {
+        return el("li", { class: "compte" }, [
+          el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
+          el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : "Mails · lecture seule pour Victor" })]),
+          el("button", { type: "button", class: "btn-texte danger", text: "Déconnecter", onclick: function () {
+            if (!confirm("Ne plus faire lire " + c.email + " par Victor ?")) return;
+            db.from("comptes_agenda").delete().eq("id", c.id).then(verifier).then(function () { chargerTout().then(dessiner); });
+          } })
+        ]);
+      }) : [el("li", { class: "vide", text: "Aucune boîte connectée : Camp (Gmail) et Evoa (Outlook) à connecter ici." })])
     ]));
     var lignes = S.agendas.map(function (g) {
       var compte = S.comptes.filter(function (c) { return c.id === g.compte_id; })[0];

@@ -2,7 +2,8 @@
 // Utilisé par agenda-connexion, sync-agendas et agenda-ecrire. Les jetons ne quittent jamais le serveur.
 
 export type Fournisseur = "google" | "microsoft";
-export type Compte = { id: string; fournisseur: Fournisseur; email: string; refresh_token: string | null; jeton_acces: string | null; jeton_expire_le: string | null };
+export type Usage = "agenda" | "mail"; // agendas (lecture et écriture) ou mails (lecture seule, pour Victor)
+export type Compte = { id: string; fournisseur: Fournisseur; email: string; refresh_token: string | null; jeton_acces: string | null; jeton_expire_le: string | null; usage?: Usage };
 export type AgendaDistant = { externe_id: string; nom: string; ecriture: boolean; principal: boolean; actif: boolean };
 export type RdvDistant = { externe_id: string; debut: string; fin: string; journee: boolean; titre: string | null; lieu: string | null; description: string | null; serie: boolean };
 export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null };
@@ -23,19 +24,22 @@ const MICROSOFT = {
   scopes: "offline_access openid email User.Read Calendars.ReadWrite",
 };
 
-export function urlAutorisation(f: Fournisseur, etat: string): string {
+const SCOPES_MAIL = { google: "openid email https://www.googleapis.com/auth/gmail.readonly", microsoft: "offline_access openid email User.Read Mail.Read" };
+export const scopes = (f: Fournisseur, u: Usage = "agenda") => u === "mail" ? SCOPES_MAIL[f] : f === "google" ? GOOGLE.scopes : MICROSOFT.scopes;
+
+export function urlAutorisation(f: Fournisseur, etat: string, u: Usage = "agenda"): string {
   const p: Record<string, string> = f === "google"
-    ? { client_id: env("GOOGLE_CLIENT_ID"), redirect_uri: urlRetourOAuth(), response_type: "code", scope: GOOGLE.scopes,
-        access_type: "offline", prompt: "consent select_account", include_granted_scopes: "true", state: etat }
+    ? { client_id: env("GOOGLE_CLIENT_ID"), redirect_uri: urlRetourOAuth(), response_type: "code", scope: scopes(f, u),
+        access_type: "offline", prompt: "consent select_account", state: etat }
     : { client_id: env("MS_CLIENT_ID"), redirect_uri: urlRetourOAuth(), response_type: "code", response_mode: "query",
-        scope: MICROSOFT.scopes, prompt: "select_account", state: etat };
+        scope: scopes(f, u), prompt: "select_account", state: etat };
   return `${f === "google" ? GOOGLE.auth : MICROSOFT.auth}?${new URLSearchParams(p)}`;
 }
 
-async function demanderJeton(f: Fournisseur, champs: Record<string, string>) {
+async function demanderJeton(f: Fournisseur, champs: Record<string, string>, u: Usage = "agenda") {
   const base: Record<string, string> = f === "google"
     ? { client_id: env("GOOGLE_CLIENT_ID"), client_secret: env("GOOGLE_CLIENT_SECRET") }
-    : { client_id: env("MS_CLIENT_ID"), client_secret: env("MS_CLIENT_SECRET"), scope: MICROSOFT.scopes };
+    : { client_id: env("MS_CLIENT_ID"), client_secret: env("MS_CLIENT_SECRET"), scope: scopes(f, u) };
   const r = await fetch(f === "google" ? GOOGLE.jeton : MICROSOFT.jeton, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ ...base, ...champs }),
   });
@@ -45,8 +49,8 @@ async function demanderJeton(f: Fournisseur, champs: Record<string, string>) {
 }
 
 // Échange du code reçu au retour de la page d'autorisation : jetons + adresse du compte.
-export async function echangerCode(f: Fournisseur, code: string) {
-  const j = await demanderJeton(f, { grant_type: "authorization_code", code, redirect_uri: urlRetourOAuth() });
+export async function echangerCode(f: Fournisseur, code: string, u: Usage = "agenda") {
+  const j = await demanderJeton(f, { grant_type: "authorization_code", code, redirect_uri: urlRetourOAuth() }, u);
   let email = "";
   if (f === "google" && j.id_token) {
     email = JSON.parse(atob(j.id_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).email ?? "";
@@ -63,7 +67,7 @@ export async function echangerCode(f: Fournisseur, code: string) {
 export async function jetonAcces(db: any, c: Compte): Promise<string> {
   if (c.jeton_acces && c.jeton_expire_le && Date.parse(c.jeton_expire_le) > Date.now()) return c.jeton_acces;
   if (!c.refresh_token) throw new Error("connexion expirée : reconnectez le compte");
-  const j = await demanderJeton(c.fournisseur, { grant_type: "refresh_token", refresh_token: c.refresh_token });
+  const j = await demanderJeton(c.fournisseur, { grant_type: "refresh_token", refresh_token: c.refresh_token }, c.usage ?? "agenda");
   c.jeton_acces = j.access_token;
   c.jeton_expire_le = new Date(Date.now() + (j.expires_in - 60) * 1000).toISOString();
   const maj: Record<string, string> = { jeton_acces: c.jeton_acces, jeton_expire_le: c.jeton_expire_le };
@@ -192,16 +196,16 @@ async function cle() {
   return await crypto.subtle.importKey("raw", new TextEncoder().encode(env("CLE_SYNCHRO")), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 const b64 = (u: Uint8Array) => btoa(String.fromCharCode(...u)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-export async function signerEtat(f: Fournisseur): Promise<string> {
-  const charge = b64(new TextEncoder().encode(JSON.stringify({ f, exp: Date.now() + 15 * 60000, n: crypto.randomUUID() })));
+export async function signerEtat(f: Fournisseur, u: Usage = "agenda"): Promise<string> {
+  const charge = b64(new TextEncoder().encode(JSON.stringify({ f, u, exp: Date.now() + 15 * 60000, n: crypto.randomUUID() })));
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", await cle(), new TextEncoder().encode(charge)));
   return `${charge}.${b64(sig)}`;
 }
-export async function lireEtat(etat: string): Promise<{ f: Fournisseur } | null> {
+export async function lireEtat(etat: string): Promise<{ f: Fournisseur; u: Usage } | null> {
   const [charge, sig] = etat.split(".");
   if (!charge || !sig) return null;
   const brut = Uint8Array.from(atob(sig.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((sig.length + 3) % 4)), (ch) => ch.charCodeAt(0));
   if (!(await crypto.subtle.verify("HMAC", await cle(), brut, new TextEncoder().encode(charge)))) return null;
   const j = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(charge.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((charge.length + 3) % 4)), (ch) => ch.charCodeAt(0))));
-  return j.exp > Date.now() ? { f: j.f } : null;
+  return j.exp > Date.now() ? { f: j.f, u: j.u === "mail" ? "mail" : "agenda" } : null;
 }

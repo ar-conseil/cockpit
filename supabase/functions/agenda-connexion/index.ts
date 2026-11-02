@@ -3,7 +3,7 @@
 //  GET  ?code=…&state=… (retour de cette page)              -> enregistre le compte et ses agendas, puis revient sur le site
 // Déployée avec --no-verify-jwt : le retour de Google / Microsoft n'a pas de jeton Supabase ; l'état signé fait foi.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
-import { echangerCode, jetonAcces, listerAgendas, lireEtat, projetParDefaut, signerEtat, urlAutorisation, type Compte, type Fournisseur } from "../_partage/fournisseurs.ts";
+import { echangerCode, jetonAcces, listerAgendas, lireEtat, projetParDefaut, signerEtat, urlAutorisation, type Compte, type Fournisseur, type Usage } from "../_partage/fournisseurs.ts";
 
 const SITE = Deno.env.get("SITE_URL") ?? "https://ar-conseil.github.io/cockpit/";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cle-synchro",
@@ -19,11 +19,12 @@ Deno.serve(async (req) => {
     const jeton = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
     const { data } = await db.auth.getUser(jeton);
     if (!data?.user) return json({ erreur: "non autorisé" }, 401);
-    const { fournisseur } = await req.json().catch(() => ({}));
+    const { fournisseur, usage } = await req.json().catch(() => ({}));
+    const u: Usage = usage === "mail" ? "mail" : "agenda";
     if (fournisseur !== "google" && fournisseur !== "microsoft") return json({ erreur: "fournisseur inconnu" }, 400);
     const manque = fournisseur === "google" ? !Deno.env.get("GOOGLE_CLIENT_ID") : !Deno.env.get("MS_CLIENT_ID");
     if (manque) return json({ erreur: `l'accès ${fournisseur === "google" ? "Google" : "Microsoft"} n'est pas encore configuré` }, 400);
-    return json({ url: urlAutorisation(fournisseur, await signerEtat(fournisseur)) });
+    return json({ url: urlAutorisation(fournisseur, await signerEtat(fournisseur, u), u) });
   }
 
   const p = new URL(req.url).searchParams;
@@ -37,16 +38,18 @@ Deno.serve(async (req) => {
   const etat = await lireEtat(p.get("state") ?? "");
   const code = p.get("code");
   if (!etat || !code) return retour("Lien de connexion expiré : recommencez.");
-  const f = etat.f as Fournisseur;
+  const f = etat.f as Fournisseur, u = etat.u;
   try {
-    const j = await echangerCode(f, code);
-    const { data: existant } = await db.from("comptes_agenda").select("id, refresh_token").eq("fournisseur", f).eq("email", j.email).maybeSingle();
+    const j = await echangerCode(f, code, u);
+    const { data: existant } = await db.from("comptes_agenda").select("id, refresh_token").eq("fournisseur", f).eq("email", j.email).eq("usage", u).maybeSingle();
     const { data: compte, error } = await db.from("comptes_agenda").upsert({
-      fournisseur: f, email: j.email, refresh_token: j.refresh_token ?? existant?.refresh_token ?? null,
+      fournisseur: f, email: j.email, usage: u, refresh_token: j.refresh_token ?? existant?.refresh_token ?? null,
       jeton_acces: j.jeton_acces, jeton_expire_le: j.jeton_expire_le, derniere_erreur: null,
-    }, { onConflict: "fournisseur,email" }).select().single();
+    }, { onConflict: "fournisseur,email,usage" }).select().single();
     if (error) throw new Error(error.message);
     const c = compte as Compte;
+    // Boîte mail pour Victor : pas d'agenda à lister, lecture seule des mails.
+    if (u === "mail") return retour(`Boîte mail ${j.email} connectée : Victor la lira chaque matin.`);
     const agendas = await listerAgendas(c, await jetonAcces(db, c));
     for (const a of agendas) {
       const { data: deja } = await db.from("agendas").select("id").eq("compte_id", c.id).eq("externe_id", a.externe_id).maybeSingle();

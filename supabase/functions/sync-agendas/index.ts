@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
 
   // Liste des agendas de chaque compte connecté : à la première synchro, puis tous les quarts d'heure,
   // pour qu'un agenda créé dans Google ou Outlook (ex. « Harnes Volley ») apparaisse tout seul.
-  const { data: comptes } = await db.from("comptes_agenda").select("*, agendas(id)");
+  const { data: comptes } = await db.from("comptes_agenda").select("*, agendas(id)").eq("usage", "agenda");
   const corps = await req.json().catch(() => ({}));
   const quartDHeure = new Date().getMinutes() % 15 === 0 || corps.lister === true; // { "lister": true } force la relecture
   for (const c of comptes ?? []) {

@@ -2,6 +2,7 @@
 """Victor, l'assistant du matin du cockpit (lancé par la routine planifiée du Mac).
 
   python3 outils/victor.py contexte           JSON du jour : agenda, tâches ouvertes, projets, mails déjà traités
+  python3 outils/victor.py mails [depuis ISO]  mails récents des boîtes connectées au cockpit (Camp, Evoa, Harnes IONOS…), lecture seule
   python3 outils/victor.py publier note.json  enregistre le briefing et les tâches proposées, place les créneaux ORIAS
 
 Accès lus dans ~/.cockpit/ (supabase.env, cle-synchro) : rien de secret dans le dépôt.
@@ -70,6 +71,16 @@ def contexte():
         'derniere_lecture', (select max(mise_a_jour) from briefings)
       ) as c""")
     print(json.dumps(r[0]["c"], ensure_ascii=False, indent=1))
+
+
+def mails(depuis=None):
+    if not depuis:
+        r = sql("select max(mise_a_jour) as d from briefings")
+        depuis = r[0]["d"] if r and r[0]["d"] else (datetime.now(PARIS) - timedelta(hours=24)).isoformat()
+    cle = open(os.path.join(PRIVE, "cle-synchro")).read().strip()
+    req = urllib.request.Request(f"https://{REF}.supabase.co/functions/v1/lire-mails", method="POST", data=json.dumps({"depuis": depuis}).encode(),
+                                 headers={"x-cle-synchro": cle, "Content-Type": "application/json"})
+    print(json.dumps(json.load(urllib.request.urlopen(req, timeout=120)), ensure_ascii=False, indent=1))
 
 
 def minutes(dt):
@@ -184,6 +195,8 @@ def publier(fichier):
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "contexte":
         contexte()
+    elif len(sys.argv) >= 2 and sys.argv[1] == "mails":
+        mails(sys.argv[2] if len(sys.argv) >= 3 else None)
     elif len(sys.argv) >= 3 and sys.argv[1] == "publier":
         publier(sys.argv[2])
     else:

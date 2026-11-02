@@ -159,11 +159,17 @@ def publier(fichier):
       select e.titre, coalesce(e.activite_forcee, e.activite_id) projet, e.journee,
              to_char(e.debut at time zone 'Europe/Paris', 'HH24:MI') debut, to_char(e.fin at time zone 'Europe/Paris', 'HH24:MI') fin
       from evenements e join agendas g on g.id = e.agenda_id
-      where g.actif and not e.annule and e.fin > ('{jour}'::timestamp at time zone 'Europe/Paris')
+      where g.actif and not e.annule and e.fin - e.debut < interval '10 hours'
+        and e.fin > ('{jour}'::timestamp at time zone 'Europe/Paris')
         and e.debut < (('{jour}'::date + 1)::timestamp at time zone 'Europe/Paris')
       order by e.journee desc, e.debut""")
-    planning = [{"debut": "journée" if e["journee"] else e["debut"], "fin": "" if e["journee"] else e["fin"], "titre": e["titre"],
-                 "type": "orias" if "orias" in (e["titre"] or "").lower() else "rdv", "activite_id": e["projet"]} for e in evs]
+    planning, vus = [], set()
+    for e in evs:  # une seule ligne par rendez-vous présent dans plusieurs agendas
+        if (e["titre"], e["debut"], e["fin"]) in vus:
+            continue
+        vus.add((e["titre"], e["debut"], e["fin"]))
+        planning.append({"debut": "journée" if e["journee"] else e["debut"], "fin": "" if e["journee"] else e["fin"], "titre": e["titre"],
+                         "type": "orias" if "orias" in (e["titre"] or "").lower() else "rdv", "activite_id": e["projet"]})
 
     projets = {p["id"] for p in sql("select id from activites")}
     def projet(x):

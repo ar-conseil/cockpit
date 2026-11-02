@@ -845,6 +845,17 @@
       ])
     ]);
   }
+  // Emploi du temps en direct (agenda du jour, sans doublon ni séjour de plusieurs jours) : jamais en retard sur l'agenda
+  function planningDuJour() {
+    var d0 = debutJour(new Date()), d1 = ajouterJours(d0, 1), maintenant = Date.now();
+    return S.evenements.filter(function (e) {
+      var deb = new Date(e.debut), fin = new Date(e.fin);
+      return fin > d0 && deb < d1 && !e.journee && fin - deb < 10 * 3600e3;
+    }).map(function (e) {
+      return { debut: hm(new Date(e.debut)), fin: hm(new Date(e.fin)), titre: e.titre, activite_id: actEv(e),
+        type: /orias/i.test(e.titre || "") ? "orias" : "rdv", passe: new Date(e.fin) < maintenant };
+    });
+  }
   function blocVictor() {
     var b = S.briefing, props = S.propositions || [];
     var tete = el("header", { class: "victor-tete" }, [
@@ -860,9 +871,10 @@
         el("ol", { class: "victor-priorites" }, b.priorites.map(function (x) {
           return el("li", {}, [el("b", { text: x.titre }), el("small", {}, [pastilleProjetSiConnu(x.activite_id), x.pourquoi ? el("span", { text: x.pourquoi }) : null])]);
         }))]));
-      if ((b.planning || []).length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "Emploi du temps" }),
-        el("ul", { class: "victor-planning" }, b.planning.map(function (x) {
-          return el("li", { class: x.type === "orias" ? "orias" : "", style: "--c:" + couleur(x.activite_id) }, [
+      var planning = planningDuJour();
+      if (planning.length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "Emploi du temps" }),
+        el("ul", { class: "victor-planning" }, planning.map(function (x) {
+          return el("li", { class: (x.type === "orias" ? "orias" : "") + (x.passe ? " passe" : ""), style: "--c:" + couleur(x.activite_id) }, [
             el("time", { text: x.debut + (x.fin ? "–" + x.fin : "") }), el("span", { text: x.titre || "(sans titre)" })]);
         }))]));
       if ((b.mails || []).length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "Mails à traiter" }),

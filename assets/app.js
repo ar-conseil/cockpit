@@ -1228,12 +1228,13 @@
     var type = el("select", { "aria-label": "Type" }, ["prospect", "client", "partenaire", "fournisseur", "autre"].map(function (t) { return el("option", { value: t, selected: t === c.type, text: t }); }));
     var montant = el("input", { type: "number", step: "any", value: c.montant == null ? "" : c.montant, placeholder: (r.libelle_montant || "Montant") + " €", "aria-label": r.libelle_montant || "Montant" });
     // Les champs venus de HubSpot sont déjà affichés dans le bloc HubSpot de la fiche
-    var champs = (r.champs || []).filter(function (ch) { return !(ch.hubspot && (c.donnees || {}).hubspot_id); }).map(function (ch) {
+    var champs = (r.champs || []).filter(function (ch) { return !(ch.hubspot && (c.donnees || {}).hubspot_id) && !(r.besoins && ch.cle === "besoin"); }).map(function (ch) {
       var v = (c.donnees || {})[ch.cle];
       var aide = ch.taux ? " (vide = " + fmtN.format(ch.taux * 100) + " % du prix)" : "";
       return { ch: ch, input: el("input", { type: ch.type === "euros" ? "number" : ch.type === "date" ? "date" : "text", step: "any", value: v == null ? "" : v, placeholder: ch.label + (ch.type === "euros" ? " €" : "") + aide, "aria-label": ch.label,
         title: ch.hubspot ? ch.label + " : à modifier dans HubSpot" : ch.label + aide, readonly: ch.hubspot && (c.donnees || {}).hubspot_id ? true : null }) };
     });
+    var listeBesoins = r.besoins ? editeurBesoins(c, r) : null;
     // Commission totale (ex. Berkay : vente + frais), recalculée pendant la saisie ; une case vide prend le taux du projet
     var totalFiche = null;
     if (r.total) {
@@ -1267,6 +1268,7 @@
       el("div", { class: "rangee" }, [etape, r.champs ? null : type, montant]),
       champs.length ? el("div", { class: "rangee champs" }, champs.map(function (x) { return el("label", {}, [el("span", { text: x.ch.label }), x.input]); })) : null,
       totalFiche,
+      r.besoins ? listeBesoins.bloc : null,
       contact, el("div", { class: "rangee" }, [action, actionLe]), notes,
       el("div", { class: "rangee" }, [
         el("button", { type: "submit", class: "btn-plein", text: "Enregistrer" }),
@@ -1288,6 +1290,14 @@
       ev.preventDefault();
       var prix = montant.value === "" ? null : +montant.value;
       var donnees = Object.assign({}, c.donnees || {});
+      if (listeBesoins) {
+        // Besoins ligne par ligne ; le résumé texte alimente la colonne du tableau, la prime totale le montant si rien n'est saisi
+        var lignesB = listeBesoins.valeur();
+        donnees.besoins = lignesB;
+        donnees.besoin = lignesB.map(function (b) { return b.produit + (b.assureur ? " (" + b.assureur + ")" : ""); }).join(", ") || null;
+        var totalPrimes = lignesB.filter(function (b) { return b.statut !== "Refusé"; }).reduce(function (t, b) { return t + (+b.prime || 0); }, 0);
+        if (montant.value === "" && totalPrimes) montant.value = totalPrimes;
+      }
       champs.forEach(function (x) {
         var v = x.input.value.trim();
         // Commission laissée vide : calculée avec le taux du projet si le prix est connu.
@@ -1367,6 +1377,71 @@
       d.description ? el("p", { class: "hs-description", text: d.description }) : null,
       el("p", { class: "hs-note", text: "Pack, montants, avantages et contacts viennent de HubSpot (mis à jour tous les quarts d'heure) : modifiez-les dans HubSpot. Relance, notes et historique restent ici." })
     ]);
+  }
+
+  // ---------- Besoins d'un client, ligne par ligne, choisis dans le catalogue du projet (Evoa : produits du DER) ----------
+  function besoinsDe(c) {
+    var d = c.donnees || {};
+    if (Array.isArray(d.besoins)) return d.besoins.map(function (b) { return Object.assign({}, b); });
+    // Reprise de l'ancien champ texte : « Prévoyance (UNIM), assurance de prêt » -> une ligne par besoin
+    return String(d.besoin || "").split(/,|\s\/\s/).map(function (x) { return x.trim(); }).filter(Boolean).map(function (x) {
+      var m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(x), nom = m ? m[1] : x;
+      var devis = /^devis\s+(.+)$/i.exec(nom); // « Devis Abeille » : l'assureur est connu, le produit reste à préciser
+      return { produit: devis ? "" : produitDuCatalogue(nom), assureur: m ? m[2] : devis ? devis[1] : "", prime: null, statut: devis ? "Devis en cours" : "À étudier" };
+    });
+  }
+  // Rapproche un libellé libre d'un produit du catalogue Evoa (« assurance de prêt » -> « Assurance emprunteur »)
+  var ALIAS_PRODUITS = [[/pr[eê]t|emprunt/i, "Assurance emprunteur"], [/^pno|non occupant/i, "Propriétaire non occupant (PNO)"], [/habitation|mrh/i, "Multirisque habitation"],
+    [/pr[ée]voyance collective/i, "Prévoyance collective"], [/sant[ée] collective|mutuelle collective/i, "Santé collective"], [/mutuelle|compl[ée]mentaire sant/i, "Complémentaire santé"],
+    [/^per\b|[ée]pargne retraite/i, "Plan d'épargne retraite (PER)"], [/assurance[- ]vie/i, "Assurance-vie"], [/auto|voiture/i, "Assurance auto"], [/d[ée]cennale/i, "Décennale"],
+    [/rc pro|responsabilit[ée] civile/i, "Responsabilité civile professionnelle"], [/^gav|accidents? de la vie/i, "Garantie des accidents de la vie (GAV)"], [/pr[ée]voyance/i, "Prévoyance"]];
+  function produitDuCatalogue(nom) {
+    for (var i = 0; i < ALIAS_PRODUITS.length; i++) if (ALIAS_PRODUITS[i][0].test(nom)) return ALIAS_PRODUITS[i][1];
+    return nom.charAt(0).toUpperCase() + nom.slice(1);
+  }
+  function editeurBesoins(c, r) {
+    var lignes = besoinsDe(c), corps = el("div", { class: "besoins-lignes" }), total = el("span", { class: "besoins-total" });
+    var statuts = r.statuts_besoin || ["À étudier", "Devis en cours", "Devis présenté", "Signé", "Refusé"];
+    var choixProduit = function (valeur) {
+      var connus = [], s = el("select", { class: "cellule", "aria-label": "Produit" }, [el("option", { value: "", text: "Choisir un produit…" })].concat((r.produits || []).map(function (g) {
+        return el("optgroup", { label: g.famille }, g.produits.map(function (p) { connus.push(p); return el("option", { value: p, text: p }); }));
+      })));
+      if (valeur && connus.indexOf(valeur) < 0) s.appendChild(el("option", { value: valeur, text: valeur }));
+      s.value = valeur || "";
+      return s;
+    };
+    var majTotal = function () {
+      var t = lignes.filter(function (b) { return b.statut !== "Refusé"; }).reduce(function (s, b) { return s + (+b.prime || 0); }, 0);
+      total.textContent = t ? "Primes : " + fmtN.format(Math.round(t)) + " € / an" : "";
+    };
+    var dessinerLignes = function () {
+      corps.textContent = "";
+      lignes.forEach(function (b, i) {
+        var produit = choixProduit(b.produit);
+        var assureur = el("input", { type: "text", class: "cellule", value: b.assureur || "", placeholder: "Assureur", list: "assureurs-" + c.id, "aria-label": "Assureur" });
+        var prime = el("input", { type: "number", step: "any", class: "cellule", value: b.prime == null ? "" : b.prime, placeholder: "Prime / an €", "aria-label": "Prime par an" });
+        var statut = el("select", { class: "cellule statut-besoin", "aria-label": "Statut" }, statuts.map(function (x) { return el("option", { value: x, selected: x === b.statut, text: x }); }));
+        statut.dataset.statut = b.statut || statuts[0];
+        produit.addEventListener("change", function () { b.produit = produit.value; });
+        assureur.addEventListener("input", function () { b.assureur = assureur.value.trim(); });
+        prime.addEventListener("input", function () { b.prime = prime.value === "" ? null : +prime.value; majTotal(); });
+        statut.addEventListener("change", function () { b.statut = statut.value; statut.dataset.statut = statut.value; majTotal(); });
+        corps.appendChild(el("div", { class: "besoin-ligne" }, [produit, assureur, prime, statut,
+          el("button", { type: "button", class: "btn-texte danger", "aria-label": "Retirer ce besoin", title: "Retirer", text: "×", onclick: function () { lignes.splice(i, 1); dessinerLignes(); majTotal(); } })]));
+      });
+      if (!lignes.length) corps.appendChild(el("p", { class: "vide", text: "Aucun besoin noté : ajoutez-en un ci-dessous." }));
+    };
+    dessinerLignes(); majTotal();
+    var bloc = el("div", { class: "besoins" }, [
+      el("div", { class: "besoins-tete" }, [el("span", { class: "etiquette", text: "Besoins" }), total]),
+      corps,
+      el("datalist", { id: "assureurs-" + c.id }, (r.assureurs || []).map(function (x) { return el("option", { value: x }); })),
+      el("button", { type: "button", class: "btn-contour petit ajout-besoin", text: "+ Ajouter un besoin", onclick: function () {
+        lignes.push({ produit: "", assureur: "", prime: null, statut: statuts[0] }); dessinerLignes();
+        var d = corps.querySelectorAll(".besoin-ligne select"); if (d.length) d[d.length - 2].focus();
+      } })
+    ]);
+    return { bloc: bloc, valeur: function () { return lignes.filter(function (b) { return b.produit; }); } };
   }
 
   // ---------- Recommandations (parrainage) : les personnes qu'un client recommande, notées à chaque rendez-vous ----------

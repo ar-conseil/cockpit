@@ -707,6 +707,19 @@ main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: co
 .bouton-lien:hover .bouton-lien-fleche { transform: translate(2px, -2px); stroke: var(--c); }
 @media (max-width: 640px) { .boutons-liens { grid-template-columns: 1fr; } }
 
+/* ---------- Besoins d'un client (une ligne par produit) ---------- */
+.besoins { display: grid; gap: 8px; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--papier-2) 45%, transparent); }
+.besoins-tete { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.besoins-total { font: 600 12.5px var(--mono); color: var(--encre-2); }
+.besoins-lignes { display: grid; gap: 6px; }
+.besoin-ligne { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 6px; align-items: center; }
+.besoin-ligne .cellule { width: 100%; padding: 7px 8px; font-size: 13px; border-radius: 8px; border: 1px solid var(--filet); background: var(--blanc); }
+.statut-besoin[data-statut="Signé"] { background: color-mix(in srgb, var(--ok) 14%, var(--blanc)); color: var(--ok); font-weight: 600; }
+.statut-besoin[data-statut="Refusé"] { color: var(--encre-3); text-decoration: line-through; }
+.statut-besoin[data-statut="Devis présenté"], .statut-besoin[data-statut="Devis en cours"] { background: color-mix(in srgb, #2e7dd1 10%, var(--blanc)); color: #1f5fa8; }
+.ajout-besoin { justify-self: start; margin-left: 0 !important; }
+@media (max-width: 640px) { .besoin-ligne { grid-template-columns: 1fr 1fr; } .besoin-ligne select:first-child { grid-column: 1 / -1; } }
+
 /* ---------- Recommandations d'un client (Evoa) ---------- */
 .recommandations { grid-column: 1 / -1; display: grid; gap: 10px; padding-top: 6px; }
 .reco-tete { display: flex; align-items: baseline; gap: 12px; }

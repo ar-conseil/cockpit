@@ -145,7 +145,8 @@
       // Un même rendez-vous présent dans deux agendas (invitation partagée) n'apparaît qu'une fois ;
       // on garde la copie modifiable, puis celle d'un agenda sans projet imposé.
       var vus = {};
-      S.evenements = r[2].data.filter(function (e) { return !e.annule; })
+      S.tousEvenements = r[2].data.filter(function (e) { return !e.annule; }); // toutes les copies, pour les supprimer ensemble
+      S.evenements = S.tousEvenements.slice()
         .sort(function (x, y) {
           var imposeX = (S.agendas.filter(function (g) { return g.id === x.agenda_id; })[0] || {}).activite_id ? 1 : 0;
           var imposeY = (S.agendas.filter(function (g) { return g.id === y.agenda_id; })[0] || {}).activite_id ? 1 : 0;
@@ -1712,12 +1713,27 @@
     dlgRdv.close(); dessiner();
     ecrireRdv(corps, function () { signaler(e ? "Rendez-vous modifié dans votre agenda" : "Rendez-vous ajouté à votre agenda"); chargerTout().then(dessiner); });
   });
+  // Un même rendez-vous peut exister dans plusieurs agendas (invitation copiée dans « Famille »…) : on supprime toutes les copies modifiables.
   document.getElementById("rdv-supprimer").addEventListener("click", function () {
     var e = rdvCourant;
-    if (!e || !confirm("Supprimer « " + (e.titre || "ce rendez-vous") + " » de votre agenda ?")) return;
-    S.evenements = S.evenements.filter(function (x) { return x.id !== e.id; });
+    if (!e) return;
+    var cle = function (x) { return (x.titre || "") + "|" + x.debut + "|" + x.fin; };
+    var copies = (S.tousEvenements || [e]).filter(function (x) {
+      var g = S.agendas.filter(function (a) { return a.id === x.agenda_id; })[0];
+      return x.id === e.id || (cle(x) === cle(e) && x.modifiable && g && g.ecriture);
+    });
+    var noms = copies.map(function (x) { var g = S.agendas.filter(function (a) { return a.id === x.agenda_id; })[0]; return g ? g.nom : "agenda"; });
+    if (!confirm("Supprimer « " + (e.titre || "ce rendez-vous") + " » " + (copies.length > 1 ? "de vos " + copies.length + " agendas (" + noms.join(", ") + ")" : "de votre agenda (" + noms[0] + ")") + " ?")) return;
+    var ids = copies.map(function (x) { return x.id; });
+    S.evenements = S.evenements.filter(function (x) { return ids.indexOf(x.id) < 0; });
+    S.tousEvenements = (S.tousEvenements || []).filter(function (x) { return ids.indexOf(x.id) < 0; });
     dlgRdv.close(); dessiner();
-    ecrireRdv({ action: "supprimer", evenement_id: e.id }, function () { signaler("Rendez-vous supprimé de votre agenda"); });
+    var restants = copies.length;
+    copies.forEach(function (x) {
+      ecrireRdv({ action: "supprimer", evenement_id: x.id }, function () {
+        if (--restants === 0) signaler(copies.length > 1 ? "Rendez-vous supprimé de " + copies.length + " agendas" : "Rendez-vous supprimé de votre agenda");
+      });
+    });
   });
 
   // ---------- Page Agendas : comptes connectés et agendas suivis ----------

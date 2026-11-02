@@ -27,6 +27,12 @@ Deno.serve(async (req) => {
   }
 
   const p = new URL(req.url).searchParams;
+  // Retour du lien d'approbation envoyé à un administrateur Microsoft (Evoa, Palomano…).
+  if (p.get("admin_consent")) {
+    return retour(p.get("admin_consent") === "True"
+      ? "Accord de l'administrateur enregistré : connectez maintenant votre compte Outlook."
+      : "L'administrateur n'a pas donné son accord.");
+  }
   if (p.get("error")) return retour(`Connexion refusée : ${p.get("error_description") || p.get("error")}`);
   const etat = await lireEtat(p.get("state") ?? "");
   const code = p.get("code");

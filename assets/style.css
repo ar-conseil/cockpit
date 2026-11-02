@@ -23,6 +23,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--noir);
@@ -210,3 +211,34 @@ main.page { padding-top: 32px; padding-bottom: 24px; display: grid; gap: 36px; }
   .etape .barre { grid-column: 1 / -1; grid-row: 2; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Connexion ---------- */
+.masthead-inner { position: relative; }
+.deconnexion {
+  position: absolute; top: 12px; right: max(16px, env(safe-area-inset-right, 0px));
+  background: none; border: 1px solid var(--filet); color: var(--texte-doux); border-radius: var(--rayon);
+  padding: 5px 10px; font: 500 12px var(--f-texte); cursor: pointer;
+}
+.deconnexion:hover { color: var(--or-clair); border-color: var(--or-sombre); }
+.connexion { padding-top: 48px; padding-bottom: 48px; display: grid; justify-items: center; }
+.carte-connexion {
+  width: min(400px, 100%); display: grid; gap: 8px; padding: 28px 24px;
+  background: var(--panneau); border: 1px solid var(--filet); border-top: 2px solid var(--or); border-radius: var(--rayon);
+}
+.carte-connexion h1 { margin: 0; font-family: var(--f-titre); font-weight: 600; font-size: 20px; letter-spacing: .12em; text-transform: uppercase; color: var(--or-clair); }
+.carte-connexion > p { margin: 0 0 10px; color: var(--texte-doux); font-size: 14px; }
+.carte-connexion label { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--texte-doux); margin-top: 6px; }
+.carte-connexion input[type="text"], .carte-connexion input[type="password"] {
+  width: 100%; padding: 11px 12px; border-radius: var(--rayon); border: 1px solid var(--filet);
+  background: var(--noir); color: var(--texte); font: 16px var(--f-texte);
+}
+.carte-connexion input:focus { outline: none; border-color: var(--or); }
+.carte-connexion .case { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 14px; margin-top: 10px; }
+.carte-connexion .case input { accent-color: var(--or); width: 16px; height: 16px; }
+.carte-connexion button {
+  margin-top: 12px; padding: 12px; border: 0; border-radius: var(--rayon); cursor: pointer;
+  background: linear-gradient(180deg, var(--or-clair), var(--or)); color: #1a1408; font: 600 15px var(--f-texte); letter-spacing: .04em;
+}
+.carte-connexion button:disabled { opacity: .6; cursor: wait; }
+.carte-connexion .message { margin: 4px 0 0; min-height: 1.5em; font-size: 14px; color: var(--alerte); }
+@media (max-width: 520px) { .deconnexion { position: static; } }

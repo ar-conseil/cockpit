@@ -1,18 +1,17 @@
-/* Cockpit AR Conseil : lit les fichiers data/*.json et dessine la vue d'ensemble
-   (#) et une page par activité (#palomano, #evoa-courtage, ...). Aucune dépendance. */
+/* Cockpit AR Conseil : déchiffre data/coffre.json avec l'identifiant et le mot de passe,
+   puis dessine la vue d'ensemble (#) et une page par activité (#palomano, ...). Aucune dépendance.
+   Chiffrement : PBKDF2-SHA256 -> AES-GCM 256 (même format que outils/coffre.mjs). */
 (function () {
   "use strict";
 
-  // Dépôt GitHub utilisé pour le bouton « Modifier les données ».
-  // Détecté automatiquement sur GitHub Pages (proprietaire.github.io/depot/).
-  var DEPOT_PAR_DEFAUT = "ar-conseil/cokpit";
-  var BRANCHE = "main";
+  var COFFRE = "data/coffre.json";
+  var CLE_STOCKAGE = "cockpit-cle";
 
   var app = document.getElementById("app");
   var tabs = document.getElementById("tabs");
   var aujourdhui = debutJour(new Date());
-  var config = null;
   var activites = [];
+  var coffre = null;
 
   document.getElementById("today").textContent = new Intl.DateTimeFormat("fr-FR", {
     weekday: "long", day: "numeric", month: "long", year: "numeric"
@@ -66,14 +65,6 @@
       base += " · " + String(d.getHours()).padStart(2, "0") + "h" + String(d.getMinutes()).padStart(2, "0");
     }
     return base;
-  }
-  function depot() {
-    var h = location.hostname.match(/^([^.]+)\.github\.io$/);
-    var seg = location.pathname.split("/").filter(Boolean)[0];
-    return h && seg ? h[1] + "/" + seg : DEPOT_PAR_DEFAUT;
-  }
-  function lienEdition(id) {
-    return "https://github.com/" + depot() + "/edit/" + BRANCHE + "/data/" + id + ".json";
   }
   var LIBELLE_STATUT = { "a-faire": "À faire", "en-cours": "En cours", "fait": "Fait", "bloque": "Bloqué" };
   var POIDS_PRIO = { haute: 0, moyenne: 1, basse: 2 };
@@ -274,8 +265,7 @@
       el("div", { class: "meta" }, [
         a.exemple ? el("span", { class: "badge exemple", text: "Données d'exemple" }) : null,
         maj ? el("span", { class: "badge", text: "Mis à jour le " + new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(maj) }) : null,
-        (a.sources || []).length ? el("span", { class: "badge", text: "Sources : " + a.sources.join(", ") }) : null,
-        el("a", { class: "bouton", href: lienEdition(a.id), target: "_blank", rel: "noopener", text: "Modifier les données ↗" })
+        (a.sources || []).length ? el("span", { class: "badge", text: "Sources : " + a.sources.join(", ") }) : null
       ])
     ]));
 
@@ -348,31 +338,111 @@
     if (actif && actif.scrollIntoView) actif.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
-  function charger(url) {
-    return fetch(url, { cache: "no-store" }).then(function (r) {
-      if (!r.ok) throw new Error(url + " : " + r.status);
-      return r.json();
+  // ---------- Coffre chiffré et connexion ----------
+  function deb64(t) { var b = atob(t), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  function b64(buf) { var u = new Uint8Array(buf), t = ""; for (var i = 0; i < u.length; i++) t += String.fromCharCode(u[i]); return btoa(t); }
+  function lireStockage() {
+    try { return sessionStorage.getItem(CLE_STOCKAGE) || localStorage.getItem(CLE_STOCKAGE); } catch (e) { return null; }
+  }
+  function ecrireStockage(valeur, durable) {
+    try {
+      sessionStorage.removeItem(CLE_STOCKAGE); localStorage.removeItem(CLE_STOCKAGE);
+      if (valeur) (durable ? localStorage : sessionStorage).setItem(CLE_STOCKAGE, valeur);
+    } catch (e) { /* navigation privée : on redemandera le mot de passe */ }
+  }
+  function deriverCle(identifiant, motDePasse) {
+    var secret = new TextEncoder().encode(identifiant.trim().toLowerCase() + "\n" + motDePasse);
+    return crypto.subtle.importKey("raw", secret, "PBKDF2", false, ["deriveKey"]).then(function (base) {
+      return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: deb64(coffre.sel), iterations: coffre.iterations, hash: "SHA-256" },
+        base, { name: "AES-GCM", length: 256 }, true, ["decrypt"]);
     });
   }
+  function dechiffrer(cle) {
+    return crypto.subtle.decrypt({ name: "AES-GCM", iv: deb64(coffre.iv) }, cle, deb64(coffre.donnees))
+      .then(function (clair) { return JSON.parse(new TextDecoder().decode(clair)); });
+  }
 
-  charger("data/activites.json").then(function (c) {
-    config = c;
-    return Promise.all(c.activites.map(function (id) {
-      return charger("data/" + id + ".json").catch(function (e) {
-        return { id: id, nom: id, couleur: "#777", description: "Fichier illisible : " + e.message, kpis: [] };
+  var ecranConnexion = document.getElementById("connexion");
+  var formulaire = document.getElementById("form-connexion");
+  var messageConnexion = document.getElementById("message-connexion");
+  var boutonDeconnexion = document.getElementById("deconnexion");
+
+  function afficherConnexion(message) {
+    activites = [];
+    tabs.textContent = "";
+    tabs.hidden = true;
+    app.hidden = true;
+    boutonDeconnexion.hidden = true;
+    ecranConnexion.hidden = false;
+    messageConnexion.textContent = message || "";
+    document.title = "Cockpit AR Conseil";
+    var champ = document.getElementById("identifiant");
+    if (champ && !champ.value) champ.focus();
+  }
+
+  var ecouteursPoses = false;
+  function ouvrirCockpit(contenu) {
+    activites = (contenu.activites || []).map(function (a) { a.couleur = a.couleur || "#c9a24b"; return a; });
+    ecranConnexion.hidden = true;
+    tabs.hidden = false;
+    app.hidden = false;
+    boutonDeconnexion.hidden = false;
+    if (!ecouteursPoses) {
+      ecouteursPoses = true;
+      window.addEventListener("hashchange", function () { if (activites.length) { router(); window.scrollTo(0, 0); } });
+      var etroitAvant = window.innerWidth < 600;
+      window.addEventListener("resize", function () {
+        var e = window.innerWidth < 600;
+        if (e !== etroitAvant && activites.length) { etroitAvant = e; router(); }
       });
-    }));
-  }).then(function (liste) {
-    activites = liste.map(function (a, i) { a.id = a.id || config.activites[i]; a.couleur = a.couleur || "#c9a24b"; return a; });
-    window.addEventListener("hashchange", function () { router(); window.scrollTo(0, 0); });
-    var etroitAvant = window.innerWidth < 600;
-    window.addEventListener("resize", function () {
-      var e = window.innerWidth < 600;
-      if (e !== etroitAvant) { etroitAvant = e; router(); }
-    });
+    }
     router();
+  }
+
+  formulaire.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var bouton = formulaire.querySelector("button");
+    var identifiant = document.getElementById("identifiant").value;
+    var motDePasse = document.getElementById("mot-de-passe").value;
+    var durable = document.getElementById("rester").checked;
+    if (!identifiant || !motDePasse) { messageConnexion.textContent = "Saisis ton identifiant et ton mot de passe."; return; }
+    bouton.disabled = true; messageConnexion.textContent = "Vérification…";
+    var cleTrouvee;
+    deriverCle(identifiant, motDePasse).then(function (cle) {
+      cleTrouvee = cle;
+      return dechiffrer(cle);
+    }).then(function (contenu) {
+      return crypto.subtle.exportKey("raw", cleTrouvee).then(function (brut) {
+        ecrireStockage(b64(brut), durable);
+        document.getElementById("mot-de-passe").value = "";
+        messageConnexion.textContent = "";
+        ouvrirCockpit(contenu);
+      });
+    }).catch(function () {
+      messageConnexion.textContent = "Identifiant ou mot de passe incorrect.";
+    }).then(function () { bouton.disabled = false; });
+  });
+
+  boutonDeconnexion.addEventListener("click", function () {
+    ecrireStockage(null);
+    afficherConnexion("Tu es déconnecté.");
+  });
+
+  fetch(COFFRE, { cache: "no-store" }).then(function (r) {
+    if (!r.ok) throw new Error(COFFRE + " : " + r.status);
+    return r.json();
+  }).then(function (c) {
+    coffre = c;
+    var memorisee = lireStockage();
+    if (!memorisee) return afficherConnexion();
+    return crypto.subtle.importKey("raw", deb64(memorisee), { name: "AES-GCM" }, false, ["decrypt"])
+      .then(dechiffrer)
+      .then(ouvrirCockpit)
+      .catch(function () { ecrireStockage(null); afficherConnexion("Le mot de passe a changé : reconnecte-toi."); });
   }).catch(function (e) {
+    app.hidden = false;
     app.textContent = "";
-    app.appendChild(el("p", { class: "erreur", text: "Impossible de charger les données (" + e.message + "). Ouvre le site via GitHub Pages ou un serveur local, pas en double-cliquant sur le fichier." }));
+    app.appendChild(el("p", { class: "erreur", text: "Impossible de charger le cockpit (" + e.message + "). Ouvre le site via son adresse en ligne ou un serveur local." }));
   });
 })();

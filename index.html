@@ -19,16 +19,29 @@
         <span class="brand-rule" aria-hidden="true"><i></i><b>✦</b><i></i></span>
       </a>
       <p class="today" id="today"></p>
+      <button type="button" class="deconnexion" id="deconnexion" hidden>Se déconnecter</button>
     </div>
-    <nav class="tabs" id="tabs" aria-label="Activités"></nav>
+    <nav class="tabs" id="tabs" aria-label="Activités" hidden></nav>
   </header>
 
-  <main id="app" class="page">
-    <p class="loading">Chargement du cockpit…</p>
-  </main>
+  <section class="connexion page" id="connexion" hidden>
+    <form class="carte-connexion" id="form-connexion" autocomplete="on">
+      <h1>Accès réservé</h1>
+      <p>Les données du cockpit sont chiffrées. Connecte-toi pour les afficher.</p>
+      <label for="identifiant">Identifiant</label>
+      <input id="identifiant" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="mot-de-passe">Mot de passe</label>
+      <input id="mot-de-passe" name="password" type="password" autocomplete="current-password" required>
+      <label class="case" for="rester"><input id="rester" type="checkbox"> Rester connecté sur cet appareil</label>
+      <button type="submit">Se connecter</button>
+      <p class="message" id="message-connexion" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <main id="app" class="page" hidden></main>
 
   <footer class="foot page">
-    <p>Les chiffres viennent des fichiers du dossier <code>data/</code> du dépôt. Pour en corriger un, ouvre la page de l'activité et clique sur « Modifier les données ».</p>
+    <p>Cockpit AR Conseil · données chiffrées, lisibles uniquement après connexion.</p>
   </footer>
 
   <script src="assets/app.js"></script>

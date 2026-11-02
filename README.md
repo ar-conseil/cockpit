@@ -2,16 +2,26 @@
 
 Tableau de bord de mes activités : une vue d'ensemble et un dashboard par activité.
 
-| Activité | Page | Fichier de données |
-|---|---|---|
-| Vue d'ensemble | `#` | `data/activites.json` (liste et ordre des activités) |
-| Palomano | `#palomano` | `data/palomano.json` |
-| Evoa Courtage | `#evoa-courtage` | `data/evoa-courtage.json` |
-| Harnes Volley | `#harnes-volley` | `data/harnes-volley.json` |
-| Camp Rouzier Maréchal | `#camp-rouzier-marechal` | `data/camp-rouzier-marechal.json` |
+| Activité | Adresse |
+|---|---|
+| Vue d'ensemble | `/` |
+| Palomano | `/#palomano` |
+| Evoa Courtage | `/#evoa-courtage` |
+| Harnes Volley | `/#harnes-volley` |
+| Camp Rouzier Maréchal | `/#camp-rouzier-marechal` |
 
 Le site est fait de fichiers statiques (HTML, CSS, JavaScript), sans installation ni compilation.
-Tout se modifie directement sur github.com.
+
+## Accès protégé
+
+Le dépôt et le site sont publics, mais **les données sont chiffrées** dans `data/coffre.json`
+(PBKDF2-SHA256 + AES-GCM 256). Sans l'identifiant et le mot de passe, ce fichier est illisible.
+Le déchiffrement se fait dans le navigateur au moment de la connexion. Rien n'est envoyé à un serveur.
+
+- L'identifiant et le mot de passe **ne sont écrits nulle part dans le dépôt**. Garde-les dans ton gestionnaire de mots de passe.
+- « Rester connecté sur cet appareil » garde la clé dans le navigateur jusqu'à « Se déconnecter ».
+- Changer le mot de passe déconnecte tous les appareils.
+- Mot de passe perdu = données illisibles. Il faudra alors refaire le coffre (voir plus bas).
 
 ## Mettre le site en ligne (une seule fois)
 
@@ -19,18 +29,34 @@ Tout se modifie directement sur github.com.
 2. *Source* : **Deploy from a branch**, branche **main**, dossier **/ (root)**, puis **Save**.
 3. Après 1 à 2 minutes, l'adresse s'affiche en haut de la page (du type `https://ar-conseil.github.io/cockpit/`).
 
-> ⚠️ Un site GitHub Pages est **public** : toute personne qui a l'adresse voit les chiffres.
-> Avec un compte GitHub gratuit, Pages ne marche que si le dépôt est public.
-> Ne mets pas dans `data/` d'informations que tu ne veux pas rendre visibles.
+Avec un compte GitHub gratuit, Pages ne marche que si le dépôt est **public** (Settings → General → Change visibility).
+Les données restent protégées par le chiffrement. Ne mets jamais de fichier de données non chiffré dans le dépôt.
 
 ## Mettre à jour les chiffres
 
-- **Depuis le site** : sur la page d'une activité, bouton **« Modifier les données »**. Il ouvre le fichier sur GitHub ;
-  modifie, puis **Commit changes**. Le site se met à jour en 1 à 2 minutes.
-- **Avec Claude** : ouvre une session Claude Code sur ce dépôt et demande par exemple
-  « mets à jour le dashboard Evoa Courtage avec HubSpot » ou « actualise la trésorerie Palomano depuis Qonto ».
+Le plus simple : ouvre une session Claude Code (claude.ai/code) sur ce dépôt et demande par exemple
+« mets à jour le dashboard Evoa Courtage avec HubSpot » ou « ajoute une tâche à Harnes Volley ».
+Claude ouvre le coffre, modifie, le referme et publie. Le site se met à jour en 1 à 2 minutes.
 
-## Format d'un fichier d'activité
+Pour ne pas avoir à redonner le mot de passe à chaque session, ajoute dans les réglages de ton
+environnement cloud Claude les variables `COCKPIT_IDENTIFIANT` et `COCKPIT_MOT_DE_PASSE`.
+
+À la main, sur un ordinateur avec Node.js :
+
+```bash
+node outils/coffre.mjs ouvrir     # déchiffre vers .donnees/ (jamais publié, ignoré par git)
+# … modifier les fichiers .donnees/*.json …
+node outils/coffre.mjs fermer     # rechiffre vers data/coffre.json, puis commit + push
+```
+
+Changer l'identifiant ou le mot de passe :
+
+```bash
+node outils/coffre.mjs ouvrir
+COCKPIT_NOUVEL_IDENTIFIANT=… COCKPIT_NOUVEAU_MOT_DE_PASSE=… node outils/coffre.mjs changer
+```
+
+## Format d'un fichier d'activité (dans `.donnees/`)
 
 ```json
 {
@@ -62,7 +88,7 @@ Tout se modifie directement sur github.com.
 
 Les commentaires `//` ci-dessus sont des explications : ils ne doivent pas apparaître dans les vrais fichiers JSON.
 
-**Ajouter une activité** : crée `data/mon-activite.json` sur ce modèle, puis ajoute `"mon-activite"` dans `data/activites.json`.
+**Ajouter une activité** : crée `.donnees/mon-activite.json` sur ce modèle, ajoute `"mon-activite"` dans `.donnees/activites.json`, puis `fermer`.
 
 ## Tester sur un ordinateur
 
@@ -70,4 +96,4 @@ Les commentaires `//` ci-dessus sont des explications : ils ne doivent pas appar
 python3 -m http.server 8000
 ```
 
-puis ouvrir http://localhost:8000 (un double-clic sur `index.html` ne suffit pas : le navigateur bloque la lecture des fichiers de données).
+puis ouvrir http://localhost:8000 (un double-clic sur `index.html` ne suffit pas : le navigateur bloque la lecture du coffre).

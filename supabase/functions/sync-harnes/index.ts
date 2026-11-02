@@ -31,10 +31,23 @@ Deno.serve(async (req) => {
   // ---------- 1. HubSpot -> fiches partenaires ----------
   if (HUBSPOT) {
     try {
-      const hs = async (chemin: string) => {
-        const r = await fetch(`https://api.hubapi.com${chemin}`, { headers: { Authorization: `Bearer ${HUBSPOT}` } });
+      const hs = async (chemin: string, corps?: unknown) => {
+        const r = await fetch(`https://api.hubapi.com${chemin}`, corps ? { method: "POST", body: JSON.stringify(corps),
+          headers: { Authorization: `Bearer ${HUBSPOT}`, "Content-Type": "application/json" } } : { headers: { Authorization: `Bearer ${HUBSPOT}` } });
         if (!r.ok) throw new Error(`HubSpot ${r.status} : ${(await r.text()).slice(0, 200)}`);
         return r.json();
+      };
+      // Lecture groupée de contacts ou d'entreprises (droits crm.objects.*.read) ; sans le droit, la fiche s'en passe.
+      // deno-lint-ignore no-explicit-any
+      const lireGroupe = async (type: string, ids: string[], proprietes: string[]): Promise<Map<string, any>> => {
+        const res = new Map();
+        for (let i = 0; i < ids.length; i += 100) {
+          try {
+            const r = await hs(`/crm/v3/objects/${type}/batch/read`, { properties: proprietes, inputs: ids.slice(i, i + 100).map((id) => ({ id })) });
+            for (const o of r.results ?? []) res.set(String(o.id), o.properties ?? {});
+          } catch (e) { bilan[`hubspot_${type}`] = e instanceof Error ? e.message.slice(0, 80) : String(e); break; }
+        }
+        return res;
       };
       const pipelines = await hs("/crm/v3/pipelines/deals");
       const libelles: Record<string, string> = {};
@@ -51,12 +64,21 @@ Deno.serve(async (req) => {
       const deals: any[] = [];
       let apres = "";
       do {
-        const page = await hs(`/crm/v3/objects/deals?limit=100&properties=dealname,dealstage,amount,closedate,pipeline${apres ? "&after=" + apres : ""}`);
+        const page = await hs(`/crm/v3/objects/deals?limit=100&properties=dealname,dealstage,amount,closedate,pipeline,pack_partenaire,deal_benefits_offered,description,hs_lastmodifieddate&associations=contacts,companies${apres ? "&after=" + apres : ""}`);
         deals.push(...(page.results ?? []));
         apres = page.paging?.next?.after ?? "";
       } while (apres);
 
-      const { data: fiches } = await db.from("clients").select("id, nom, etape, donnees").eq("activite_id", PROJET);
+      // Contacts et entreprises associés : comme sur la fiche HubSpot
+      // deno-lint-ignore no-explicit-any
+      const assoc = (d: any, type: string) => Array.from(new Set(((d.associations?.[type]?.results ?? []) as { id: string }[]).map((x) => String(x.id))));
+      const contacts = await lireGroupe("contacts", Array.from(new Set(deals.flatMap((d) => assoc(d, "contacts")))), ["firstname", "lastname", "email", "phone", "mobilephone", "jobtitle"]);
+      const entreprises = await lireGroupe("companies", Array.from(new Set(deals.flatMap((d) => assoc(d, "companies")))), ["name", "domain", "city", "phone"]);
+      const PACKS: Record<string, string> = { bronze: "Bronze", argent: "Argent", or: "Or", platine: "Platine", a_la_carte: "À la carte", parrainage_match: "Parrainage de match" };
+      const AVANTAGES: Record<string, string> = { on_field_visibility: "Visibilité terrain", digital_communication: "Communication digitale", vip_seats: "Places VIP", match_animation: "Animation de match" };
+      const euro = (t: string | undefined, re: RegExp) => { const m = re.exec(t ?? ""); return m ? Number(m[1].replace(/[\s\u202f.]/g, "").replace(",", ".")) : null; };
+
+      const { data: fiches } = await db.from("clients").select("id, nom, etape, contact, donnees").eq("activite_id", PROJET);
       const parId = new Map((fiches ?? []).filter((f) => f.donnees?.hubspot_id).map((f) => [String(f.donnees.hubspot_id), f]));
       const parNom = new Map((fiches ?? []).map((f) => [normaliser(f.nom), f]));
       const actionPour = (etape: string) => /factur/i.test(etape) ? "Suivre l'encaissement" : /sign/i.test(etape) ? "Facturer le partenariat"
@@ -69,14 +91,31 @@ Deno.serve(async (req) => {
         const etape = libelles[p.dealstage] ?? p.dealstage ?? null;
         const montant = p.amount ? Number(p.amount) : null;
         const fiche = parId.get(String(d.id)) ?? parNom.get(normaliser(nom));
-        const donnees = { ...(fiche?.donnees ?? {}), hubspot_id: String(d.id) };
+        const lesContacts = assoc(d, "contacts").map((id) => contacts.get(id)).filter(Boolean).map((c) => ({
+          nom: [c.firstname, c.lastname].filter(Boolean).join(" ") || c.email || "Contact", fonction: c.jobtitle || null,
+          email: c.email || null, tel: c.mobilephone || c.phone || null }));
+        const ent = assoc(d, "companies").map((id) => entreprises.get(id)).filter(Boolean)[0];
+        const desc: string = p.description ?? "";
+        const donnees = { ...(fiche?.donnees ?? {}), hubspot_id: String(d.id),
+          hubspot_url: `https://app-eu1.hubspot.com/contacts/149588694/record/0-3/${d.id}`,
+          pack: PACKS[p.pack_partenaire] ?? p.pack_partenaire ?? null,
+          avantages: (p.deal_benefits_offered ?? "").split(";").filter(Boolean).map((v: string) => AVANTAGES[v] ?? v).join(", ") || null,
+          cloture: p.closedate ? String(p.closedate).slice(0, 10) : null,
+          saison_precedente: euro(desc, /2025-2026\s*:\s*([\d\s\u202f.,]+)\s*€/), saison_suivante: euro(desc, /2027-2028[^:]*:\s*([\d\s\u202f.,]+)\s*€/),
+          nouveau: /nouveau partenaire/i.test(desc) || null, description: desc || null,
+          contacts: lesContacts.length ? lesContacts : (fiche?.donnees?.contacts ?? []),
+          entreprise: ent ? { nom: ent.name || null, ville: ent.city || null, site: ent.domain || null, tel: ent.phone || null } : (fiche?.donnees?.entreprise ?? null),
+          modifie_hubspot: p.hs_lastmodifieddate ?? null };
+        const premier = lesContacts[0];
+        const contactTexte = premier ? [premier.nom, premier.tel, premier.email].filter(Boolean).join(" · ") : null;
         if (fiche) {
           const champs: Record<string, unknown> = { etape, montant, donnees };
+          if (contactTexte && !fiche.contact) champs.contact = contactTexte;
           if (fiche.etape !== etape) champs.prochaine_action = actionPour(etape ?? "");
           await db.from("clients").update(champs).eq("id", fiche.id);
           maj++;
         } else {
-          await db.from("clients").insert({ activite_id: PROJET, nom, type: "partenaire", etape, montant, donnees,
+          await db.from("clients").insert({ activite_id: PROJET, nom, type: "partenaire", etape, montant, donnees, contact: contactTexte,
             prochaine_action: actionPour(etape ?? ""), notes: "Créée depuis HubSpot." });
           crees++;
         }

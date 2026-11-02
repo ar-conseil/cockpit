@@ -1079,6 +1079,7 @@
     var cellule = function (ch, c) {
       var v = valeurChamp(c, ch.cle);
       if (ch.type === "date") return el("td", { class: "date" + (ch.cle === "rdv" && v && v >= isoJour(new Date()) ? " a-venir" : ""), text: v ? fmt(lireJour(v), { day: "numeric", month: "short" }) : "–" });
+      if (ch.cle === "pack" && v) return el("td", {}, [el("span", { class: "hs-pack petit", style: "--p:" + (COULEURS_PACK[v] || a.couleur), text: v })]);
       return el("td", { class: ch.type === "euros" ? "nb" : "", text: ch.type === "euros" ? argent(+v) : (v || "–") });
     };
     var nbCol = 4 + visibles.length + (r.total ? 1 : 0);
@@ -1112,7 +1113,7 @@
         euros.map(function (ch) { return el("td", { class: "nb", text: argent(somme(function (c) { return valeurChamp(c, ch.cle); })) }); }),
         r.total ? [el("td", { class: "nb total", text: argent(somme(function (c) { return totalClient(a, c); })) })] : [],
         dates.map(function () { return el("td"); }), [el("td")]));
-    var tete = el("tr", {}, [el("th", { scope: "col", text: "Client" }), el("th", { scope: "col", text: "Étape" })]
+    var tete = el("tr", {}, [el("th", { scope: "col", text: r.hubspot ? "Partenaire" : "Client" }), el("th", { scope: "col", text: "Étape" })]
       .concat(textes.map(function (ch) { return el("th", { scope: "col", text: ch.label }); }),
         [el("th", { scope: "col", class: "nb", text: r.libelle_montant || "Montant" })],
         euros.map(function (ch) { return el("th", { scope: "col", class: "nb", text: ch.label }); }),
@@ -1140,10 +1141,12 @@
     var etape = el("select", { "aria-label": "Étape" }, [el("option", { value: "", text: "Étape" })].concat(etapes.map(function (e) { return el("option", { value: e, selected: e === c.etape, text: e }); })));
     var type = el("select", { "aria-label": "Type" }, ["prospect", "client", "partenaire", "fournisseur", "autre"].map(function (t) { return el("option", { value: t, selected: t === c.type, text: t }); }));
     var montant = el("input", { type: "number", step: "any", value: c.montant == null ? "" : c.montant, placeholder: (r.libelle_montant || "Montant") + " €", "aria-label": r.libelle_montant || "Montant" });
-    var champs = (r.champs || []).map(function (ch) {
+    // Les champs venus de HubSpot sont déjà affichés dans le bloc HubSpot de la fiche
+    var champs = (r.champs || []).filter(function (ch) { return !(ch.hubspot && (c.donnees || {}).hubspot_id); }).map(function (ch) {
       var v = (c.donnees || {})[ch.cle];
       var aide = ch.taux ? " (vide = " + fmtN.format(ch.taux * 100) + " % du prix)" : "";
-      return { ch: ch, input: el("input", { type: ch.type === "euros" ? "number" : ch.type === "date" ? "date" : "text", step: "any", value: v == null ? "" : v, placeholder: ch.label + (ch.type === "euros" ? " €" : "") + aide, "aria-label": ch.label, title: ch.label + aide }) };
+      return { ch: ch, input: el("input", { type: ch.type === "euros" ? "number" : ch.type === "date" ? "date" : "text", step: "any", value: v == null ? "" : v, placeholder: ch.label + (ch.type === "euros" ? " €" : "") + aide, "aria-label": ch.label,
+        title: ch.hubspot ? ch.label + " : à modifier dans HubSpot" : ch.label + aide, readonly: ch.hubspot && (c.donnees || {}).hubspot_id ? true : null }) };
     });
     // Commission totale (ex. Berkay : vente + frais), recalculée pendant la saisie ; une case vide prend le taux du projet
     var totalFiche = null;
@@ -1164,11 +1167,17 @@
       [montant].concat(champs.map(function (x) { return x.input; })).forEach(function (i) { i.addEventListener("input", recalculer); });
       recalculer();
     }
+    // Fiche synchronisée avec HubSpot : étape et montant se changent dans HubSpot (sinon la synchro les réécrirait)
+    if (r.hubspot && (c.donnees || {}).hubspot_id) {
+      etape.disabled = true; etape.title = "Étape : à changer dans HubSpot";
+      montant.readOnly = true; montant.title = "Montant : à changer dans HubSpot";
+    }
     var contact = el("input", { type: "text", value: c.contact || "", placeholder: "Contact (nom, téléphone, e-mail)", "aria-label": "Contact" });
     var action = el("input", { type: "text", value: c.prochaine_action || "", placeholder: "Prochaine action", "aria-label": "Prochaine action" });
     var actionLe = el("input", { type: "date", value: c.prochaine_action_le || "", "aria-label": "Date de la prochaine action" });
     var notes = el("textarea", { rows: "3", placeholder: "Notes", "aria-label": "Notes" }); notes.value = c.notes || "";
     var fiche = el("form", { class: "fiche" }, [
+      r.hubspot && (c.donnees || {}).hubspot_id ? blocHubspot(c, a) : null,
       el("div", { class: "rangee" }, [etape, r.champs ? null : type, montant]),
       champs.length ? el("div", { class: "rangee champs" }, champs.map(function (x) { return el("label", {}, [el("span", { text: x.ch.label }), x.input]); })) : null,
       totalFiche,
@@ -1230,6 +1239,48 @@
     }) : [el("li", { class: "vide", text: "Pas encore d'échange noté." })]);
     return el("div", { class: "client-corps", onclick: function (ev) { ev.stopPropagation(); } }, [fiche, el("div", { class: "historique" }, [el("p", { class: "etiquette", text: "Historique" }), formS, journal]),
       r.recommandations ? tableauRecommandations(c) : null]);
+  }
+
+  // ---------- Fiche façon HubSpot (Harnes) : pack, avantages, saisons, contacts et entreprise associés ----------
+  var COULEURS_PACK = { "Bronze": "#b0784a", "Argent": "#8e99a6", "Or": "#c9a227", "Platine": "#5f7386", "À la carte": "#d01818", "Parrainage de match": "#0e0e0f" };
+  function blocHubspot(c, a) {
+    var d = c.donnees || {}, argent = function (v) { return v == null ? "—" : fmtN.format(Math.round(v)) + " €"; };
+    var evolution = function (avant, apres) {
+      if (avant == null || apres == null || !avant) return null;
+      var p = Math.round((apres - avant) / avant * 100);
+      return el("span", { class: "evolution " + (p > 0 ? "hausse" : p < 0 ? "baisse" : ""), text: (p > 0 ? "+" : "") + p + " %" });
+    };
+    var saisons = el("div", { class: "hs-saisons" }, [
+      el("div", {}, [el("small", { text: "2025-2026" }), el("b", { text: d.nouveau ? "Nouveau" : argent(d.saison_precedente) })]),
+      el("div", { class: "courante" }, [el("small", { text: "2026-2027" }), el("b", { text: argent(+c.montant || null) }), evolution(d.saison_precedente, +c.montant)]),
+      el("div", {}, [el("small", { text: "2027-2028 prévu" }), el("b", { text: argent(d.saison_suivante) }), evolution(+c.montant, d.saison_suivante)])
+    ]);
+    var contacts = (d.contacts || []).map(function (k) {
+      return el("div", { class: "hs-contact" }, [
+        el("span", { class: "hs-avatar", text: (k.nom || "?").split(" ").map(function (m) { return m.charAt(0); }).join("").slice(0, 2).toUpperCase() }),
+        el("div", {}, [el("b", { text: k.nom }), k.fonction ? el("small", { text: k.fonction }) : null,
+          el("div", { class: "hs-liens" }, [k.email ? el("a", { href: "mailto:" + k.email, text: k.email }) : null, k.tel ? el("a", { href: "tel:" + k.tel.replace(/\s/g, ""), text: k.tel }) : null])])
+      ]);
+    });
+    var ent = d.entreprise;
+    return el("div", { class: "hs-fiche", onclick: function (ev) { ev.stopPropagation(); } }, [
+      el("div", { class: "hs-tete" }, [
+        d.pack ? el("span", { class: "hs-pack", style: "--p:" + (COULEURS_PACK[d.pack] || a.couleur), text: "Pack " + d.pack }) : null,
+        d.cloture ? el("span", { class: "hs-meta", text: "Clôture " + fmt(lireJour(d.cloture), { day: "numeric", month: "short", year: "numeric" }) }) : null,
+        el("a", { class: "btn-contour petit hs-ouvrir", href: d.hubspot_url, target: "_blank", rel: "noopener", text: "Ouvrir dans HubSpot ↗" })
+      ]),
+      saisons,
+      d.avantages ? el("div", { class: "hs-avantages" }, d.avantages.split(", ").map(function (x) { return el("span", { text: x }); })) : null,
+      el("div", { class: "hs-colonnes" }, [
+        el("div", {}, [el("p", { class: "etiquette", text: "Contacts" + (contacts.length ? " (" + contacts.length + ")" : "") }),
+          contacts.length ? el("div", { class: "hs-contacts" }, contacts) : el("p", { class: "vide", text: "Contacts HubSpot pas encore lus (droit de lecture à activer)." })]),
+        el("div", {}, [el("p", { class: "etiquette", text: "Entreprise" }),
+          ent ? el("div", { class: "hs-entreprise" }, [el("b", { text: ent.nom || c.nom }), el("small", { text: [ent.ville, ent.site, ent.tel].filter(Boolean).join(" · ") })])
+            : el("p", { class: "vide", text: "—" })])
+      ]),
+      d.description ? el("p", { class: "hs-description", text: d.description }) : null,
+      el("p", { class: "hs-note", text: "Pack, montants, avantages et contacts viennent de HubSpot (mis à jour tous les quarts d'heure) : modifiez-les dans HubSpot. Relance, notes et historique restent ici." })
+    ]);
   }
 
   // ---------- Recommandations (parrainage) : les personnes qu'un client recommande, notées à chaque rendez-vous ----------

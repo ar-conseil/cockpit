@@ -56,14 +56,20 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--e
 .centre { text-align: center; padding: 18px 0 4px; }
 .cap::first-letter { text-transform: uppercase; }
 
+/* Boutons : plein (action principale, à la couleur du projet sur sa page), discret (actions secondaires) */
 .btn-plein {
-  border: 0; background: var(--encre); color: var(--papier); padding: 9px 16px; border-radius: 999px;
-  font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; transition: transform .15s;
+  border: 0; background: var(--encre); color: var(--papier); padding: 9px 16px; border-radius: 10px;
+  font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap;
+  box-shadow: 0 1px 2px rgb(15 15 15 / .14), inset 0 1px 0 rgb(255 255 255 / .14);
+  transition: transform .16s var(--doux), box-shadow .16s, filter .16s;
 }
-.btn-plein:hover { transform: translateY(-1px); }
-.btn-texte { border: 0; background: none; padding: 4px 0; cursor: pointer; color: var(--encre-2); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--filet); }
-.btn-texte:hover { color: var(--encre); text-decoration-color: var(--encre); }
-.btn-texte.danger:hover { color: var(--rouge); text-decoration-color: var(--rouge); }
+.btn-plein:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -10px rgb(15 15 15 / .55), inset 0 1px 0 rgb(255 255 255 / .14); }
+.btn-plein:active { transform: translateY(0) scale(.97); }
+main[data-projet]:not([data-projet=""]) .btn-plein { background: var(--bouton-marque); color: #fff; }
+.btn-texte { border: 0; background: none; padding: 6px 10px; border-radius: 8px; cursor: pointer; color: var(--encre-2); font: 500 13px var(--sans); text-decoration: none; transition: background .12s, color .12s; }
+.btn-texte:hover { background: var(--survol); color: var(--encre); }
+.btn-texte:active { transform: scale(.97); }
+.btn-texte.danger:hover { background: color-mix(in srgb, var(--rouge) 10%, transparent); color: var(--rouge); }
 
 /* ---------- Coquille façon Notion : barre latérale, barre du haut, contenu ---------- */
 .coquille { display: contents; }
@@ -662,6 +668,43 @@ html[data-transition="carte"]::view-transition-old(root) { animation-name: fondu
   .tableau-taches { grid-template-columns: repeat(4, 82vw); margin: 0 calc(-1 * var(--marge)); padding: 0 var(--marge) 8px; scroll-padding: 0 var(--marge); }
   .barre-vues .sep { display: none; }
 }
+
+/* ---------- Chartes des projets : couverture, logo, police du titre, boutons de liens ---------- */
+.couverture { position: relative; height: clamp(120px, 19vh, 190px); margin: 0 calc(-1 * var(--marge)); background: var(--couverture); }
+.couverture::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgb(0 0 0 / .06)); }
+.hero-projet.avec-couverture { background: none; padding-top: 0; }
+.hero-projet.avec-couverture .icone-projet.grande {
+  position: relative; z-index: 1; width: 92px; height: 92px; border-radius: 22px; margin: -46px 0 18px; font-size: 40px;
+  background: var(--blanc); color: color-mix(in srgb, var(--c) 85%, var(--encre));
+  box-shadow: 0 0 0 1px rgb(15 15 15 / .06), 0 14px 34px -14px rgb(15 15 15 / .35);
+}
+.icone-projet.logo { background: #fff; padding: 2px; box-shadow: inset 0 0 0 1px rgb(15 15 15 / .07); overflow: hidden; }
+.icone-projet.logo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.hero-projet.avec-couverture .icone-projet.grande.logo { background: #fff; padding: 13px; }
+.hero-projet h1 { font-family: var(--police-marque, var(--serif)); }
+.hero-projet.titre-majuscules h1 { text-transform: uppercase; letter-spacing: 0; font-size: clamp(42px, 5.6vw, 70px); line-height: .95; }
+.hero-projet.titre-italique h1 { font-style: italic; letter-spacing: -.02em; }
+.hero-projet.titre-capitales-fines h1 { text-transform: uppercase; font-weight: 500; letter-spacing: .06em; font-size: clamp(30px, 3.4vw, 44px); line-height: 1.1; }
+main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: color-mix(in srgb, var(--marque) 13%, transparent); color: color-mix(in srgb, var(--marque) 78%, var(--encre)); }
+
+.boutons-liens { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 10px; }
+.hero-projet > .boutons-liens { grid-column: 1 / -1; margin-top: -8px; }
+.bouton-lien {
+  display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 12px 10px 10px; border-radius: 12px;
+  background: var(--blanc); color: var(--encre); text-decoration: none;
+  box-shadow: 0 0 0 1px var(--filet), 0 1px 2px rgb(15 15 15 / .04);
+  transition: transform .18s var(--doux), box-shadow .18s;
+}
+.bouton-lien:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, var(--filet)), 0 12px 26px -14px color-mix(in srgb, var(--c) 70%, transparent); }
+.bouton-lien:active { transform: translateY(0) scale(.985); }
+.bouton-lien:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.bouton-lien-initiale { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--bouton-marque, var(--c)); color: #fff; font: 700 15px var(--police-marque, var(--sans)); }
+.bouton-lien-texte { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
+.bouton-lien-texte b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bouton-lien-texte small { font-size: 12px; color: var(--encre-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bouton-lien-fleche { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--encre-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform .18s var(--doux), stroke .18s; }
+.bouton-lien:hover .bouton-lien-fleche { transform: translate(2px, -2px); stroke: var(--c); }
+@media (max-width: 640px) { .boutons-liens { grid-template-columns: 1fr; } }
 
 /* ---------- Fluidité : transitions entre pages, apparition au défilement ---------- */
 ::view-transition-old(root) { animation: 110ms ease-in both fondu-sort; }

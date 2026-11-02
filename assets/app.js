@@ -209,6 +209,23 @@
     return h;
   }
 
+  // ---------- Chartes graphiques des projets (logos dans assets/marques, couleurs dans activites.couleur) ----------
+  var CHARTES = {
+    "palomano": { icone: "assets/marques/palomano-icone.svg", police: '"Playpen Sans", var(--sans)',
+      couverture: "linear-gradient(115deg, #c1daf3 0%, #e1ebbd 33%, #f7d589 66%, #ef818e 100%)" },
+    "evoa-courtage": { icone: "assets/marques/evoa-icone.png", police: '"Montserrat", var(--sans)',
+      couverture: "linear-gradient(115deg, #204e99 0%, #2b3f8f 55%, #38297c 100%)", bouton: "linear-gradient(115deg, #204e99, #38297c)" },
+    "harnes-volley": { icone: "assets/marques/harnes.png", police: '"Barlow Condensed", var(--sans)', style: "majuscules",
+      couverture: "linear-gradient(105deg, #0e0e0f 0 56%, #d01818 56% 61%, #0e0e0f 61% 64%, #8f0000 64% 100%)" },
+    "berkay": { police: 'Arial, "Helvetica Neue", var(--sans)', style: "italique", couverture: "linear-gradient(115deg, #123208, #2a5a1c)" },
+    "wealthy": { icone: "assets/marques/wealthy-icone.png", police: '"Bodoni Moda", Didot, serif', style: "capitales-fines",
+      couverture: "linear-gradient(180deg, #f4efe6, #e6ddcd)" }
+  };
+  function couvertureDe(a) {
+    var ch = CHARTES[a.id];
+    return ch && ch.couverture || "linear-gradient(115deg, color-mix(in srgb, " + a.couleur + " 38%, #fff), color-mix(in srgb, " + a.couleur + " 10%, #fff))";
+  }
+
   // ---------- Navigation : barre latérale façon Notion, fil d'Ariane en haut ----------
   var ICONES = {
     aujourdhui: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>',
@@ -217,7 +234,22 @@
   };
   function icone(nom, classe) { var s = el("span", { class: "icone " + (classe || "") }); s.innerHTML = ICONES[nom]; return s; }
   function nomCourt(nom) { return nom.replace(" Courtage", "").replace(" Rouzier Maréchal", "").replace(" Volley", "").replace(" Gestion Privée", ""); }
-  function iconeProjet(a, grande) { return el("span", { class: "icone-projet" + (grande ? " grande" : ""), style: "--c:" + a.couleur, "aria-hidden": "true", text: nomCourt(a.nom).charAt(0) }); }
+  function iconeProjet(a, grande) {
+    var ch = CHARTES[a.id];
+    if (ch && ch.icone) return el("span", { class: "icone-projet logo" + (grande ? " grande" : ""), style: "--c:" + a.couleur, "aria-hidden": "true" }, [el("img", { src: ch.icone, alt: "", decoding: "async" })]);
+    return el("span", { class: "icone-projet" + (grande ? " grande" : ""), style: "--c:" + a.couleur, "aria-hidden": "true", text: nomCourt(a.nom).charAt(0) });
+  }
+  function boutonsLiens(liens) {
+    return el("div", { class: "boutons-liens" }, liens.map(function (l) {
+      var domaine = ""; try { domaine = new URL(l.url).hostname.replace(/^www\./, ""); } catch (e) {}
+      var b = el("a", { class: "bouton-lien", href: l.url, target: "_blank", rel: "noopener" }, [
+        el("span", { class: "bouton-lien-initiale", "aria-hidden": "true", text: l.label.charAt(0).toUpperCase() }),
+        el("span", { class: "bouton-lien-texte" }, [el("b", { text: l.label }), domaine ? el("small", { text: domaine }) : null])
+      ]);
+      b.insertAdjacentHTML("beforeend", '<svg class="bouton-lien-fleche" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11l6-6M6 5h5v5"/></svg>');
+      return b;
+    }));
+  }
   function lienCote(href, actif, contenu, nb, touche) {
     var l = el("a", { href: href, class: "cote-lien", title: touche ? "Touche " + touche : null }, contenu.concat([nb ? el("small", { text: String(nb) }) : null]));
     if (actif) l.setAttribute("aria-current", "page");
@@ -827,13 +859,14 @@
     var f = document.createDocumentFragment(), n = new Date(), iso = isoJour(n);
     var ouvertes = trierTaches(S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }));
     var rdv = prochainRdv(a.id);
-    f.appendChild(el("section", { class: "hero-projet", style: "--c:" + a.couleur }, [
+    var ch = CHARTES[a.id] || {};
+    f.appendChild(el("div", { class: "couverture", style: "--couverture:" + couvertureDe(a), "aria-hidden": "true" }));
+    f.appendChild(el("section", { class: "hero-projet avec-couverture" + (ch.style ? " titre-" + ch.style : ""), style: "--c:" + a.couleur + (ch.police ? ";--police-marque:" + ch.police : "") }, [
       el("div", {}, [
         iconeProjet(a, true),
         el("p", { class: "surtitre", text: "Projet " + String(S.activites.indexOf(a) + 1).padStart(2, "0") }),
         el("h1", { text: a.nom }),
-        a.description ? el("p", { class: "chapo", text: a.description }) : null,
-        (a.liens || []).length ? el("div", { class: "liens" }, a.liens.map(function (l) { return el("a", { href: l.url, target: "_blank", rel: "noopener", text: l.label + " ↗" }); })) : null
+        a.description ? el("p", { class: "chapo", text: a.description }) : null
       ]),
       el("dl", { class: "hero-chiffres" }, [
         el("div", {}, [el("dt", { text: "Prochain rendez-vous" }), el("dd", { class: "petit", text: rdv ? rdv.titre || "(sans titre)" : "—" }),
@@ -844,7 +877,8 @@
           return el("div", {}, [el("dt", { text: "À encaisser" }), el("dd", { class: "petit", text: fmtN.format(Math.round(rf.attente)) + " €" }),
             el("small", { class: rf.nbRetard ? "retard" : "", text: rf.nbRetard ? rf.nbRetard + " facture(s) en retard" : rf.aEmettre ? fmtN.format(Math.round(rf.aEmettre)) + " € à émettre" : "à jour" })]);
         })() : null
-      ])
+      ]),
+      (a.liens || []).length ? boutonsLiens(a.liens) : null
     ]));
 
     f.appendChild(ongletsProjet(a));
@@ -1419,6 +1453,10 @@
     app.textContent = "";
     app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
+    var chA = a && CHARTES[a.id];
+    app.dataset.projet = a ? a.id : "";
+    app.style.setProperty("--marque", a ? a.couleur : "var(--encre)");
+    app.style.setProperty("--bouton-marque", chA && chA.bouton || (a ? a.couleur : "var(--encre)"));
     window.scrollTo({ top: y, behavior: "instant" });
     var tabApres = app.querySelector(".tableau-taches"); if (tabApres && tabScroll) tabApres.scrollLeft = tabScroll;
     var defile = document.getElementById("cal-defile"), ligne = document.getElementById("cal-maintenant");

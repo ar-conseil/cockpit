@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     const agendas = await listerAgendas(c, await jetonAcces(db, c));
     for (const a of agendas) {
       const { data: deja } = await db.from("agendas").select("id").eq("compte_id", c.id).eq("externe_id", a.externe_id).maybeSingle();
-      if (deja) await db.from("agendas").update({ nom: a.nom, ecriture: a.ecriture }).eq("id", deja.id);
+      if (deja) await db.from("agendas").update({ ecriture: a.ecriture }).eq("id", deja.id); // le nom choisi dans le cockpit est gardé
       else await db.from("agendas").insert({ compte_id: c.id, externe_id: a.externe_id, nom: a.nom, ecriture: a.ecriture, actif: a.actif,
         activite_id: projetParDefaut(a.nom, a.principal ? c.email : "") });
     }

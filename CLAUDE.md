@@ -4,16 +4,17 @@ Site statique (GitHub Pages, dépôt PUBLIC ar-conseil/cockpit) : `index.html`, 
 Données dans **Supabase** (projet perso, un seul utilisateur, inscriptions fermées). Pas de build ; supabase-js en CDN.
 Langue : français, sans émoticônes.
 
-## Design (voulu par Antonin : un vrai site professionnel, surtout pas un « dashboard Claude »)
-Clair et net, façon outils SaaS haut de gamme : papier `#f3efe7`, panneaux blancs à bord fin (rayon 14 px),
-police **Geist** (titres 600, resserrés) et **Geist Mono** pour heures et montants. Chaque projet porte sa couleur.
-Pas d'Instrument Serif ni de thème noir et or (refusés).
+## Design (voulu par Antonin : un vrai site professionnel, surtout pas un « dashboard Claude » ; modèle assumé : Notion)
+Coquille façon Notion : barre latérale fixe (espace, Nouvelle tâche, Rendez-vous, Aujourd'hui / Tâches / Agendas, puis
+les projets avec leur icône de couleur), barre fine en haut avec fil d'Ariane ; sur téléphone la barre latérale glisse.
+Fond blanc, barre latérale #f8f7f5, police **Geist** (titres 700 resserrés) et **Geist Mono** pour heures et montants.
+En-tête de page : grande icône, titre, halo de la couleur du projet. Pas d'Instrument Serif ni de thème noir et or (refusés).
 Aujourd'hui = en-tête (date, heure), calendrier du jour vertical en direct (ligne rouge, clic = nouveau RDV) à gauche,
 « maintenant / ensuite » + « à faire » (tâches, retards, relances, factures) à droite, cartes projets en bas.
-Page projet = en-tête à la couleur du projet, frise du jour du projet, tâches + agenda, clients, factures, chiffres, notes.
-Tâches façon Notion : page « Tâches » (#taches, touche B) et rubrique Tâches de chaque projet en tableau par statut
-(glisser-déposer, transition de vue par carte) ou en liste éditable ; le choix de vue est gardé dans localStorage.
-Fluidité : transitions de vue entre pages, apparition au défilement, barre de rubriques collée avec suivi de la rubrique visible.
+Page projet = en-tête, rubriques collées, tableau des tâches, frise du jour, agenda, clients, factures, chiffres, notes.
+Tâches : colonnes Tâches / En cours / En révision / Terminé (statuts a-faire, en-cours, en-revision, fait), cartes
+glissées à la souris ou au doigt (appui long) ; page « Tâches » (#taches, touche B) pour tous les projets, vue Liste en option.
+Fluidité : seule la page change (transition de vue), le menu reste en place ; pas de flou d'arrière-plan (coûteux au défilement).
 
 ## Où sont les choses
 - Schéma : `supabase/migrations/` (activites, agendas, evenements, taches, clients, suivis, semaine_type).

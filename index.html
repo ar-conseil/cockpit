@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#f3efe7">
+  <meta name="theme-color" content="#ffffff">
   <title>Cockpit · Antonin Rouzier</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,18 +12,30 @@
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-  <header class="nav" id="nav" hidden>
-    <div class="nav-inner">
-      <a class="logo" href="#" aria-label="Aujourd'hui"><span>AR</span><em>Cockpit</em></a>
-      <nav class="liens-projets" id="projets" aria-label="Projets"></nav>
-      <div class="nav-droite">
+  <div class="coquille" id="nav" hidden>
+    <aside class="cote" id="cote" aria-label="Menu">
+      <div class="cote-haut">
+        <a class="espace" href="#" aria-label="Aujourd'hui"><span class="espace-logo">AR</span><span class="espace-nom"><b>Cockpit</b><small>Antonin Rouzier</small></span></a>
+        <button type="button" class="btn-icone fermer-menu" id="fermer-menu" aria-label="Fermer le menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
+      <div class="cote-actions">
+        <button type="button" class="cote-bouton principal" id="btn-ajout" title="Nouvelle tâche (touche N)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span>Nouvelle tâche</span><kbd>N</kbd></button>
+        <button type="button" class="cote-bouton" id="btn-rdv" title="Nouveau rendez-vous (touche R)"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg><span>Rendez-vous</span><kbd>R</kbd></button>
+      </div>
+      <nav class="cote-liens" id="projets" aria-label="Navigation"></nav>
+      <div class="cote-bas">
         <button type="button" class="direct" id="btn-synchro" title="Relire tous les agendas maintenant"><i></i><span id="etat-synchro">En direct</span></button>
-        <button type="button" class="btn-texte" id="btn-rdv" title="Nouveau rendez-vous (touche R)">+ Rendez-vous</button>
-        <button type="button" class="btn-plein" id="btn-ajout" title="Nouvelle tâche (touche N)">Nouvelle tâche</button>
         <button type="button" class="btn-texte" id="deconnexion" title="Se déconnecter">Quitter</button>
       </div>
-    </div>
-  </header>
+    </aside>
+    <div class="voile" id="voile"></div>
+    <header class="barre-haut" id="barre-haut">
+      <button type="button" class="btn-icone ouvrir-menu" id="ouvrir-menu" aria-label="Ouvrir le menu" aria-controls="cote" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg></button>
+      <nav class="fil" id="fil" aria-label="Fil d'Ariane"></nav>
+      <span class="horloge-haut" id="horloge-haut"></span>
+      <button type="button" class="btn-icone ajout-mobile" id="btn-ajout-mobile" aria-label="Nouvelle tâche"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
+    </header>
+  </div>
 
   <section class="connexion" id="connexion" hidden>
     <form class="form-connexion" id="form-connexion" autocomplete="on">

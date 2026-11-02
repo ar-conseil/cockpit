@@ -32,10 +32,12 @@ Deno.serve(async (req) => {
     if (!data?.user) return json({ erreur: "non autorisé" }, 401);
   }
 
-  // Comptes connectés sans agenda (lecture interrompue à la connexion) : on récupère leur liste d'agendas.
+  // Liste des agendas de chaque compte connecté : à la première synchro, puis tous les quarts d'heure,
+  // pour qu'un agenda créé dans Google ou Outlook (ex. « Harnes Volley ») apparaisse tout seul.
   const { data: comptes } = await db.from("comptes_agenda").select("*, agendas(id)");
+  const quartDHeure = new Date().getMinutes() % 15 === 0;
   for (const c of comptes ?? []) {
-    if ((c.agendas ?? []).length) continue;
+    if ((c.agendas ?? []).length && !quartDHeure) continue;
     try {
       const liste = await listerAgendas(c as Compte, await jetonAcces(db, c as Compte));
       for (const a of liste) {

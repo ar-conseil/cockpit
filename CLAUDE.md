@@ -11,6 +11,9 @@ Pas d'Instrument Serif ni de thème noir et or (refusés).
 Aujourd'hui = en-tête (date, heure), calendrier du jour vertical en direct (ligne rouge, clic = nouveau RDV) à gauche,
 « maintenant / ensuite » + « à faire » (tâches, retards, relances, factures) à droite, cartes projets en bas.
 Page projet = en-tête à la couleur du projet, frise du jour du projet, tâches + agenda, clients, factures, chiffres, notes.
+Tâches façon Notion : page « Tâches » (#taches, touche B) et rubrique Tâches de chaque projet en tableau par statut
+(glisser-déposer, transition de vue par carte) ou en liste éditable ; le choix de vue est gardé dans localStorage.
+Fluidité : transitions de vue entre pages, apparition au défilement, barre de rubriques collée avec suivi de la rubrique visible.
 
 ## Où sont les choses
 - Schéma : `supabase/migrations/` (activites, agendas, evenements, taches, clients, suivis, semaine_type).

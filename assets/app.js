@@ -221,6 +221,12 @@
       ]);
       if (a.id === S.route) lien.setAttribute("aria-current", "page");
       navProjets.appendChild(lien);
+      if (!a.id) {
+        var nbT = S.taches.filter(function (t) { return t.statut !== "fait" && t.echeance && t.echeance <= iso; }).length;
+        var lt = el("a", { href: "#taches", style: "--c:var(--encre)", title: "Toutes les tâches (touche B)" }, [el("span", { text: "Tâches" }), nbT ? el("sup", { text: String(nbT) }) : null]);
+        if (S.route === "taches") lt.setAttribute("aria-current", "page");
+        navProjets.appendChild(lt);
+      }
     });
     var reg = el("a", { href: "#agendas", class: "lien-reglage", title: "Comptes et agendas connectés" }, ["Agendas"]);
     if (S.route === "agendas") reg.setAttribute("aria-current", "page");
@@ -305,6 +311,117 @@
   }
   function listeTaches(ts, options, vide) {
     return el("ul", { class: "taches" }, ts.length ? ts.map(function (t) { return ligneTache(t, options); }) : [el("li", { class: "vide", text: vide })]);
+  }
+
+  // ---------- Tâches façon Notion : tableau par statut (glisser-déposer) ou liste ----------
+  var COLONNES = [["a-faire", "À faire"], ["en-cours", "En cours"], ["bloque", "Bloqué"], ["fait", "Fait"]];
+  function lirePref(cle, defaut) { try { return localStorage.getItem("cockpit." + cle) || defaut; } catch (e) { return defaut; } }
+  function ecrirePref(cle, v) { try { localStorage.setItem("cockpit." + cle, v); } catch (e) {} }
+  // Changement de statut : les cartes glissent vers leur nouvelle colonne (transition de vue nommée par carte).
+  function changerStatut(t, statut) {
+    if (!statut || t.statut === statut) return;
+    t.statut = statut; t.fait_le = statut === "fait" ? new Date().toISOString() : null;
+    db.from("taches").update({ statut: statut }).eq("id", t.id).then(verifier);
+    if (statut === "fait") signaler("Bien joué : « " + t.titre + " »");
+    avecTransition(dessiner, "carte");
+  }
+  function majTache(t, maj) {
+    Object.assign(t, maj);
+    db.from("taches").update(maj).eq("id", t.id).then(verifier);
+    dessiner();
+  }
+  function pastilleProjet(id) { return el("span", { class: "pt", style: "--c:" + couleur(id), text: nomActivite(id) }); }
+  function carteTache(t, opts) {
+    if (S.edition === t.id) return formTache(t);
+    var j = t.echeance ? joursDepuis(lireJour(t.echeance)) : null, meta = [];
+    if (opts.projet) meta.push(pastilleProjet(t.activite_id));
+    if (t.echeance) meta.push(el("span", { class: "carte-date" + (t.statut !== "fait" && j < 0 ? " retard" : ""), text: quand(lireJour(t.echeance)) }));
+    if (t.priorite === "haute") meta.push(el("span", { class: "carte-prio", text: "Prioritaire" }));
+    var client = t.client_id && S.clients.filter(function (c) { return c.id === t.client_id; })[0];
+    if (client) meta.push(el("span", { text: client.nom }));
+    var li = el("li", { class: "carte-tache" + (t.statut === "fait" ? " faite" : ""), draggable: "true", style: "--vt:t-" + t.id + ";--c:" + couleur(t.activite_id) }, [
+      el("button", { type: "button", class: "carte-titre", title: "Ouvrir", onclick: function () { S.edition = t.id; dessiner(); } }, [
+        el("span", { text: t.titre }), t.notes ? el("small", { text: t.notes }) : null
+      ]),
+      meta.length ? el("div", { class: "carte-meta" }, meta) : null
+    ]);
+    li.addEventListener("dragstart", function (ev) {
+      S.glisse = t; ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", t.titre);
+      requestAnimationFrame(function () { li.classList.add("glissee"); });
+    });
+    li.addEventListener("dragend", function () {
+      li.classList.remove("glissee"); S.glisse = null;
+      app.querySelectorAll(".colonne.survol").forEach(function (c) { c.classList.remove("survol"); });
+    });
+    return li;
+  }
+  function ajoutCarte(statut, opts) {
+    var champ = el("input", { type: "text", placeholder: "+ Nouvelle tâche", "aria-label": "Nouvelle tâche · " + STATUTS[statut] });
+    var choix = opts.choixProjet ? el("select", { class: "ajout-projet", "aria-label": "Projet" }, optionsActivites(S.dernierProjet || (S.activites[0] && S.activites[0].id))) : null;
+    var f = el("form", { class: "ajout-carte" }, [champ, choix]);
+    f.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var titre = champ.value.trim(); if (!titre) return;
+      var projet = choix ? (S.dernierProjet = choix.value) : opts.activite;
+      creerTache({ titre: titre, activite_id: projet, statut: statut, priorite: "moyenne", echeance: null }).then(function () {
+        var c = app.querySelector(".colonne." + statut + " .ajout-carte input"); if (c) c.focus();
+      });
+      champ.value = "";
+    });
+    return f;
+  }
+  function tableauTaches(ts, opts) {
+    return el("div", { class: "tableau-taches" }, COLONNES.map(function (c) {
+      var cartes = trierTaches(ts.filter(function (t) { return t.statut === c[0]; }));
+      if (c[0] === "fait") cartes.sort(function (x, y) { return String(y.fait_le || "").localeCompare(String(x.fait_le || "")); });
+      var col = el("section", { class: "colonne " + c[0], "aria-label": c[1] }, [
+        el("header", {}, [el("span", { class: "statut-pastille " + c[0], text: c[1] }), el("span", { class: "colonne-nb", text: String(cartes.length) })]),
+        el("ul", { class: "colonne-cartes" }, cartes.map(function (t) { return carteTache(t, opts); })),
+        c[0] !== "fait" ? ajoutCarte(c[0], opts) : null
+      ]);
+      col.addEventListener("dragover", function (ev) { if (!S.glisse) return; ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; col.classList.add("survol"); });
+      col.addEventListener("dragleave", function (ev) { if (!col.contains(ev.relatedTarget)) col.classList.remove("survol"); });
+      col.addEventListener("drop", function (ev) {
+        ev.preventDefault(); col.classList.remove("survol");
+        var t = S.glisse; S.glisse = null;
+        if (t) changerStatut(t, c[0]);
+      });
+      return col;
+    }));
+  }
+  function listeNotion(ts, opts) {
+    var iso = isoJour(new Date());
+    var lignes = trierTaches(ts.slice()).map(function (t) {
+      if (S.edition === t.id) return el("tr", { class: "ligne-edition" }, [el("td", { colspan: opts.projet ? 5 : 4 }, [el("ul", { class: "taches" }, [formTache(t)])])]);
+      return el("tr", { class: "ligne-tache" + (t.statut === "fait" ? " faite" : "") }, [
+        el("td", { class: "td-titre" }, [caseTache(t), el("button", { type: "button", class: "lien-titre", text: t.titre, title: "Ouvrir", onclick: function () { S.edition = t.id; dessiner(); } })]),
+        opts.projet ? el("td", {}, [pastilleProjet(t.activite_id)]) : null,
+        el("td", {}, [el("input", { type: "date", class: "cellule" + (t.statut !== "fait" && t.echeance && t.echeance < iso ? " retard" : ""), value: t.echeance || "", "aria-label": "Échéance",
+          onchange: function (ev) { majTache(t, { echeance: ev.target.value || null }); } })]),
+        el("td", {}, [el("select", { class: "cellule prio " + t.priorite, "aria-label": "Priorité", onchange: function (ev) { majTache(t, { priorite: ev.target.value }); } },
+          [["haute", "Haute"], ["moyenne", "Normale"], ["basse", "Basse"]].map(function (p) { return el("option", { value: p[0], selected: p[0] === t.priorite, text: p[1] }); }))]),
+        el("td", {}, [el("select", { class: "cellule statut-pastille " + t.statut, "aria-label": "Statut", onchange: function (ev) { changerStatut(t, ev.target.value); } },
+          COLONNES.map(function (c) { return el("option", { value: c[0], selected: c[0] === t.statut, text: c[1] }); }))])
+      ]);
+    });
+    return el("div", { class: "liste-notion" }, [el("table", {}, [
+      el("thead", {}, [el("tr", {}, [el("th", { text: "Tâche" }), opts.projet ? el("th", { text: "Projet" }) : null, el("th", { text: "Échéance" }), el("th", { text: "Priorité" }), el("th", { text: "Statut" })])]),
+      el("tbody", {}, lignes.length ? lignes : [el("tr", {}, [el("td", { class: "vide", colspan: 5, text: "Aucune tâche." })])])
+    ])]);
+  }
+  var ICONES_VUE = {
+    tableau: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="3.5" height="11" rx="1"/><rect x="6.25" y="2.5" width="3.5" height="7" rx="1"/><rect x="11" y="2.5" width="3.5" height="9" rx="1"/></svg>',
+    liste: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>'
+  };
+  function commutateurVue(cle, vue) {
+    return el("div", { class: "vues", role: "tablist", "aria-label": "Affichage des tâches" }, [["tableau", "Tableau"], ["liste", "Liste"]].map(function (v) {
+      var b = el("button", { type: "button", role: "tab", "aria-selected": v[0] === vue ? "true" : "false", onclick: function () {
+        if (v[0] === vue) return;
+        ecrirePref(cle, v[0]); S.edition = null; avecTransition(dessiner, "jour");
+      } }, [v[1]]);
+      b.insertAdjacentHTML("afterbegin", ICONES_VUE[v[0]]);
+      return b;
+    }));
   }
 
   // ---------- Frise horizontale de la journée ----------
@@ -414,7 +531,8 @@
   function changerJour(d) {
     var avant = lundi(S.jour).getTime();
     S.jour = debutJour(d);
-    if (lundi(S.jour).getTime() !== avant) chargerTout().then(dessiner); else dessiner();
+    if (lundi(S.jour).getTime() !== avant) chargerTout().then(function () { avecTransition(dessiner, "jour"); });
+    else avecTransition(dessiner, "jour");
   }
   function colonneProjet(a, iso) {
     // Priorités de la colonne : tâches du jour, puis retards, puis tâches des 7 prochains jours (5 au plus).
@@ -632,22 +750,24 @@
     var r = reglages(a), avecClients = r.champs || (a.etapes || []).length || S.clients.some(function (c) { return c.activite_id === a.id; });
     var onglets = [["s-taches", "Tâches"], avecClients ? ["s-clients", r.titre_clients || "Clients"] : null, r.factures ? ["s-factures", "Factures"] : null,
       kpisProjet(a).length ? ["s-chiffres", "Chiffres"] : null, ["s-notes", "Notes"]].filter(Boolean);
-    return el("nav", { class: "onglets", "aria-label": "Rubriques du projet" }, onglets.map(function (o) {
-      return el("button", { type: "button", text: o[1], onclick: function () { var c = document.getElementById(o[0]); if (c) c.scrollIntoView({ behavior: "smooth", block: "start" }); } });
-    }));
+    return el("nav", { class: "barre-rubriques", style: "--c:" + a.couleur, "aria-label": "Rubriques du projet" }, [el("div", { class: "rubriques" }, [
+      el("span", { class: "rubriques-nom" }, [el("i"), a.nom])
+    ].concat(onglets.map(function (o) {
+      return el("button", { type: "button", "data-cible": o[0], text: o[1], onclick: function () {
+        var c = document.getElementById(o[0]); if (c) c.scrollIntoView({ behavior: mouvementReduit ? "auto" : "smooth", block: "start" });
+      } });
+    })))]);
   }
   function vueProjet(a) {
     var f = document.createDocumentFragment(), n = new Date(), iso = isoJour(n);
     var ouvertes = trierTaches(S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }));
-    var faites = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut === "fait"; });
     var rdv = prochainRdv(a.id);
     f.appendChild(el("section", { class: "hero-projet", style: "--c:" + a.couleur }, [
       el("div", {}, [
         el("p", { class: "surtitre", text: "Projet " + String(S.activites.indexOf(a) + 1).padStart(2, "0") }),
         el("h1", { text: a.nom }),
         a.description ? el("p", { class: "chapo", text: a.description }) : null,
-        (a.liens || []).length ? el("div", { class: "liens" }, a.liens.map(function (l) { return el("a", { href: l.url, target: "_blank", rel: "noopener", text: l.label + " ↗" }); })) : null,
-        ongletsProjet(a)
+        (a.liens || []).length ? el("div", { class: "liens" }, a.liens.map(function (l) { return el("a", { href: l.url, target: "_blank", rel: "noopener", text: l.label + " ↗" }); })) : null
       ]),
       el("dl", { class: "hero-chiffres" }, [
         el("div", {}, [el("dt", { text: "Prochain rendez-vous" }), el("dd", { class: "petit", text: rdv ? rdv.titre || "(sans titre)" : "—" }),
@@ -661,30 +781,35 @@
       ])
     ]));
 
+    f.appendChild(ongletsProjet(a));
     f.appendChild(el("section", { class: "section" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Aujourd'hui dans ce projet" })]),
       frise(n, a.id)
     ]));
 
     var prochains = S.evenements.filter(function (e) { return actEv(e) === a.id && new Date(e.fin) >= n && new Date(e.debut) < ajouterJours(debutJour(n), 15); });
-    f.appendChild(el("section", { class: "section deux", id: "s-taches" }, [
-      el("div", {}, [
-        el("div", { class: "entete" }, [el("h2", { text: "Tâches" }), el("p", { class: "aside", text: ouvertes.length + " ouvertes" }),
-          faites.length ? el("button", { type: "button", class: "btn-texte", text: S.voirFaites ? "Masquer les faites" : "Voir les faites (" + faites.length + ")", onclick: function () { S.voirFaites = !S.voirFaites; dessiner(); } }) : null]),
-        listeTaches(ouvertes.concat(S.voirFaites ? faites : []), {}, "Aucune tâche ouverte."),
-        champAjout(a.id, null, "+ Ajouter une tâche (sans date)")
-      ]),
-      el("div", {}, [
+    var vueT = lirePref("vue-taches-projet", "tableau");
+    var enteteTaches = el("div", { class: "entete" }, [el("h2", { text: "Tâches" }), el("p", { class: "aside", text: ouvertes.length + " ouvertes" }), commutateurVue("vue-taches-projet", vueT)]);
+    var blocAgenda = el("div", {}, [
         el("div", { class: "entete" }, [el("h2", { text: "Agenda" }), el("p", { class: "aside", text: "14 prochains jours" })]),
-        el("ul", { class: "agenda" }, prochains.length ? prochains.map(function (e) {
+        el("ul", { class: "agenda" + (vueT === "tableau" ? " agenda-large" : "") }, prochains.length ? prochains.map(function (e) {
           var d = new Date(e.debut);
           return el("li", {}, [
             el("time", {}, [el("b", { text: String(d.getDate()) }), el("span", { text: fmt(d, { weekday: "short" }).replace(".", "") })]),
             el("button", { type: "button", onclick: function () { reclasser(e); } }, [el("b", { text: e.titre || "(sans titre)" }), el("span", { text: (e.journee ? "toute la journée" : hm(d) + "–" + hm(new Date(e.fin))) + (e.lieu ? " · " + e.lieu.split("\n")[0] : "") })])
           ]);
         }) : [el("li", { class: "vide", text: "Aucun rendez-vous classé dans ce projet." })])
-      ])
-    ]));
+      ]);
+    var tachesProjet = S.taches.filter(function (t) { return t.activite_id === a.id; });
+    if (vueT === "tableau") {
+      f.appendChild(el("section", { class: "section", id: "s-taches" }, [enteteTaches, tableauTaches(tachesProjet, { activite: a.id })]));
+      f.appendChild(el("section", { class: "section" }, [blocAgenda]));
+    } else {
+      f.appendChild(el("section", { class: "section deux", id: "s-taches" }, [
+        el("div", {}, [enteteTaches, listeNotion(tachesProjet, {}), champAjout(a.id, null, "+ Ajouter une tâche (sans date)")]),
+        blocAgenda
+      ]));
+    }
 
     if (reglages(a).champs || (a.etapes || []).length || S.clients.some(function (c) { return c.activite_id === a.id; })) f.appendChild(sectionClients(a));
     if (reglages(a).factures) f.appendChild(sectionFactures(a));
@@ -1100,6 +1225,31 @@
       location.href = r.data.url;
     }).catch(function (e) { signaler("Connexion impossible : " + e.message); });
   }
+  function vueTaches() {
+    var f = document.createDocumentFragment(), iso = isoJour(new Date());
+    if (S.filtreTaches && !activite(S.filtreTaches)) S.filtreTaches = "";
+    var filtre = S.filtreTaches || "", vue = lirePref("vue-taches", "tableau");
+    var ts = S.taches.filter(function (t) { return !filtre || t.activite_id === filtre; });
+    var ouvertes = ts.filter(function (t) { return t.statut !== "fait"; });
+    var retard = ouvertes.filter(function (t) { return t.echeance && t.echeance < iso; }).length;
+    var jour = ouvertes.filter(function (t) { return t.echeance === iso; }).length;
+    f.appendChild(el("section", { class: "hero-projet", style: "--c:" + (filtre ? couleur(filtre) : "var(--encre-2)") }, [
+      el("div", {}, [el("p", { class: "surtitre", text: filtre ? nomActivite(filtre) : "Toutes les activités" }), el("h1", { text: "Tâches" }),
+        el("p", { class: "chapo", text: ouvertes.length + " ouvertes · " + jour + " pour aujourd'hui" + (retard ? " · " + retard + " en retard" : "") + ". Glissez une carte d'une colonne à l'autre pour changer son statut." })])
+    ]));
+    var filtres = [{ id: "", nom: "Toutes", couleur: "var(--encre)" }].concat(S.activites).map(function (a) {
+      var n = S.taches.filter(function (t) { return t.statut !== "fait" && (!a.id || t.activite_id === a.id); }).length;
+      return el("button", { type: "button", class: "filtre", style: "--c:" + a.couleur, "aria-pressed": a.id === filtre ? "true" : "false", onclick: function () {
+        if (a.id === filtre) return;
+        S.filtreTaches = a.id; S.edition = null; avecTransition(dessiner, "jour");
+      } }, [a.id ? el("i") : null, a.nom.replace(" Courtage", "").replace(" Rouzier Maréchal", "").replace(" Volley", "").replace(" Gestion Privée", ""), el("small", { text: String(n) })]);
+    });
+    f.appendChild(el("nav", { class: "barre-rubriques barre-vues", "aria-label": "Vues des tâches" }, [el("div", { class: "rubriques" }, [commutateurVue("vue-taches", vue), el("span", { class: "sep" })].concat(filtres))]));
+    f.appendChild(el("section", { class: "section section-taches" }, [
+      vue === "liste" ? listeNotion(ts, { projet: !filtre }) : tableauTaches(ts, { projet: !filtre, activite: filtre, choixProjet: !filtre })
+    ]));
+    return f;
+  }
   function vueAgendas() {
     var f = document.createDocumentFragment();
     f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
@@ -1151,19 +1301,60 @@
     return f;
   }
 
+  // ---------- Fluidité : transitions entre pages, apparition au défilement, rubriques suivies ----------
+  var mouvementReduit = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function avecTransition(maj, type) {
+    // Premier affichage (après le squelette) : pas de transition, le navigateur n'a encore rien peint à capturer.
+    if (mouvementReduit || !document.startViewTransition || !S.dejaDessine) { S.dejaDessine = true; maj(); return; }
+    document.documentElement.dataset.transition = type || "page";
+    var t = document.startViewTransition(maj);
+    t.updateCallbackDone.catch(function () {});
+    t.ready.catch(function () {}); // transition annulée (onglet caché, autre transition en cours) : la page est quand même dessinée
+    t.finished.catch(function () {}).then(function () { delete document.documentElement.dataset.transition; });
+  }
+  // Les blocs hors de l'écran apparaissent en douceur quand on descend ; ceux déjà visibles arrivent avec la transition de page.
+  function revelerAuDefilement() {
+    if (mouvementReduit || !window.IntersectionObserver) return;
+    if (S.revelation) S.revelation.disconnect();
+    var obs = S.revelation = new IntersectionObserver(function (entrees) {
+      entrees.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add("revele"); obs.unobserve(en.target); } });
+    }, { rootMargin: "0px 0px -6% 0px" });
+    var rang = 0;
+    app.querySelectorAll(".section, .panneau, .carte-projet, .chiffre-grand, .bas-bloc").forEach(function (c) {
+      if (c.getBoundingClientRect().top < window.innerHeight) return;
+      c.classList.add("a-reveler"); c.style.setProperty("--d", (rang++ % 4) * 60 + "ms"); obs.observe(c);
+    });
+  }
+  function suivreRubriques() {
+    if (S.espion) S.espion.disconnect();
+    var barre = app.querySelector(".barre-rubriques");
+    if (!barre || !window.IntersectionObserver) return;
+    var boutons = barre.querySelectorAll("button[data-cible]");
+    S.espion = new IntersectionObserver(function (entrees) {
+      entrees.forEach(function (en) {
+        if (en.isIntersecting) boutons.forEach(function (b) { b.classList.toggle("actif", b.dataset.cible === en.target.id); });
+      });
+    }, { rootMargin: "-35% 0px -60% 0px" });
+    boutons.forEach(function (b) { var sec = document.getElementById(b.dataset.cible); if (sec) S.espion.observe(sec); });
+  }
+  function mesurerNav() { document.documentElement.style.setProperty("--haut-nav", barre.offsetHeight + "px"); }
+  window.addEventListener("resize", mesurerNav);
+
   // ---------- Rendu ----------
   function dessiner() {
     if (!db) return;
     var a = activite(S.route);
-    if (S.route && !a && S.route !== "agendas") S.route = "";
+    if (S.route && !a && S.route !== "agendas" && S.route !== "taches") S.route = "";
     dessinerNav();
     dessinerSynchro();
     var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
     S.calScroll = defileAvant ? defileAvant.scrollTop : null;
+    var tabAvant = app.querySelector(".tableau-taches"), tabScroll = tabAvant ? tabAvant.scrollLeft : 0;
     app.textContent = "";
-    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : vueAccueil());
+    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
-    window.scrollTo(0, y);
+    window.scrollTo({ top: y, behavior: "instant" });
+    var tabApres = app.querySelector(".tableau-taches"); if (tabApres && tabScroll) tabApres.scrollLeft = tabScroll;
     var defile = document.getElementById("cal-defile"), ligne = document.getElementById("cal-maintenant");
     if (defile && S.calCale !== isoJour(S.jour) + S.route) {
       S.calCale = isoJour(S.jour) + S.route;
@@ -1174,7 +1365,8 @@
       var c = d.querySelector(".curseur");
       if (c && d.scrollWidth > d.clientWidth) d.scrollLeft = Math.max(0, c.offsetLeft - d.clientWidth / 3);
     });
-    document.title = (a ? a.nom : S.route === "agendas" ? "Agendas" : "Aujourd'hui") + " · Cockpit";
+    document.title = (a ? a.nom : S.route === "agendas" ? "Agendas" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
+    mesurerNav(); suivreRubriques();
   }
   function router() {
     var h = decodeURIComponent(location.hash.replace(/^#/, "")), m = h.match(/^([^?]*)\?message=(.*)$/);
@@ -1182,10 +1374,12 @@
     if (m) history.replaceState(null, "", "#" + m[1]);
     S.edition = null; S.voirFaites = false;
     if (!activite(S.route)) { S.ouvert = null; S.factureOuverte = null; }
-    app.classList.add("entree"); clearTimeout(router.t); router.t = setTimeout(function () { app.classList.remove("entree"); }, 700);
-    dessiner(); window.scrollTo(0, 0);
-    var cible = (S.factureOuverte && document.getElementById("s-factures")) || (S.ouvert && document.querySelector(".client.ouvert, .ligne-affaire.ouverte"));
-    if (cible) cible.scrollIntoView({ block: "center" });
+    avecTransition(function () {
+      dessiner(); window.scrollTo({ top: 0, behavior: "instant" });
+      var cible = (S.factureOuverte && document.getElementById("s-factures")) || (S.ouvert && document.querySelector(".client.ouvert, .ligne-affaire.ouverte"));
+      if (cible) cible.scrollIntoView({ block: "center" });
+      revelerAuDefilement();
+    });
   }
   function dessinerSynchro() {
     var etat = document.getElementById("etat-synchro"), bouton = document.getElementById("btn-synchro");
@@ -1275,6 +1469,7 @@
     else if (ev.key === "r" || ev.key === "R") { ev.preventDefault(); ouvrirRdv(null); }
     else if (!S.route && ev.key === "ArrowLeft") changerJour(ajouterJours(S.jour, -1));
     else if (!S.route && ev.key === "ArrowRight") changerJour(ajouterJours(S.jour, 1));
+    else if (ev.key === "b" || ev.key === "B") location.hash = "taches";
     else if (ev.key === "t" || ev.key === "T") { location.hash = ""; changerJour(new Date()); }
   });
 
@@ -1291,14 +1486,17 @@
   }
   function ouvrirCockpit() {
     ecranConnexion.hidden = true; barre.hidden = false; app.hidden = false;
-    app.textContent = ""; app.appendChild(el("p", { class: "chargement", text: "Un instant…" }));
+    app.textContent = "";
+    app.appendChild(el("div", { class: "squelette", "aria-label": "Chargement", role: "status" }, [
+      el("i", { class: "s-titre" }), el("div", { class: "s-grille" }, [el("i", { class: "s-bloc grand" }), el("div", { class: "s-pile" }, [el("i", { class: "s-bloc" }), el("i", { class: "s-bloc" }), el("i", { class: "s-bloc" })])])
+    ]));
     chargerTout().then(function () {
       router();
       if (!canal) {
         canal = db.channel("cockpit");
         ["evenements", "taches", "clients", "suivis", "activites", "factures"].forEach(function (table) {
           canal.on("postgres_changes", { event: "*", schema: "public", table: table }, function () {
-            if (enSaisie() || dialogue.open || dlgRdv.open) { attenteSaisie = true; return; }
+            if (enSaisie() || dialogue.open || dlgRdv.open || S.glisse) { attenteSaisie = true; return; }
             rechargerPuisDessiner();
           });
         });

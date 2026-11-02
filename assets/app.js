@@ -1688,6 +1688,7 @@
   function resumeFactures(liste) {
     var r = { aEmettre: 0, attente: 0, retard: 0, nbRetard: 0, paye: 0 }, annee = String(new Date().getFullYear());
     liste.forEach(function (f) {
+      if (ttc(f) < 0) return; // avoir : il annule une facture déjà marquée « Annulée », ce n'est pas de l'argent rendu
       if (f.statut === "a-emettre") r.aEmettre += ttc(f);
       if (f.statut === "emise") { r.attente += ttc(f); if (factureEnRetard(f)) { r.retard += ttc(f); r.nbRetard++; } }
       if (f.statut === "payee" && (f.payee_le || f.emise_le || "").slice(0, 4) === annee) r.paye += ttc(f);
@@ -1733,7 +1734,8 @@
       var statut = el("select", { class: "statut-facture " + f.statut + (retard ? " retard" : ""), "aria-label": "Statut de la facture " + (f.numero || ""),
         onclick: function (ev) { ev.stopPropagation(); }, onchange: function (ev) { majFacture(f, { statut: ev.target.value }, a); } },
         Object.keys(STATUTS_FACTURE).map(function (k) { return el("option", { value: k, selected: k === f.statut, text: STATUTS_FACTURE[k] }); }));
-      lignes.push(el("tr", { class: "ligne-affaire" + (ouverte ? " ouverte" : "") + (f.statut === "annulee" ? " abandon" : ""), onclick: function () { S.factureOuverte = ouverte ? null : f.id; dessiner(); } }, [
+      lignes.push(el("tr", { class: "ligne-affaire" + (ouverte ? " ouverte" : "") + (f.statut === "annulee" ? " abandon" : "") + (S.vientDeBouger === f.id ? " vient-de-bouger" : ""), "data-id": f.id,
+        onclick: function () { S.factureOuverte = ouverte ? null : f.id; dessiner(); } }, [
         el("td", { class: "num", text: f.numero || "—" }),
         el("th", { scope: "row" }, [el("button", { type: "button", "aria-expanded": ouverte ? "true" : "false", text: f.objet })]),
         el("td", { text: f.destinataire || "—" }),
@@ -1762,7 +1764,8 @@
   function formFacture(f, a) {
     var champ = function (type, v, label, extra) { return el("label", {}, [el("span", { text: label }), el("input", Object.assign({ type: type, value: v == null ? "" : v, "aria-label": label }, extra || {}))]); };
     var cNum = champ("text", f.numero, "N°"), cObj = champ("text", f.objet, "Objet"), cDest = champ("text", f.destinataire, "Destinataire");
-    var cEm = champ("date", f.emise_le, "Émise le"), cEch = champ("date", f.echeance, "Échéance"), cPay = champ("date", f.payee_le, "Payée le");
+    var bornes = { min: "2015-01-01", max: "2099-12-31" }; // évite une année tapée de travers (2926 au lieu de 2026)
+    var cEm = champ("date", f.emise_le, "Émise le", bornes), cEch = champ("date", f.echeance, "Échéance", bornes), cPay = champ("date", f.payee_le, "Payée le", bornes);
     var cHt = champ("number", f.montant_ht, "Montant HT €", { step: "any" }), cTva = champ("number", f.tva, "TVA %", { step: "any" });
     var cNotes = el("textarea", { rows: "2", placeholder: "Notes (lien du PDF, mode de paiement…)", "aria-label": "Notes" }); cNotes.value = f.notes || "";
     var v = function (l) { return l.querySelector("input").value.trim(); };
@@ -1785,6 +1788,11 @@
       var ht = v(cHt) === "" ? null : +v(cHt), tva = v(cTva) === "" ? 0 : +v(cTva);
       majFacture(f, { numero: v(cNum) || null, objet: v(cObj) || f.objet, destinataire: v(cDest) || null, emise_le: v(cEm) || null, echeance: v(cEch) || null,
         payee_le: v(cPay) || null, montant_ht: ht, tva: tva, montant_ttc: ht == null ? null : Math.round(ht * (1 + tva / 100) * 100) / 100, notes: cNotes.value.trim() || null }, a);
+      // La fiche se referme et la facture reprend sa place dans la liste, mise en évidence
+      S.factureOuverte = null; S.vientDeBouger = f.id; dessiner();
+      var ligneF = app.querySelector('.ligne-affaire[data-id="' + f.id + '"]');
+      if (ligneF) { ligneF.scrollIntoView({ block: "center", behavior: mouvementReduit ? "auto" : "smooth" }); setTimeout(function () { S.vientDeBouger = null; }, 1600); }
+      signaler("Facture " + (f.numero || "") + " enregistrée");
       signaler("Facture enregistrée");
     });
     return form;

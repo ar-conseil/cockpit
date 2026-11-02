@@ -44,6 +44,8 @@ Deno.serve(async (req) => {
       for (const a of liste) {
         await db.from("agendas").upsert({ compte_id: c.id, externe_id: a.externe_id, nom: a.nom, ecriture: a.ecriture, actif: a.actif,
           activite_id: projetParDefaut(a.nom, a.principal ? c.email : "") }, { onConflict: "compte_id,externe_id", ignoreDuplicates: true });
+        // Les droits peuvent changer dans Google ou Outlook (partage modifié) : on les relit à chaque fois.
+        await db.from("agendas").update({ ecriture: a.ecriture }).eq("compte_id", c.id).eq("externe_id", a.externe_id);
       }
     } catch (e) {
       await db.from("comptes_agenda").update({ derniere_erreur: (e instanceof Error ? e.message : String(e)).slice(0, 300) }).eq("id", c.id);

@@ -987,7 +987,7 @@
     if (id === "factures") { var rf = resumeFactures(facturesDe(a)); return rf.attente ? argent(rf.attente) + " à encaisser" + (rf.nbRetard ? " · " + rf.nbRetard + " en retard" : "") : "Tout est encaissé"; }
     if (id === "production") {
       var an = new Date().getFullYear(), lp = (S.production || []).filter(function (x) { return x.activite_id === a.id && x.annee === an; });
-      var part = lp.reduce(function (t, x) { return t + calculProd(x).commercial; }, 0);
+      var part = lp.reduce(function (t, x) { return t + calculProd(x).net; }, 0);
       return lp.length ? an + " : " + lp.length + " contrat" + (lp.length > 1 ? "s" : "") + " · " + argent(part) + " pour vous" : "Production " + an + " à saisir";
     }
     if (id === "chiffres") { var k = kpisProjet(a)[0]; return k ? k.label + " : " + (typeof k.valeur === "number" ? fmtN.format(k.valeur) : k.valeur) + (k.unite ? " " + k.unite : "") : ""; }
@@ -1459,7 +1459,8 @@
   // Mêmes calculs que la base (colonnes calculées) pour l'affichage immédiat pendant la saisie
   function calculProd(x) {
     var base = MONTANTS_PROD.reduce(function (t, m) { return t + (+x[m[0]] || 0); }, 0), com = base * (+x.taux || 0), acp = com * (x.taux_acp == null ? 0.1 : +x.taux_acp);
-    return { base: base, com_cab: com, acp: acp, commercial: (com - acp) * 0.8, evoa: (com - acp) * 0.2 };
+    var commercial = (com - acp) * 0.8, associe = commercial * (+x.taux_associe || 0); // l'associé touche une part de la commission d'Antonin
+    return { base: base, com_cab: com, acp: acp, commercial: commercial, evoa: (com - acp) * 0.2, part_associe: associe, net: commercial - associe };
   }
   function sectionProduction(a) {
     var tout = (S.production || []).filter(function (x) { return x.activite_id === a.id; }), an = new Date().getFullYear();
@@ -1480,12 +1481,14 @@
         return el("button", { type: "button", class: n ? "plein" : "", "aria-pressed": mois === i + 1 ? "true" : "false", onclick: function () { S.prodMois = i + 1; dessiner(); } },
           [MOIS_COURTS[i], n ? el("small", { text: String(n) }) : null]);
       })));
+    var associes = reglages(a).associes || [], versAssocies = somme(lignes, "part_associe");
     var chiffres = el("div", { class: "chiffres-prod" }, [
-      ["Contrats", String(lignes.length), ""], ["Primes", euros(somme(lignes, "base")), "PP + PU + structure + IARD"], ["COM CAB", euros(somme(lignes, "com_cab")), "commission du cabinet"],
-      ["Votre part", euros(somme(lignes, "commercial")), "80 % après ACP"], ["Part EVOA", euros(somme(lignes, "evoa")), "20 % après ACP"], ["ACP", euros(somme(lignes, "acp")), ""]
-    ].map(function (k, i) { return el("div", { class: i === 3 ? "mise-en-avant" : "" }, [el("span", { text: k[0] }), el("b", { text: k[1] }), k[2] ? el("small", { text: k[2] }) : null]); }));
+      ["Primes", euros(somme(lignes, "base")), lignes.length + " contrat" + (lignes.length > 1 ? "s" : "")], ["COM CAB", euros(somme(lignes, "com_cab")), "commission du cabinet"],
+      ["Votre part", euros(somme(lignes, "net")), "80 % après ACP" + (versAssocies ? ", moins les associés" : "")], ["Part EVOA", euros(somme(lignes, "evoa")), "20 % après ACP"],
+      ["ACP", euros(somme(lignes, "acp")), ""], ["Associés", euros(versAssocies), versAssocies ? "reversé sur vos dossiers" : "aucun dossier partagé"]
+    ].map(function (k, i) { return el("div", { class: i === 2 ? "mise-en-avant" : "" }, [el("span", { text: k[0] }), el("b", { text: k[1] }), k[2] ? el("small", { text: k[2] }) : null]); }));
     // Histogramme : votre part mois par mois
-    var parMois = MOIS_LONGS.map(function (nm, i) { return somme(dAnnee.filter(function (x) { return x.mois === i + 1; }), "commercial"); });
+    var parMois = MOIS_LONGS.map(function (nm, i) { return somme(dAnnee.filter(function (x) { return x.mois === i + 1; }), "net"); });
     var max = Math.max.apply(null, parMois.concat([1]));
     var histo = el("div", { class: "histo-prod", "aria-label": "Votre part par mois" }, parMois.map(function (v, i) {
       return el("button", { type: "button", class: "barre-mois" + (mois === i + 1 ? " choisie" : ""), title: MOIS_LONGS[i] + " : " + euros(v), onclick: function () { S.prodMois = i + 1; dessiner(); } },
@@ -1496,9 +1499,9 @@
     var cases = function (x) {
       var calc = calculProd(x), ligne;
       var maj = function (champ, valeur) {
-        var m = {}; m[champ] = valeur; Object.assign(x, m);
+        var m = {}; if (typeof champ === "object") m = champ; else m[champ] = valeur; Object.assign(x, m);
         var c2 = calculProd(x);
-        ["com_cab", "acp", "commercial", "evoa"].forEach(function (k) { var td = ligne.querySelector('[data-calc="' + k + '"]'); if (td) td.textContent = c2[k] ? fmtN.format(Math.round(c2[k] * 100) / 100) : "–"; });
+        ["com_cab", "acp", "commercial", "evoa", "part_associe", "net"].forEach(function (k) { var td = ligne.querySelector('[data-calc="' + k + '"]'); if (td) td.textContent = c2[k] ? fmtN.format(Math.round(c2[k] * 100) / 100) : "–"; });
         db.from("production").update(m).eq("id", x.id).then(verifier);
       };
       var texte = function (champ, place, liste) {
@@ -1516,6 +1519,13 @@
         texte("client", "Client"), texte("compagnie", "Compagnie", "assureurs-prod"), texte("risque", "Risque", "risques-prod"),
         nombre("pp", "PP"), nombre("pu_uc", "PU UC"), nombre("pu_fe", "PU FE"), nombre("structure", "Structure"), nombre("iard", "IARD"),
         nombre("taux", "Taux %", true), calcule("com_cab"), nombre("taux_acp", "ACP %", true), calcule("acp"), calcule("commercial"), calcule("evoa"),
+        // Associé : choisi dans la liste des réglages, son taux habituel se pose tout seul (modifiable)
+        el("td", {}, [el("select", { class: "cellule", "aria-label": "Associé", onchange: function (ev) {
+          var nom = ev.target.value || null, as = associes.find(function (y) { return y.nom === nom; });
+          maj({ associe: nom, taux_associe: nom ? (as ? as.taux : x.taux_associe) : null }); dessiner();
+        } }, [el("option", { value: "", text: "—" })].concat(associes.map(function (y) { return y.nom; }).concat(x.associe && !associes.some(function (y) { return y.nom === x.associe; }) ? [x.associe] : [])
+          .map(function (nom) { return el("option", { value: nom, selected: x.associe === nom, text: nom }); })))]),
+        nombre("taux_associe", "Taux associé %", true), calcule("part_associe"), calcule("net"),
         texte("contrat", "N° contrat"),
         el("td", {}, [el("input", { type: "date", class: "cellule", value: x.date_effet || "", min: "2015-01-01", max: "2099-12-31", "aria-label": "Date d'effet", onchange: function (ev) { maj("date_effet", ev.target.value || null); } })]),
         el("td", {}, [el("button", { type: "button", class: "btn-texte danger", text: "×", title: "Supprimer la ligne", "aria-label": "Supprimer la ligne", onclick: function () {
@@ -1526,9 +1536,9 @@
       ]);
       return ligne;
     };
-    var entetes = ["Période", "Client", "Compagnie", "Risque", "PP", "PU UC", "PU FE", "Structure", "IARD", "Taux", "COM CAB", "Taux ACP", "ACP", "Commercial", "EVOA", "N° contrat", "Date effet", ""];
+    var entetes = ["Période", "Client", "Compagnie", "Risque", "PP", "PU UC", "PU FE", "Structure", "IARD", "Taux", "COM CAB", "Taux ACP", "ACP", "Commercial", "EVOA", "Associé", "Taux assoc.", "Part associé", "Votre net", "N° contrat", "Date effet", ""];
     var totaux = el("tr", { class: "total-prod" }, entetes.map(function (h, j) {
-      var k = { 4: "pp", 5: "pu_uc", 6: "pu_fe", 7: "structure", 8: "iard", 10: "com_cab", 12: "acp", 13: "commercial", 14: "evoa" }[j];
+      var k = { 4: "pp", 5: "pu_uc", 6: "pu_fe", 7: "structure", 8: "iard", 10: "com_cab", 12: "acp", 13: "commercial", 14: "evoa", 17: "part_associe", 18: "net" }[j];
       return el("td", { class: k ? "nb" : "", text: j === 0 ? "Total" : k ? fmtN.format(Math.round(somme(lignes, k))) : "" });
     }));
     var risques = Array.from(new Set(tout.map(function (x) { return x.risque; }).filter(Boolean).concat(((reglages(a).produits || []).reduce(function (t, g) { return t.concat(g.produits); }, [])))));
@@ -1546,14 +1556,16 @@
       return exporterExcel({
         projet: a.id, titre: "Production " + nomP, fichier: "Production EVOA " + (seulMois ? S.prodAnnee + "-" + String(seulMois).padStart(2, "0") : S.prodAnnee) + ".xlsx",
         sousTitre: "Tableau de production · " + l.length + " contrat" + (l.length > 1 ? "s" : "") + " · exporté le " + fmt(new Date(), { day: "numeric", month: "long", year: "numeric" }),
-        chiffres: [["Contrats", l.length], ["COM CAB", euros(somme(l, "com_cab"))], ["Votre part", euros(somme(l, "commercial"))], ["Part EVOA", euros(somme(l, "evoa"))], ["ACP", euros(somme(l, "acp"))]],
+        chiffres: [["Contrats", l.length], ["COM CAB", euros(somme(l, "com_cab"))], ["Votre part", euros(somme(l, "net"))], ["Part EVOA", euros(somme(l, "evoa"))], ["Associés", euros(somme(l, "part_associe"))]],
         colonnes: [{ titre: "Période", largeur: 12 }, { titre: "Client", largeur: 18 }, { titre: "Compagnie", largeur: 14 }, { titre: "Risque", largeur: 22 },
           { titre: "PP", largeur: 12, type: "euros" }, { titre: "PU UC", largeur: 12, type: "euros" }, { titre: "PU FE", largeur: 12, type: "euros" }, { titre: "Structure", largeur: 12, type: "euros" },
           { titre: "IARD", largeur: 12, type: "euros" }, { titre: "Taux", largeur: 8, type: "pct" }, { titre: "COM CAB", largeur: 13, type: "euros" }, { titre: "Taux ACP", largeur: 9, type: "pct" },
           { titre: "ACP", largeur: 11, type: "euros" }, { titre: "Commercial", largeur: 13, type: "euros" }, { titre: "EVOA", largeur: 12, type: "euros" },
+          { titre: "Associé", largeur: 18 }, { titre: "Taux associé", largeur: 10, type: "pct" }, { titre: "Part associé", largeur: 13, type: "euros" }, { titre: "Votre net", largeur: 13, type: "euros" },
           { titre: "N° contrat", largeur: 15 }, { titre: "Date effet", largeur: 12, type: "date" }],
         lignes: l.map(function (x) { var c = calculProd(x); return [MOIS_LONGS[x.mois - 1].toUpperCase(), x.client || "", x.compagnie || "", x.risque || "", x.pp, x.pu_uc, x.pu_fe, x.structure, x.iard,
-          x.taux, Math.round(c.com_cab * 100) / 100, x.taux_acp, Math.round(c.acp * 100) / 100, Math.round(c.commercial * 100) / 100, Math.round(c.evoa * 100) / 100, x.contrat || "", x.date_effet || ""]; }),
+          x.taux, Math.round(c.com_cab * 100) / 100, x.taux_acp, Math.round(c.acp * 100) / 100, Math.round(c.commercial * 100) / 100, Math.round(c.evoa * 100) / 100,
+          x.associe || "", x.associe ? x.taux_associe : null, Math.round(c.part_associe * 100) / 100 || null, Math.round(c.net * 100) / 100, x.contrat || "", x.date_effet || ""]; }),
         total: true
       });
     };

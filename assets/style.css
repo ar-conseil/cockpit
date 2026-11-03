@@ -1010,7 +1010,8 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .barre-mois:hover i, .barre-mois.choisie i { background: var(--evoa); }
 .barre-mois small { font: 500 10.5px var(--mono); color: var(--encre-3); }
 .tableau-prod { overflow-x: auto; }
-.tableau-prod table { min-width: 1500px; }
+.tableau-prod table { min-width: 1900px; }
+.tableau-prod select[aria-label="Associé"] { min-width: 150px; }
 .tableau-prod th { white-space: nowrap; }
 .tableau-prod td, .tableau-prod th { padding-left: 4px; padding-right: 4px; }
 .tableau-prod .cellule { width: 100%; color: var(--encre); }

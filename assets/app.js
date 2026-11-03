@@ -138,7 +138,8 @@
       db.from("comptes_agenda").select("id, fournisseur, email, usage, derniere_erreur, cree_le").order("cree_le"),
       db.from("briefings").select("*").eq("jour", isoJour(new Date())).maybeSingle(),
       db.from("propositions").select("*").eq("statut", "proposee").order("cree_le"),
-      db.from("recommandations").select("*").order("recue_le", { ascending: false })
+      db.from("recommandations").select("*").order("recue_le", { ascending: false }),
+      db.from("production").select("*").order("annee").order("mois").order("cree_le")
     ]).then(function (r) {
       r.forEach(verifier);
       S.activites = r[0].data; S.agendas = r[1].data;
@@ -155,7 +156,7 @@
         .filter(function (e) { var k = (e.titre || "") + "|" + e.debut + "|" + e.fin; if (vus[k]) return false; vus[k] = true; return true; })
         .sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
-      S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || [];
+      S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || []; S.production = r[12].data || [];
     });
   }
   var redessinPrevu = null;
@@ -961,7 +962,8 @@
       { id: "agenda", nom: "Agenda", icone: "agendas" },
       avecClients ? { id: "clients", nom: r.titre_clients || "Clients", icone: "clients" } : null,
       r.recommandations ? { id: "recos", nom: "Recommandations", icone: "recos" } : null,
-      r.factures ? { id: "factures", nom: "Factures", icone: "factures" } : null,
+      r.production ? { id: "production", nom: "Production", icone: "factures" } : null, // Evoa : la production est la facturation
+      r.factures && !r.production ? { id: "factures", nom: "Factures", icone: "factures" } : null,
       kpisProjet(a).length ? { id: "chiffres", nom: "Chiffres", icone: "chiffres" } : null,
       { id: "notes", nom: "Notes", icone: "notes" }
     ].filter(Boolean);
@@ -983,6 +985,11 @@
     }
     if (id === "recos") return compteRecos((S.recommandations || []).filter(function (x) { return x.activite_id === a.id; }));
     if (id === "factures") { var rf = resumeFactures(facturesDe(a)); return rf.attente ? argent(rf.attente) + " à encaisser" + (rf.nbRetard ? " · " + rf.nbRetard + " en retard" : "") : "Tout est encaissé"; }
+    if (id === "production") {
+      var an = new Date().getFullYear(), lp = (S.production || []).filter(function (x) { return x.activite_id === a.id && x.annee === an; });
+      var part = lp.reduce(function (t, x) { return t + calculProd(x).commercial; }, 0);
+      return lp.length ? an + " : " + lp.length + " contrat" + (lp.length > 1 ? "s" : "") + " · " + argent(part) + " pour vous" : "Production " + an + " à saisir";
+    }
     if (id === "chiffres") { var k = kpisProjet(a)[0]; return k ? k.label + " : " + (typeof k.valeur === "number" ? fmtN.format(k.valeur) : k.valeur) + (k.unite ? " " + k.unite : "") : ""; }
     if (id === "notes") return (a.notes || "").split("\n")[0].slice(0, 70) || "Notes libres du projet";
     return "";
@@ -1069,6 +1076,7 @@
     if (rub === "clients") f.appendChild(sectionClients(a));
     if (rub === "recos") f.appendChild(sectionRecommandations(a));
     if (rub === "factures") f.appendChild(sectionFactures(a));
+    if (rub === "production") f.appendChild(sectionProduction(a));
 
     var kpis = kpisProjet(a);
     if (rub === "chiffres" && kpis.length) {
@@ -1444,6 +1452,127 @@
     return { bloc: bloc, valeur: function () { return lignes.filter(function (b) { return b.produit; }); } };
   }
 
+  // ---------- Production d'Evoa (= sa facturation), au format du « TABLEAU DE PROD » ----------
+  var MOIS_LONGS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+  var MOIS_COURTS = ["Janv.", "Févr.", "Mars", "Avr.", "Mai", "Juin", "Juil.", "Août", "Sept.", "Oct.", "Nov.", "Déc."];
+  var MONTANTS_PROD = [["pp", "PP"], ["pu_uc", "PU UC"], ["pu_fe", "PU FE"], ["structure", "Structure"], ["iard", "IARD"]];
+  // Mêmes calculs que la base (colonnes calculées) pour l'affichage immédiat pendant la saisie
+  function calculProd(x) {
+    var base = MONTANTS_PROD.reduce(function (t, m) { return t + (+x[m[0]] || 0); }, 0), com = base * (+x.taux || 0), acp = com * (x.taux_acp == null ? 0.1 : +x.taux_acp);
+    return { base: base, com_cab: com, acp: acp, commercial: (com - acp) * 0.8, evoa: (com - acp) * 0.2 };
+  }
+  function sectionProduction(a) {
+    var tout = (S.production || []).filter(function (x) { return x.activite_id === a.id; }), an = new Date().getFullYear();
+    var annees = Array.from(new Set(tout.map(function (x) { return x.annee; }).concat([an, an + 1]))).sort();
+    if (!S.prodAnnee || annees.indexOf(S.prodAnnee) < 0) S.prodAnnee = tout.some(function (x) { return x.annee === an; }) ? an : (tout.length ? tout[tout.length - 1].annee : an);
+    var dAnnee = tout.filter(function (x) { return x.annee === S.prodAnnee; });
+    var mois = S.prodMois || 0, lignes = mois ? dAnnee.filter(function (x) { return x.mois === mois; }) : dAnnee;
+    var somme = function (l, k) { return l.reduce(function (t, x) { var c = calculProd(x); return t + (k in c ? c[k] : +x[k] || 0); }, 0); };
+    var euros = function (v) { return fmtN.format(Math.round(v)) + " €"; };
+    var periode = (mois ? MOIS_LONGS[mois - 1] + " " : "") + S.prodAnnee;
+
+    var onglets = el("div", { class: "vues" }, annees.map(function (y) {
+      return el("button", { type: "button", role: "tab", "aria-selected": y === S.prodAnnee ? "true" : "false", text: String(y), onclick: function () { S.prodAnnee = y; S.prodMois = 0; avecTransition(dessiner, "jour"); } });
+    }));
+    var puces = el("div", { class: "mois-prod" }, [el("button", { type: "button", "aria-pressed": !mois ? "true" : "false", text: "Toute l'année", onclick: function () { S.prodMois = 0; dessiner(); } })]
+      .concat(MOIS_LONGS.map(function (nm, i) {
+        var n = dAnnee.filter(function (x) { return x.mois === i + 1; }).length;
+        return el("button", { type: "button", class: n ? "plein" : "", "aria-pressed": mois === i + 1 ? "true" : "false", onclick: function () { S.prodMois = i + 1; dessiner(); } },
+          [MOIS_COURTS[i], n ? el("small", { text: String(n) }) : null]);
+      })));
+    var chiffres = el("div", { class: "chiffres-prod" }, [
+      ["Contrats", String(lignes.length), ""], ["Primes", euros(somme(lignes, "base")), "PP + PU + structure + IARD"], ["COM CAB", euros(somme(lignes, "com_cab")), "commission du cabinet"],
+      ["Votre part", euros(somme(lignes, "commercial")), "80 % après ACP"], ["Part EVOA", euros(somme(lignes, "evoa")), "20 % après ACP"], ["ACP", euros(somme(lignes, "acp")), ""]
+    ].map(function (k, i) { return el("div", { class: i === 3 ? "mise-en-avant" : "" }, [el("span", { text: k[0] }), el("b", { text: k[1] }), k[2] ? el("small", { text: k[2] }) : null]); }));
+    // Histogramme : votre part mois par mois
+    var parMois = MOIS_LONGS.map(function (nm, i) { return somme(dAnnee.filter(function (x) { return x.mois === i + 1; }), "commercial"); });
+    var max = Math.max.apply(null, parMois.concat([1]));
+    var histo = el("div", { class: "histo-prod", "aria-label": "Votre part par mois" }, parMois.map(function (v, i) {
+      return el("button", { type: "button", class: "barre-mois" + (mois === i + 1 ? " choisie" : ""), title: MOIS_LONGS[i] + " : " + euros(v), onclick: function () { S.prodMois = i + 1; dessiner(); } },
+        [el("i", { style: "height:" + Math.max(2, v / max * 100) + "%" }), el("small", { text: MOIS_LONGS[i].slice(0, 1) })]);
+    }));
+
+    // Tableau éditable comme l'Excel : chaque case s'enregistre à la sortie, les commissions se recalculent
+    var cases = function (x) {
+      var calc = calculProd(x), ligne;
+      var maj = function (champ, valeur) {
+        var m = {}; m[champ] = valeur; Object.assign(x, m);
+        var c2 = calculProd(x);
+        ["com_cab", "acp", "commercial", "evoa"].forEach(function (k) { var td = ligne.querySelector('[data-calc="' + k + '"]'); if (td) td.textContent = c2[k] ? fmtN.format(Math.round(c2[k] * 100) / 100) : "–"; });
+        db.from("production").update(m).eq("id", x.id).then(verifier);
+      };
+      var texte = function (champ, place, liste) {
+        return el("td", {}, [el("input", { type: "text", class: "cellule", value: x[champ] || "", placeholder: place, list: liste || null, "aria-label": place, onchange: function (ev) { maj(champ, ev.target.value.trim() || null); } })]);
+      };
+      var nombre = function (champ, place, pct) {
+        var v = x[champ] == null ? "" : pct ? Math.round(x[champ] * 1000) / 10 : x[champ];
+        return el("td", { class: "nb" }, [el("input", { type: "number", step: "any", class: "cellule", value: v, "aria-label": place,
+          onchange: function (ev) { var t = ev.target.value; maj(champ, t === "" ? null : pct ? +t / 100 : +t); } })]);
+      };
+      var calcule = function (k) { return el("td", { class: "nb calc", "data-calc": k, text: calc[k] ? fmtN.format(Math.round(calc[k] * 100) / 100) : "–" }); };
+      ligne = el("tr", {}, [
+        el("td", {}, [el("select", { class: "cellule", "aria-label": "Mois", onchange: function (ev) { maj("mois", +ev.target.value); dessiner(); } },
+          MOIS_LONGS.map(function (nm, i) { return el("option", { value: String(i + 1), selected: x.mois === i + 1, text: nm }); }))]),
+        texte("client", "Client"), texte("compagnie", "Compagnie", "assureurs-prod"), texte("risque", "Risque", "risques-prod"),
+        nombre("pp", "PP"), nombre("pu_uc", "PU UC"), nombre("pu_fe", "PU FE"), nombre("structure", "Structure"), nombre("iard", "IARD"),
+        nombre("taux", "Taux %", true), calcule("com_cab"), nombre("taux_acp", "ACP %", true), calcule("acp"), calcule("commercial"), calcule("evoa"),
+        texte("contrat", "N° contrat"),
+        el("td", {}, [el("input", { type: "date", class: "cellule", value: x.date_effet || "", min: "2015-01-01", max: "2099-12-31", "aria-label": "Date d'effet", onchange: function (ev) { maj("date_effet", ev.target.value || null); } })]),
+        el("td", {}, [el("button", { type: "button", class: "btn-texte danger", text: "×", title: "Supprimer la ligne", "aria-label": "Supprimer la ligne", onclick: function () {
+          if (!confirm("Supprimer la ligne " + (x.client || "") + " " + (x.risque || "") + " ?")) return;
+          S.production = S.production.filter(function (y) { return y.id !== x.id; });
+          db.from("production").delete().eq("id", x.id).then(verifier); dessiner();
+        } })])
+      ]);
+      return ligne;
+    };
+    var entetes = ["Période", "Client", "Compagnie", "Risque", "PP", "PU UC", "PU FE", "Structure", "IARD", "Taux", "COM CAB", "Taux ACP", "ACP", "Commercial", "EVOA", "N° contrat", "Date effet", ""];
+    var totaux = el("tr", { class: "total-prod" }, entetes.map(function (h, j) {
+      var k = { 4: "pp", 5: "pu_uc", 6: "pu_fe", 7: "structure", 8: "iard", 10: "com_cab", 12: "acp", 13: "commercial", 14: "evoa" }[j];
+      return el("td", { class: k ? "nb" : "", text: j === 0 ? "Total" : k ? fmtN.format(Math.round(somme(lignes, k))) : "" });
+    }));
+    var risques = Array.from(new Set(tout.map(function (x) { return x.risque; }).filter(Boolean).concat(((reglages(a).produits || []).reduce(function (t, g) { return t.concat(g.produits); }, [])))));
+    var assureurs = Array.from(new Set(tout.map(function (x) { return x.compagnie; }).filter(Boolean).concat(reglages(a).assureurs || [])));
+    var ajouter = el("button", { type: "button", class: "btn-plein petit", text: "+ Nouvelle ligne", onclick: function () {
+      var m = mois || (S.prodAnnee === an ? new Date().getMonth() + 1 : 1);
+      db.from("production").insert({ activite_id: a.id, annee: S.prodAnnee, mois: m, taux_acp: 0.1 }).select().single().then(verifier).then(function (r) {
+        S.production.push(r.data); dessiner();
+        var champs = app.querySelectorAll('.tableau-prod input[aria-label="Client"]'); if (champs.length) champs[champs.length - 1].focus();
+      });
+    } });
+    var exporter = function (seulMois) {
+      var l = (seulMois ? dAnnee.filter(function (x) { return x.mois === seulMois; }) : dAnnee).slice().sort(function (x, y) { return x.mois - y.mois; });
+      var nomP = (seulMois ? MOIS_LONGS[seulMois - 1] + " " : "") + S.prodAnnee;
+      return exporterExcel({
+        projet: a.id, titre: "Production " + nomP, fichier: "Production EVOA " + (seulMois ? S.prodAnnee + "-" + String(seulMois).padStart(2, "0") : S.prodAnnee) + ".xlsx",
+        sousTitre: "Tableau de production · " + l.length + " contrat" + (l.length > 1 ? "s" : "") + " · exporté le " + fmt(new Date(), { day: "numeric", month: "long", year: "numeric" }),
+        chiffres: [["Contrats", l.length], ["COM CAB", euros(somme(l, "com_cab"))], ["Votre part", euros(somme(l, "commercial"))], ["Part EVOA", euros(somme(l, "evoa"))], ["ACP", euros(somme(l, "acp"))]],
+        colonnes: [{ titre: "Période", largeur: 12 }, { titre: "Client", largeur: 18 }, { titre: "Compagnie", largeur: 14 }, { titre: "Risque", largeur: 22 },
+          { titre: "PP", largeur: 12, type: "euros" }, { titre: "PU UC", largeur: 12, type: "euros" }, { titre: "PU FE", largeur: 12, type: "euros" }, { titre: "Structure", largeur: 12, type: "euros" },
+          { titre: "IARD", largeur: 12, type: "euros" }, { titre: "Taux", largeur: 8, type: "pct" }, { titre: "COM CAB", largeur: 13, type: "euros" }, { titre: "Taux ACP", largeur: 9, type: "pct" },
+          { titre: "ACP", largeur: 11, type: "euros" }, { titre: "Commercial", largeur: 13, type: "euros" }, { titre: "EVOA", largeur: 12, type: "euros" },
+          { titre: "N° contrat", largeur: 15 }, { titre: "Date effet", largeur: 12, type: "date" }],
+        lignes: l.map(function (x) { var c = calculProd(x); return [MOIS_LONGS[x.mois - 1].toUpperCase(), x.client || "", x.compagnie || "", x.risque || "", x.pp, x.pu_uc, x.pu_fe, x.structure, x.iard,
+          x.taux, Math.round(c.com_cab * 100) / 100, x.taux_acp, Math.round(c.acp * 100) / 100, Math.round(c.commercial * 100) / 100, Math.round(c.evoa * 100) / 100, x.contrat || "", x.date_effet || ""]; }),
+        total: true
+      });
+    };
+    return el("section", { class: "section", id: "s-production" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Production " + periode }), onglets,
+        el("div", { class: "actions-prod" }, [mois ? el("button", { type: "button", class: "btn-contour", text: "Excel du mois", onclick: function () { exporter(mois); } }) : null,
+          el("button", { type: "button", class: "btn-contour", text: "Excel de l'année", onclick: function () { exporter(0); } })])]),
+      puces, el("div", { class: "prod-haut" }, [chiffres, histo]),
+      el("div", { class: "liste-notion tableau-prod" }, [el("table", {}, [
+        el("thead", {}, [el("tr", {}, entetes.map(function (h) { return el("th", { text: h }); }))]),
+        el("tbody", {}, lignes.length ? lignes.slice().sort(function (x, y) { return x.mois - y.mois; }).map(cases).concat([totaux])
+          : [el("tr", {}, [el("td", { class: "vide", colspan: String(entetes.length), text: "Aucune ligne pour " + periode + "." })])])
+      ])]),
+      el("datalist", { id: "assureurs-prod" }, assureurs.map(function (x) { return el("option", { value: x }); })),
+      el("datalist", { id: "risques-prod" }, risques.map(function (x) { return el("option", { value: x }); })),
+      ajouter
+    ]);
+  }
+
   // ---------- Recommandations (parrainage) : les personnes qu'un client recommande, notées à chaque rendez-vous ----------
   var STATUTS_RECO = { "a-appeler": "À appeler", "contacte": "Contacté", "rdv-pris": "RDV pris", "devenu-client": "Devenu client", "sans-suite": "Sans suite" };
   function majReco(x, champ, valeur) {
@@ -1604,18 +1733,32 @@
           var cell = row.getCell(j + 1), v = l[j];
           if (c.type === "case") v = v ? "✓" : "";
           else if (c.type === "date" && v) v = lireJour(v);
-          else if (c.type === "euros" && v !== "" && v != null) v = +v;
+          else if ((c.type === "euros" || c.type === "pct") && v !== "" && v != null) v = +v;
           cell.value = v === "" ? null : v;
           cell.font = police(c.type === "case" ? { bold: true, size: 12, color: { argb: argb(m.c1) } } : j === 0 ? { bold: true } : {});
           cell.alignment = { vertical: "middle", horizontal: c.type === "case" ? "center" : c.type === "euros" ? "right" : "left", indent: c.type === "case" ? 0 : 1, wrapText: c.type === "texte-long" };
           if (c.type === "date") cell.numFmt = "dd/mm/yyyy";
           if (c.type === "euros") cell.numFmt = "#,##0.00 €";
+          if (c.type === "pct") { cell.numFmt = "0%"; cell.alignment.horizontal = "right"; }
           var fond = teinte || (c.fond ? melanger(c.fond, "FFFFFF", .55) : k % 2 ? m.fond : "FFFFFF");
           cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(fond) } };
           cell.border = { bottom: filet };
         });
       });
       ws.autoFilter = { from: { row: 8, column: 1 }, to: { row: 8 + d.lignes.length, column: ncol } };
+      // Ligne de total (colonnes en euros)
+      if (d.total) {
+        var rt = ws.getRow(9 + d.lignes.length); rt.height = 22;
+        d.colonnes.forEach(function (c, j) {
+          var cell = rt.getCell(j + 1);
+          if (j === 0) cell.value = "TOTAL";
+          else if (c.type === "euros") cell.value = Math.round(d.lignes.reduce(function (t, l) { return t + (+l[j] || 0); }, 0) * 100) / 100 || null;
+          cell.font = police({ bold: true, color: { argb: argb(m.c1) } });
+          if (c.type === "euros") { cell.numFmt = "#,##0.00 €"; cell.alignment = { horizontal: "right", vertical: "middle" }; }
+          cell.border = { top: { style: "medium", color: { argb: argb(m.c1) } } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(m.fond) } };
+        });
+      }
       ws.pageSetup.printTitlesRow = "8:8";
       // Feuilles de synthèse
       (d.feuilles || []).forEach(function (f) {
@@ -2215,7 +2358,7 @@
       router();
       if (!canal) {
         canal = db.channel("cockpit");
-        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations"].forEach(function (table) {
+        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations", "production"].forEach(function (table) {
           canal.on("postgres_changes", { event: "*", schema: "public", table: table }, function () {
             if (enSaisie() || dialogue.open || dlgRdv.open || S.glisse) { attenteSaisie = true; return; }
             rechargerPuisDessiner();

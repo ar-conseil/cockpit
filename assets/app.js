@@ -444,6 +444,11 @@
         g.x = x; g.y = y;
         g.fantome.style.transform = "translate3d(" + (x - g.dx) + "px," + (y - g.dy) + "px,0) rotate(2.5deg)";
         var sous = document.elementFromPoint(x, y), col = sous && sous.closest(".col-statut");
+        // Sous une colonne plus courte (en bas du tableau), on retient la colonne d'après la seule position horizontale
+        var tab = li.closest(".tableau-taches"), rt = tab && tab.getBoundingClientRect();
+        if (!col && rt && y >= rt.top && y <= rt.bottom + 120) col = Array.prototype.find.call(tab.querySelectorAll(".col-statut"), function (c) {
+          var r = c.getBoundingClientRect(); return x >= r.left && x <= r.right;
+        }) || null;
         if (col !== g.cible) { if (g.cible) g.cible.classList.remove("survol"); g.cible = col; if (col) col.classList.add("survol"); }
       }
       // Près des bords, la page (et le tableau sur téléphone) défile tout seul.

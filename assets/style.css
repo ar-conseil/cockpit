@@ -587,9 +587,9 @@ textarea.notes { width: 100%; resize: vertical; line-height: 1.6; font-size: 15p
 .filtre[aria-pressed="true"] { background: var(--blanc); border-color: var(--filet); color: var(--encre); }
 .section-taches { padding-top: 24px; }
 
-.tableau-taches { display: grid; grid-template-columns: repeat(4, minmax(250px, 1fr)); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px;
+.tableau-taches { display: grid; grid-template-columns: repeat(4, minmax(250px, 1fr)); gap: 14px; align-items: stretch; overflow-x: auto; padding-bottom: 8px;
   scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
-.col-statut { --fond: #f7f6f3; --teinte: #8f8c85; background: var(--fond); border-radius: 12px; padding: 8px; display: grid; gap: 6px; scroll-snap-align: start;
+.col-statut { --fond: #f7f6f3; --teinte: #8f8c85; background: var(--fond); border-radius: 12px; padding: 8px; display: grid; gap: 6px; align-content: start; scroll-snap-align: start;
   outline: 2px solid transparent; outline-offset: -2px; transition: outline-color .15s, background .2s; }
 .col-statut.en-cours { --fond: #fdf6e7; --teinte: #d9822b; }
 .col-statut.en-revision { --fond: #eef5fb; --teinte: #2e7dd1; }

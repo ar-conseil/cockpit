@@ -34,7 +34,11 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
 - Nouvelles tables : RLS + politique `to authenticated`, `grant` explicites (authenticated et service_role),
   et `alter publication supabase_realtime add table` si la page doit se mettre à jour en direct.
 - Données sobres : pas d'IBAN, de numéros de sécurité sociale ni de détails de santé ; particuliers d'Evoa en initiales.
-- Victor (assistant du matin) : routine planifiée de l'app Claude sur le Mac, chaque jour vers 6 h 30
+- Victor en ligne (principal) : fonction serveur `victor` lancée par pg_cron toutes les demi-heures de 4 h à 7 h 30 UTC ;
+  elle attend 6 h 25 (Paris), s'arrête si le briefing du jour existe, lit les boîtes par `lire-mails`, fait rédiger le point
+  par l'API Claude (claude-opus-5-5, sortie structurée ; secret ANTHROPIC_API_KEY posé par `outils/claude-cle.sh`) et publie
+  comme `victor.py` (SQL : `victor_contexte()`, `victor_evenements(date)`). Elle ne lit que les boîtes connectées au cockpit.
+- Victor sur le Mac (secours) : routine planifiée de l'app Claude, 7 h 30 et 8 h 30, ne fait rien si le point est déjà publié
   (~/.claude/scheduled-tasks/victor-point-du-matin). Elle lit en LECTURE SEULE Gmail arouzier et Outlook Palomano
   (connecteurs Claude) et, via `outils/victor.py mails` -> fonction `lire-mails`, les boîtes connectées au cockpit
   (comptes_agenda.usage = 'mail' : Camp en Gmail, Evoa en Outlook) et IONOS Harnes en IMAP (secrets IONOS_*, posés par

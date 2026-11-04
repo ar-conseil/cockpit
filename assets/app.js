@@ -2124,7 +2124,7 @@
     var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
     f.appendChild(el("section", { class: "section" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Boîtes mail de Victor" }),
-        el("p", { class: "aside", text: "Lecture seule, chaque matin. Gmail arouzier et Outlook Palomano sont lus par les connecteurs de Claude ; Harnes (IONOS) par outils/ionos.sh." })]),
+        el("p", { class: "aside", text: "Lecture seule : Victor lit chaque matin, depuis le serveur, les boîtes connectées ici (et Harnes, IONOS). Rien n'est envoyé, déplacé ni marqué comme lu." })]),
       el("div", { class: "liens-boutons rangee" }, [
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Gmail", onclick: function () { connecter("google", "mail"); } }),
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Outlook", onclick: function () { connecter("microsoft", "mail"); } })

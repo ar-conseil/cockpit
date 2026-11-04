@@ -69,7 +69,8 @@ def contexte():
           from taches t, j where t.statut <> 'fait' and (t.echeance is null or t.echeance <= j.d + 7)),
         'cles_deja_traitees', (select coalesce(json_agg(cle), '[]') from propositions where cree_le > now() - interval '45 days'),
         'propositions_en_attente', (select count(*) from propositions where statut = 'proposee'),
-        'derniere_lecture', (select max(mise_a_jour) from briefings)
+        'derniere_lecture', (select max(mise_a_jour) from briefings),
+        'deja_publie_aujourdhui', (select exists(select 1 from briefings b, j where b.jour = j.d))
       ) as c""")
     print(json.dumps(r[0]["c"], ensure_ascii=False, indent=1))
 

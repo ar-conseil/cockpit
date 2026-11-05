@@ -1,5 +1,6 @@
 // Création, modification et suppression d'un rendez-vous depuis le cockpit, répercutées dans Google ou Outlook.
-// Corps : { action: "creer" | "modifier" | "supprimer", agenda_id, evenement_id?, titre, debut, fin, journee, lieu, activite_forcee? }
+// Corps : { action: "creer" | "modifier" | "supprimer", agenda_id, evenement_id?, titre, debut, fin, journee, lieu, activite_forcee?, teams? }
+// teams: true ajoute un lien de réunion Teams (agendas Outlook seulement).
 // Appelée avec le jeton de l'utilisateur connecté (contrôlé ici ; déployée avec --no-verify-jwt comme les autres).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { ecrireRdv, jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
@@ -40,7 +41,7 @@ Deno.serve(async (req) => {
   try {
     const compte = ag.comptes_agenda as unknown as Compte;
     const id = await ecrireRdv(compte, await jetonAcces(db, compte), ag.externe_id!, action, (ev?.externe_id as string) ?? null,
-      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null });
+      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, teams: !!b.teams });
 
     if (action === "supprimer") {
       await db.from("evenements").delete().eq("id", ev!.id);

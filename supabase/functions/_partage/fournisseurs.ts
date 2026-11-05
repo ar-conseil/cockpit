@@ -6,7 +6,7 @@ export type Usage = "agenda" | "mail"; // agendas (lecture et écriture) ou mail
 export type Compte = { id: string; fournisseur: Fournisseur; email: string; refresh_token: string | null; jeton_acces: string | null; jeton_expire_le: string | null; usage?: Usage; droits?: string | null };
 export type AgendaDistant = { externe_id: string; nom: string; ecriture: boolean; principal: boolean; actif: boolean };
 export type RdvDistant = { externe_id: string; debut: string; fin: string; journee: boolean; titre: string | null; lieu: string | null; description: string | null; serie: boolean };
-export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null };
+export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null; teams?: boolean }; // teams : réunion Teams (Outlook seulement)
 
 const env = (k: string) => Deno.env.get(k) ?? "";
 export const urlRetourOAuth = () => `${env("SUPABASE_URL")}/functions/v1/agenda-connexion`;
@@ -177,7 +177,8 @@ export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, acti
   }
   if (action === "supprimer") { await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}`, { method: "DELETE" }); return null; }
   const quand = (iso: string) => r!.journee ? { dateTime: jour(iso) + "T00:00:00", timeZone: "Europe/Paris" } : { dateTime: iso.replace(/Z$/, ""), timeZone: "UTC" };
-  const corps = { subject: r!.titre, isAllDay: r!.journee, start: quand(r!.debut), end: quand(r!.fin), location: { displayName: r!.lieu ?? "" } };
+  const corps = { subject: r!.titre, isAllDay: r!.journee, start: quand(r!.debut), end: quand(r!.fin), location: { displayName: r!.lieu ?? "" },
+    ...(r!.teams ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : {}) };
   const j = action === "creer"
     ? await appel(jeton, `${MICROSOFT.api}/me/calendars/${encodeURIComponent(agendaId)}/events`, { method: "POST", body: JSON.stringify(corps) })
     : await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}`, { method: "PATCH", body: JSON.stringify(corps) });

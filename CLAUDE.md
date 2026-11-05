@@ -52,10 +52,14 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   gmail.modify / Mail.ReadWrite (colonne `comptes_agenda.droits`, bouton « Autoriser le tri » page Agendas) ; IONOS par IMAP.
   Journal `tri_mails` (60 jours, objet masqué pour la santé), bilan `tri_resume(depuis)` affiché dans le point de Victor.
   Stock : `{ attendre: true }` à relancer tant que `restant` ; `{ compter: true }` et `{ apercu: true }` ne touchent à rien.
-- Tâche dictée depuis l'iPhone (fonction `ajouter-tache`, Raccourci iOS « Tâche pour Victor ») : POST `{ texte }` (ou texte brut)
-  avec l'en-tête `x-cle-tache` ; Claude Haiku 5.5 en tire titre, projet (clients, mots-clés, tâches récentes), échéance et
-  priorité, et la fonction répond une ligne lisible (« Ajoutée : … · Palomano · demain, vendredi 6 ») ; sans Claude, les mots-clés
-  seuls (sans date). `{ texte, essai: true }` n'écrit rien. Clé dédiée CLE_TACHE (jamais la clé de synchro), posée par
-  `outils/cle-tache.sh`, affichée une seule fois et copiée dans le presse-papiers puis effacée ; relancer le script la remplace.
+- Tâche ou rendez-vous dicté depuis l'iPhone (fonction `ajouter-tache`, Raccourci iOS) : POST `{ texte }` (ou texte brut)
+  avec l'en-tête `x-cle-tache` ; Claude Haiku 5.5 en tire type, titre, projet (clients, mots-clés, tâches récentes), date,
+  heure, durée, lieu et priorité ; la fonction répond une ligne lisible (« Ajoutée : … · Palomano · demain, vendredi 6 »).
+  Une heure dite (ou « toute la journée ») = rendez-vous, écrit par `agenda-ecrire` (clé de synchro) : Palomano dans Outlook
+  avec lien Teams (`teams: true`), Harnes et Camp dans leurs agendas Google, Perso, Berkay et Wealthy dans l'agenda Google
+  principal ; Evoa (pas d'agenda modifiable) devient une tâche « À caler ». Chevauchement signalé, pas bloqué. Sans Claude :
+  tâche d'après les mots-clés. `{ texte, essai: true }` n'écrit rien. Clé dédiée CLE_TACHE (jamais la clé de synchro), posée
+  par `outils/cle-tache.sh` (à lancer dans le Terminal de macOS, pas depuis une conversation) ; secret temporaire
+  CLE_TACHE_ESSAI pour tester sans toucher au téléphone, à retirer après l'essai.
 - Site installable sur l'écran d'accueil (`manifest.webmanifest`, icônes `assets/icone-*.png`) ; la session Supabase reste
   ouverte dans l'app installée (connexion par mot de passe, une fois).

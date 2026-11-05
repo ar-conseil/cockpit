@@ -68,3 +68,5 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   CLE_TACHE_ESSAI pour tester sans toucher au téléphone, à retirer après l'essai.
 - Site installable sur l'écran d'accueil (`manifest.webmanifest`, icônes `assets/icone-*.png`) ; la session Supabase reste
   ouverte dans l'app installée (connexion par mot de passe, une fois).
+
+- Cache du navigateur (GitHub Pages : 10 min) : à chaque changement de `assets/app.js` ou `assets/style.css`, changer le `?v=AAAAMMJJx` des deux liens dans `index.html`, sinon l'ancienne version reste affichée.

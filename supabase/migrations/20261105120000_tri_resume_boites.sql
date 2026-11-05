@@ -12,6 +12,6 @@ create or replace function public.tri_resume(depuis timestamptz) returns json la
        where trie_le >= depuis and important and recu_le > now() - interval '14 days' order by recu_le desc limit 40) x),
     'importants_total', (select count(*) from tri_mails where trie_le >= depuis and important),
     'corbeille', (select coalesce(json_agg(x order by x.recu_le desc), '[]') from
-      (select boite, de, objet, recu_le from tri_mails where trie_le >= depuis and dossier = 'Corbeille' order by recu_le desc limit 60) x)
+      (select boite, de, objet, recu_le from tri_mails where trie_le >= depuis and dossier = 'Corbeille' and objet is not null order by recu_le desc limit 60) x)
   )
 $$;

@@ -48,6 +48,8 @@ type Boite = {
   compter(): Promise<{ total: number; non_lus: number }>;
   // Rangement groupé (Gmail : une demande par dossier au lieu d'une par mail)
   rangerLot?(groupes: { dossier: string; important: boolean; mails: Mail[] }[]): Promise<void>;
+  // Stock Gmail : onglets Promotions (corbeille) et Réseaux sociaux (Notifications) rangés par blocs, sans lire chaque mail
+  massif?(limite: Date, finAvant: number): Promise<{ jetes: number; ranges: number; restant: boolean }>;
   fermer(): Promise<void>;
 };
 
@@ -109,6 +111,24 @@ function gmail(email: string, jeton: string): Boite {
       await appel(`/messages/${m.id}/trash`, { method: "POST" });
     },
     async compter() { const l = await appel("/labels/INBOX"); return { total: l.messagesTotal ?? 0, non_lus: l.messagesUnread ?? 0 }; },
+    async massif(limite, finAvant) {
+      const bilan = { jetes: 0, ranges: 0, restant: false };
+      for (const [categorie, dossier] of [["promotions", PUB], ["social", "Notifications"]] as const) {
+        for (;;) {
+          if (Date.now() > finAvant) { bilan.restant = true; return bilan; }
+          const q = `in:inbox category:${categorie} before:${Math.floor(limite.getTime() / 1000)}`;
+          const ids = ((await appel(`/messages?maxResults=500&q=${encodeURIComponent(q)}`)).messages ?? []).map((m: { id: string }) => m.id) as string[];
+          if (!ids.length) break;
+          await appel("/messages/batchModify", { method: "POST", body: JSON.stringify({
+            ids, addLabelIds: dossier === PUB ? ["TRASH"] : [await etiquette(dossier)], removeLabelIds: ["INBOX", "UNREAD"] }) });
+          await db.from("tri_mails").upsert(ids.map((id) => ({ boite: PAR_BOITE[email]?.[0] ?? email, message_id: `gmail:${id}`,
+            dossier: dossier === PUB ? CORBEILLE : dossier, important: false, resume: `Onglet ${categorie === "promotions" ? "Promotions" : "Réseaux sociaux"} de Gmail (rangé en bloc)` })),
+            { onConflict: "boite,message_id", ignoreDuplicates: true });
+          if (dossier === PUB) bilan.jetes += ids.length; else bilan.ranges += ids.length;
+        }
+      }
+      return bilan;
+    },
     async rangerLot(groupes) {
       for (const g of groupes) {
         const ajout = g.dossier === PUB ? ["TRASH"] : [await etiquette(g.dossier), ...(g.important ? ["STARRED"] : [])];
@@ -315,7 +335,7 @@ async function ouvrir(lecture: boolean): Promise<(Boite | { email: string; nom: 
   return boites;
 }
 
-async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number }) {
+async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean }) {
   const t0 = Date.now();
   let limite = new Date();
   if (!corps.forcer && !corps.apercu && !corps.compter) {
@@ -336,6 +356,11 @@ async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: bo
     travaux.push((async () => { try {
       if (corps.compter) { Object.assign(r, await b.compter()); return; }
       r.ranges = 0; r.jetes = 0; r.importants = 0; r.restant = false; r.temps = { lister: 0, classer: 0, ranger: 0 };
+      if (corps.massif && b.massif) {
+        const m = await b.massif(limite, t0 + BUDGET);
+        r.jetes += m.jetes; r.ranges += m.ranges;
+        if (m.restant) { r.restant = true; return; }
+      }
       let tour = 0; // durée du dernier tour : on n'en commence pas un qui dépasserait le temps imparti
       for (;;) {
         if (Date.now() - t0 + tour * 1.2 > BUDGET) { r.restant = true; break; }

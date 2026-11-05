@@ -3,7 +3,7 @@
 // la durée, le lieu et la priorité ; sans lui, une tâche est créée d'après les mots-clés des projets.
 // Rendez-vous (une heure est dite, ou « toute la journée ») : écrit par agenda-ecrire dans l'agenda du projet
 // (Palomano : Outlook avec lien Teams ; Harnes, Camp : leurs agendas Google ; Perso, Berkay, Wealthy : agenda Google principal).
-// Evoa n'a pas d'agenda modifiable : le rendez-vous devient une tâche « À caler ». Un chevauchement est signalé, pas bloqué.
+// Evoa : son agenda Outlook une fois connecté (page Agendas), sinon une tâche « À caler ». Un chevauchement est signalé, pas bloqué.
 // Protégée par une clé personnelle dédiée (secret CLE_TACHE, posée par outils/cle-tache.sh), passée dans l'en-tête x-cle-tache.
 //  POST { texte: "Relancer Toynamics pour le solde créditeur vendredi" }   (ou le texte brut en corps)
 //  -> 201, texte court : « Ajoutée : Relancer Toynamics pour le solde créditeur · Palomano · demain, vendredi 6 »
@@ -21,7 +21,7 @@ const COURTS: Record<string, string> = { "evoa-courtage": "Evoa", "camp-rouzier-
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const AVEC_TEAMS = new Set(["palomano"]); // projets dont les rendez-vous Outlook reçoivent un lien Teams
-const SANS_AGENDA = new Set(["evoa-courtage"]); // pas d'agenda modifiable : le rendez-vous devient une tâche
+const SANS_REPLI = new Set(["evoa-courtage"]); // sans agenda propre connecté, le rendez-vous devient une tâche (jamais l'agenda perso)
 
 type Activite = { id: string; nom: string; description: string | null; mots_cles: string[] | null };
 type Comprise = {
@@ -123,6 +123,7 @@ async function agendaPour(activite: string): Promise<Agenda | null> {
   const liste: Agenda[] = (data ?? []).map((a: any) => ({ id: a.id, nom: a.nom, activite_id: a.activite_id, fournisseur: a.comptes_agenda.fournisseur, email: a.comptes_agenda.email }));
   const duProjet = liste.filter((a) => a.activite_id === activite).sort((a, b) => (a.fournisseur === "microsoft" ? -1 : 0) - (b.fournisseur === "microsoft" ? -1 : 0));
   if (duProjet.length && activite !== "perso") return duProjet[0];
+  if (SANS_REPLI.has(activite)) return null;
   return liste.find((a) => a.fournisseur === "google" && a.nom === a.email && !a.activite_id) ?? null; // agenda principal (Perso, Berkay, Wealthy…)
 }
 
@@ -178,7 +179,7 @@ Deno.serve(async (req) => {
     let fin = c.heure ? (c.heure_fin ? parisEnUtc(c.date, c.heure_fin) : new Date(debut.getTime() + c.duree * 60000)) : parisEnUtc(plus(c.date, 1), "00:00");
     if (fin <= debut) fin = new Date(debut.getTime() + 60 * 60000);
     const quand = `${dire(c.date, aujourdhui)}${c.heure ? `, ${heureParis(debut)} – ${heureParis(fin)}` : ", toute la journée"}`;
-    const agenda = SANS_AGENDA.has(c.activite_id) ? null : await agendaPour(c.activite_id);
+    const agenda = await agendaPour(c.activite_id);
     if (agenda) {
       const teams = agenda.fournisseur === "microsoft" && AVEC_TEAMS.has(c.activite_id) && !!c.heure;
       const conflit = c.heure ? await chevauchement(debut, fin) : null;
@@ -197,7 +198,7 @@ Deno.serve(async (req) => {
       const resume = [c.titre, ou, quand, c.lieu].filter(Boolean).join(" · ");
       return texte(`${essai || "Rendez-vous ajouté : "}${resume}${conflit ? `. Attention : chevauche « ${conflit} »` : ""}`, essai ? 200 : 201);
     }
-    // Pas d'agenda modifiable pour ce projet (Evoa) : une tâche « À caler » à la date dite
+    // Pas d'agenda modifiable pour ce projet (Evoa, tant que son Outlook n'est pas connecté) : une tâche « À caler » à la date dite
     c = { ...c, type: "tache", titre: `À caler : ${c.titre} (${c.heure ? quand.split(", ").pop() : "journée"}${c.lieu ? `, ${c.lieu}` : ""})`.slice(0, 200) };
   }
 

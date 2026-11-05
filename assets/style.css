@@ -1029,3 +1029,9 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
   .chiffres-prod { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .actions-prod { margin-left: 0; }
 }
+
+/* Nom modifiable en tête de fiche */
+.fiche .champ-nom { display: flex; flex-direction: column; gap: 4px; }
+.fiche .champ-nom span { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--encre-3); }
+.fiche .nom-fiche { font: 600 17px var(--sans); }
+.fiche .nom-fiche[readonly] { color: var(--encre-2); cursor: default; }

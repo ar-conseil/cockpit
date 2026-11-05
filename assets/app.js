@@ -109,10 +109,19 @@
       return (POIDS[x.priorite] || 1) - (POIDS[y.priorite] || 1);
     });
   }
+  // Saisie en cours : un champ actif, ou une fiche ouverte modifiée et pas encore enregistrée
+  // (sinon une mise à jour automatique redessinerait la fiche et effacerait ce qui n'est pas enregistré).
   function enSaisie() {
     var a = document.activeElement;
-    return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT") && app.contains(a);
+    return !!(a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT") && app.contains(a))
+      || !!app.querySelector("form.fiche[data-modifiee]");
   }
+  function marquerFiche(ev) {
+    var f = ev.target && ev.target.closest && ev.target.closest("form.fiche");
+    if (f && !(ev.type === "click" && (ev.target.closest("button") || {}).type !== "button")) f.dataset.modifiee = "1";
+  }
+  ["input", "change"].forEach(function (t) { document.addEventListener(t, marquerFiche, true); });
+  document.addEventListener("click", function (ev) { if (ev.target.closest && ev.target.closest("form.fiche button[type=button]")) marquerFiche(ev); }, true);
   function signaler(texte) {
     var t = el("div", { class: "toast", role: "status", text: texte });
     document.body.appendChild(t);
@@ -1276,8 +1285,12 @@
     var action = el("input", { type: "text", value: c.prochaine_action || "", placeholder: "Prochaine action", "aria-label": "Prochaine action" });
     var actionLe = el("input", { type: "date", value: c.prochaine_action_le || "", "aria-label": "Date de la prochaine action" });
     var notes = el("textarea", { rows: "3", placeholder: "Notes", "aria-label": "Notes" }); notes.value = c.notes || "";
+    var deHubspot = !!(r.hubspot && (c.donnees || {}).hubspot_id); // le nom vient alors de HubSpot, qui le réécrirait
+    var nom = el("input", { type: "text", class: "nom-fiche", value: c.nom || "", placeholder: "Nom", "aria-label": "Nom", required: true,
+      readonly: deHubspot ? true : null, title: deHubspot ? "Nom à modifier dans HubSpot" : null });
     var fiche = el("form", { class: "fiche" }, [
-      r.hubspot && (c.donnees || {}).hubspot_id ? blocHubspot(c, a) : null,
+      el("label", { class: "champ-nom" }, [el("span", { text: "Nom" }), nom]),
+      deHubspot ? blocHubspot(c, a) : null,
       el("div", { class: "rangee" }, [etape, r.champs ? null : type, montant]),
       champs.length ? el("div", { class: "rangee champs" }, champs.map(function (x) { return el("label", {}, [el("span", { text: x.ch.label }), x.input]); })) : null,
       totalFiche,
@@ -1322,7 +1335,7 @@
       (r.etapes_auto || []).forEach(function (regle) {
         if (donnees[regle.champ] && !estAbandonne({ etape: nouvelleEtape }) && etapes.indexOf(nouvelleEtape) < etapes.indexOf(regle.etape)) nouvelleEtape = regle.etape;
       });
-      var maj = { etape: nouvelleEtape, type: type.value, montant: prix, contact: contact.value.trim() || null, donnees: donnees,
+      var maj = { nom: deHubspot ? c.nom : nom.value.trim() || c.nom, etape: nouvelleEtape, type: type.value, montant: prix, contact: contact.value.trim() || null, donnees: donnees,
         prochaine_action: action.value.trim() || null, prochaine_action_le: actionLe.value || null, notes: notes.value.trim() || null };
       Object.assign(c, maj);
       db.from("clients").update(maj).eq("id", c.id).then(verifier).then(function () { signaler(nouvelleEtape !== avant ? "Fiche enregistrée · passée en « " + nouvelleEtape + " »" : "Fiche enregistrée"); });
@@ -2388,9 +2401,12 @@
     });
   }
   // Une modification arrivée pendant une saisie est appliquée dès que le champ est quitté.
-  document.addEventListener("focusout", function () {
+  function appliquerAttente() {
     setTimeout(function () { if (attenteSaisie && !enSaisie() && !dialogue.open) { attenteSaisie = false; rechargerPuisDessiner(); } }, 300);
-  });
+  }
+  document.addEventListener("focusout", appliquerAttente);
+  document.addEventListener("submit", function () { setTimeout(appliquerAttente, 400); }, true); // fiche enregistrée et refermée
+  document.addEventListener("click", function () { setTimeout(appliquerAttente, 400); }); // fiche annulée
   // Filet de sécurité si le temps réel se coupe (veille de l'ordinateur) : relecture toutes les 5 min et au retour sur l'onglet.
   setInterval(function () { if (db && !barre.hidden && !enSaisie()) rechargerPuisDessiner(); }, 300000);
   document.addEventListener("visibilitychange", function () { if (!document.hidden && db && !barre.hidden && !enSaisie()) rechargerPuisDessiner(); });

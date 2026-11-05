@@ -82,7 +82,9 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   Modifier / supprimer / terminer : seulement si UNE seule tâche ouverte, ou un seul rendez-vous créé par dictée, correspond
   (sinon « préciser », rien de changé). Rendez-vous visés : ceux à venir (45 jours) des agendas que le cockpit peut écrire ;
   une invitation reçue (organisateur autre qu'Antonin, vérifié chez Google ou Outlook par `organisateurAutre`) n'est jamais touchée.
-  « Annule la dernière » défait le dernier ajout dicté (12 h). Journal `dictees` (60 jours) : base de l'annulation. Une phrase d'un seul mot (dictée coupée) ne fait rien. Sans Claude : tâche d'après les mots-clés.
+  « Annule la dernière » défait le dernier ajout dicté (12 h). Journal `dictees` (60 jours) : base de l'annulation. Une phrase d'un seul mot (dictée coupée) ne fait rien ; un envoi vide est noté dans `dictees` (action « vide », forme de la
+  requête sans contenu) : cause déjà vue, la variable « Texte dicté » déliée (rouge) dans le Raccourci, à resélectionner.
+  Raccourci : Attendre 1 s, Énoncer « Je t'écoute », Dicter du texte (Après une pause), Obtenir le contenu de l'URL, Afficher la notification. Sans Claude : tâche d'après les mots-clés.
   `{ texte, essai: true }` n'écrit rien et affiche l'erreur éventuelle. Clé dédiée CLE_TACHE (jamais la clé de synchro), posée
   par `outils/cle-tache.sh` (à lancer dans le Terminal de macOS, pas depuis une conversation) ; secret temporaire
   CLE_TACHE_ESSAI pour tester sans toucher au téléphone, à retirer après l'essai.

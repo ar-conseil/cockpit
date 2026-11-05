@@ -148,7 +148,8 @@
       db.from("briefings").select("*").eq("jour", isoJour(new Date())).maybeSingle(),
       db.from("propositions").select("*").eq("statut", "proposee").order("cree_le"),
       db.from("recommandations").select("*").order("recue_le", { ascending: false }),
-      db.from("production").select("*").order("annee").order("mois").order("cree_le")
+      db.from("production").select("*").order("annee").order("mois").order("cree_le"),
+      db.from("reponses").select("*").gte("cree_le", ajouterJours(new Date(), -30).toISOString()).order("cree_le", { ascending: false })
     ]).then(function (r) {
       r.forEach(verifier);
       S.activites = r[0].data; S.agendas = r[1].data;
@@ -166,6 +167,7 @@
         .sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
       S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || []; S.production = r[12].data || [];
+      S.reponses = r[13].data || [];
     });
   }
   var redessinPrevu = null;
@@ -288,7 +290,9 @@
       lienCote("#", !S.route, [icone("aujourdhui"), el("span", { text: "Aujourd'hui" })], tachesDuJour(iso).filter(function (t) { return t.statut !== "fait"; }).length, "0"),
       lienCote("#taches", S.route === "taches", [icone("taches"), el("span", { text: "Tâches" })], nbT, "B"),
       lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })]),
-      lienCote("#mails", S.route === "mails", [icone("mails"), el("span", { text: "Tri des boîtes" })])
+      lienCote("#mails", S.route === "mails", [icone("mails"), el("span", { text: "Tri des boîtes" })]),
+      lienCote("#reponses", S.route === "reponses", [icone("mails"), el("span", { text: "Réponses" })],
+        (S.reponses || []).filter(function (x) { return x.statut === "brouillon"; }).length)
     ]));
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [el("p", { class: "cote-titre", text: "Projets" })].concat(S.activites.map(function (a, i) {
       var n = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }).length;
@@ -305,7 +309,7 @@
     fil.textContent = "";
     fil.append(el("a", { href: "#", text: "Cockpit" }), el("span", { class: "fil-sep", text: "/" }),
       a ? (S.rubrique ? el("a", { class: "fil-page", href: "#" + a.id }, [iconeProjet(a), a.nom]) : el("span", { class: "fil-page" }, [iconeProjet(a), a.nom]))
-        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : "Aujourd'hui" }));
+        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "reponses" ? "Réponses" : "Aujourd'hui" }));
     var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
     if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
   }
@@ -2146,6 +2150,69 @@
       }) : [el("li", { class: "vide", text: "Aucune boîte connectée : Camp (Gmail) et Evoa (Outlook) à connecter ici." })])
     ]);
   }
+  // ---------- Réponses préparées par Victor (dictées depuis l'iPhone) : rien ne part sans validation ici ----------
+  function agirReponse(x, action, texte, bouton) {
+    if (action === "abandonner" && !confirm("Abandonner ce brouillon ? Il sera retiré de la boîte " + x.boite + ".")) return;
+    if (bouton) bouton.disabled = true;
+    db.functions.invoke("reponses", { body: { id: x.id, action: action, texte: texte } }).then(function (r) {
+      if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { throw new Error(j.erreur || r.error.message); });
+      if (r.error) throw r.error;
+      if (r.data && r.data.erreur) throw new Error(r.data.erreur);
+      signaler(action === "envoyer" ? "Envoyé à " + x.destinataire : action === "modifier" ? "Brouillon enregistré" : "Brouillon abandonné");
+      chargerTout().then(dessiner);
+    }).catch(function (e) { if (bouton) bouton.disabled = false; signaler(e.message); chargerTout().then(dessiner); });
+  }
+  function carteReponse(x) {
+    var quand = function (d) { return fmt(new Date(d), { weekday: "short", day: "numeric", month: "short" }) + " · " + hm(new Date(d)); };
+    var zone = el("textarea", { class: "notes reponse-texte", rows: "8", "aria-label": "Texte de la réponse" });
+    zone.value = x.texte;
+    var outlook = x.fournisseur === "microsoft";
+    var envoyer = el("button", { type: "button", class: "btn-plein", onclick: function () {
+      if (!confirm("Envoyer cette réponse à " + x.destinataire + " depuis " + x.boite + " ?")) return;
+      agirReponse(x, "envoyer", zone.value, envoyer);
+    } }, ["Envoyer"]);
+    var carte = el("article", { class: "reponse" + (S.rubrique === x.id ? " ouverte" : ""), id: "reponse-" + x.id }, [
+      el("p", { class: "reponse-tete" }, [el("b", { text: x.destinataire || "" }), el("small", { text: "depuis " + x.boite + " · " + quand(x.cree_le) })]),
+      el("p", { class: "reponse-objet", text: x.objet || "" }),
+      el("details", { class: "reponse-origine" }, [el("summary", { text: "Mail reçu de " + (x.original_de || "") + (x.original_recu_le ? ", " + quand(x.original_recu_le) : "") }),
+        el("p", { text: x.original_extrait || "" })]),
+      el("p", { class: "aside", text: "Vous avez dicté : « " + x.consigne + " »" }),
+      zone,
+      outlook ? el("p", { class: "aside", text: "Outlook n'autorise pas le cockpit à envoyer : enregistrez ici si besoin, puis envoyez le brouillon depuis Outlook (dossier Brouillons)." }) : null,
+      x.erreur ? el("p", { class: "aside erreur", text: "Dernière erreur : " + x.erreur }) : null,
+      el("div", { class: "reponse-actions" }, [
+        outlook ? null : envoyer,
+        el("button", { type: "button", class: "btn-contour", onclick: function (ev) { agirReponse(x, "modifier", zone.value, ev.currentTarget); } }, [outlook ? "Enregistrer dans Outlook" : "Enregistrer le brouillon"]),
+        el("button", { type: "button", class: "btn-texte danger", onclick: function (ev) { agirReponse(x, "abandonner", null, ev.currentTarget); } }, ["Abandonner"])
+      ])
+    ]);
+    return carte;
+  }
+  function vueReponses() {
+    var f = document.createDocumentFragment(), toutes = S.reponses || [];
+    var attente = toutes.filter(function (x) { return x.statut === "brouillon"; });
+    var journal = toutes.filter(function (x) { return x.statut !== "brouillon"; });
+    f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
+      el("div", {}, [icone("mails", "grande"), el("p", { class: "surtitre", text: "Victor" }), el("h1", { text: "Réponses" }),
+        el("p", { class: "chapo", text: "Les réponses que vous dictez à Victor depuis l'iPhone. Un mail est déposé en brouillon dans le bon fil : rien ne part avant que vous le validiez ici. Un SMS ou un WhatsApp s'ouvre sur le téléphone, et vous l'envoyez vous-même." })])
+    ]));
+    f.appendChild(el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "À valider" })]),
+      attente.length ? el("div", { class: "reponses" }, attente.map(carteReponse))
+        : el("p", { class: "vide", text: "Aucun brouillon en attente. Dites par exemple « Tâche pour Victor », puis « Réponds à Toynamics que je passe vendredi »." })
+    ]));
+    if (journal.length) f.appendChild(el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Journal" }), el("p", { class: "aside", text: "30 derniers jours" })]),
+      el("ul", { class: "tri-liste" }, journal.map(function (x) {
+        var etat = x.statut === "envoye" ? "envoyé le " + fmt(new Date(x.envoye_le), { day: "numeric", month: "short" }) + " · " + hm(new Date(x.envoye_le))
+          : x.statut === "abandonne" ? "abandonné" : (x.canal === "sms" ? "SMS" : "WhatsApp") + " ouvert sur l'iPhone";
+        return el("li", {}, [el("small", { text: [x.canal === "mail" ? "Mail" : x.canal === "sms" ? "SMS" : "WhatsApp", x.destinataire, etat].filter(Boolean).join(" · ") }),
+          el("span", { text: x.texte })]);
+      }))
+    ]));
+    if (S.rubrique) setTimeout(function () { var c = document.getElementById("reponse-" + S.rubrique); if (c) c.scrollIntoView({ block: "start" }); }, 0);
+    return f;
+  }
   function vueMails() {
     chargerTri();
     var f = document.createDocumentFragment(), t = S.tri, p = S.triPeriode || "1";
@@ -2294,14 +2361,14 @@
   function dessiner() {
     if (!db) return;
     var a = activite(S.route);
-    if (S.route && !a && S.route !== "agendas" && S.route !== "taches" && S.route !== "mails") S.route = "";
+    if (S.route && !a && S.route !== "agendas" && S.route !== "taches" && S.route !== "mails" && S.route !== "reponses") S.route = "";
     dessinerNav();
     dessinerSynchro();
     var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
     S.calScroll = defileAvant ? defileAvant.scrollTop : null;
     var tabAvant = app.querySelector(".tableau-taches"), tabScroll = tabAvant ? tabAvant.scrollLeft : 0;
     app.textContent = "";
-    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "taches" ? vueTaches() : vueAccueil());
+    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
     var chA = a && CHARTES[a.id];
     app.dataset.projet = a ? a.id : "";
@@ -2320,7 +2387,7 @@
       if (c && d.scrollWidth > d.clientWidth) d.scrollLeft = Math.max(0, c.offsetLeft - d.clientWidth / 3);
     });
     var rubT = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
-    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
+    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "reponses" ? "Réponses" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
     var hh = document.getElementById("horloge-haut"), mt = new Date(); hh.textContent = fmt(mt, { weekday: "long", day: "numeric", month: "long" }) + " · " + hm(mt);
     mesurerNav(); suivreRubriques();
   }
@@ -2459,7 +2526,7 @@
       router();
       if (!canal) {
         canal = db.channel("cockpit");
-        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations", "production"].forEach(function (table) {
+        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations", "production", "reponses"].forEach(function (table) {
           canal.on("postgres_changes", { event: "*", schema: "public", table: table }, function () {
             if (enSaisie() || dialogue.open || dlgRdv.open || S.glisse) { attenteSaisie = true; return; }
             rechargerPuisDessiner();

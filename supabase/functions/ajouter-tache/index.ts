@@ -16,6 +16,7 @@ import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.4.0/helpers/zod";
 import { z } from "npm:zod@4.6.7";
 import { jetonAcces, organisateurAutre, type Compte } from "../_partage/fournisseurs.ts";
+import { deposerBrouillon, dernierMail, rediger } from "../_partage/reponses.ts";
 
 const CLE_TACHE = Deno.env.get("CLE_TACHE") ?? "";
 const URL_PROJET = Deno.env.get("SUPABASE_URL")!;
@@ -30,9 +31,11 @@ const SANS_REPLI = new Set(["evoa-courtage"]); // sans agenda propre connecté, 
 const CHAMPS = ["date", "heure", "duree", "lieu", "priorite", "activite", "titre"] as const;
 
 type Activite = { id: string; nom: string; description: string | null; mots_cles: string[] | null };
-type Action = "creer" | "annuler" | "modifier" | "supprimer" | "terminer";
+type Action = "creer" | "annuler" | "modifier" | "supprimer" | "terminer" | "repondre";
+const SITE = "https://ar-conseil.github.io/cockpit/";
+const BOITE_DU_PROJET: Record<string, string> = { palomano: "lille@palomano.com", "camp-rouzier-marechal": "camprouziermarechal@gmail.com" };
 type Comprise = {
-  action: Action; cibles: string[]; champs: string[];
+  action: Action; cibles: string[]; champs: string[]; canal: "mail" | "sms" | "whatsapp" | ""; correspondant: string; consigne: string;
   type: "tache" | "rdv"; titre: string; activite_id: string; date: string | null; heure: string | null; heure_fin: string | null;
   duree: number | null; journee: boolean; lieu: string | null; priorite: "haute" | "moyenne" | "basse";
 };
@@ -132,7 +135,8 @@ async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, 
   const [{ data: clients }] = await Promise.all([db.from("clients").select("nom, activite_id").limit(400)]);
   const calendrier = Array.from({ length: 21 }, (_, i) => { const j = plus(aujourdhui, i); return `${JOURS[enDate(j).getUTCDay()]} ${j}`; });
   const Sortie = z.object({
-    action: z.enum(["creer", "annuler", "modifier", "supprimer", "terminer"]),
+    action: z.enum(["creer", "annuler", "modifier", "supprimer", "terminer", "repondre"]),
+    canal: z.enum(["mail", "sms", "whatsapp", ""]), correspondant: z.string(), consigne: z.string(),
     cibles: z.array(z.string()), champs: z.array(z.enum(CHAMPS)),
     type: z.enum(["tache", "rdv"]), titre: z.string(), activite: z.enum([...acts.map((a) => a.id), ""] as [string, ...string[]]),
     date: z.string(), heure: z.string(), heure_fin: z.string(), duree_minutes: z.number().int(), journee: z.boolean(),
@@ -150,7 +154,12 @@ async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, 
   « annuler » pour défaire le dernier ajout (« annule », « annule la dernière », « supprime ce que je viens de dire », « c'était une erreur ») ;
   « modifier » pour changer une tâche ou un rendez-vous existant (« décale Toynamics à lundi », « le rendez-vous Monteil passe à 15 h », « mets Excom en priorité haute », « range la tâche Monteil dans Wealthy », « renomme… ») ;
   « supprimer » pour effacer une tâche ou un rendez-vous existant (« supprime la tâche Toynamics », « annule le rendez-vous avec Julien ») ;
-  « terminer » pour une tâche faite (« Toynamics, c'est fait », « j'ai appelé Édouard »).
+  « terminer » pour une tâche faite (« Toynamics, c'est fait », « j'ai appelé Édouard ») ;
+  « repondre » pour écrire à quelqu'un : répondre à un mail (« réponds à Toynamics que… », « réponds au mail de Julien… ») ou envoyer un SMS ou un WhatsApp (« envoie un SMS à Lili pour lui dire… », « WhatsApp à Zac : … »).
+- canal (repondre) : « mail » pour une réponse à un mail (par défaut quand il dit « réponds à »), « sms » pour un SMS ou un texto, « whatsapp » pour WhatsApp ; sinon chaîne vide.
+- correspondant (repondre) : pour un mail, le mot le plus sûr pour retrouver l'expéditeur dans la boîte (nom de la société ou nom de famille, ou son adresse si elle est dite : « Toynamics », « Monteil ») ; pour un SMS ou WhatsApp, le nom de la personne tel qu'il est dit. Sinon chaîne vide.
+- consigne (repondre) : ce qu'Antonin veut dire, reformulé fidèlement, sans rien ajouter. Sinon chaîne vide.
+- Pour repondre, activite est le projet du correspondant si on le devine (sinon « perso »).
 - cibles (modifier, supprimer, terminer) : les identifiants (t… ou r…) des tâches ouvertes et rendez-vous de la liste ci-dessous qu'Antonin désigne. Si sa description en désigne clairement un seul (« la relance Dupont » = « Relancer Dupont pour le devis », pas « Appeler Dupont »), mets seulement celui-là ; s'il reste plusieurs candidats aussi plausibles, mets-les tous (ne choisis jamais au hasard) ; liste vide si aucun. Pour creer et annuler : liste vide.
 - champs (modifier) : les éléments à changer, parmi date, heure, duree, lieu, priorite, activite, titre ; les nouvelles valeurs vont dans les champs ci-dessous. Pour les autres actions : liste vide.
 - type : « rdv » si une heure précise est dite (« à 14 h », « de 9 h à 10 h », « 14 h 30 ») ou si c'est un événement sur toute la journée (« toute la journée », « salon mardi ») ; sinon « tache ». « Appeler X demain » est une tâche ; « Appeler X demain à 10 h » est un rendez-vous.
@@ -182,7 +191,7 @@ ${rdvs.map((e, i) => `- r${i + 1} : ${e.titre}, ${direRdv(e, aujourdhui)}${e.lie
   if (!o) throw new Error(`réponse illisible (${r.stop_reason})`);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(o.date) && o.date >= aujourdhui && o.date <= plus(aujourdhui, 730) ? o.date : null;
   const hh = (h: string) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(h) ? h : null);
-  return { action: o.action, cibles: [...new Set(o.cibles)], champs: o.champs,
+  return { action: o.action, cibles: [...new Set(o.cibles)], champs: o.champs, canal: o.canal, correspondant: o.correspondant.trim(), consigne: o.consigne.trim(),
     type: o.type, titre: o.titre.trim(), activite_id: o.activite || parMotsCles(phrase, acts), date, heure: hh(o.heure), heure_fin: hh(o.heure_fin),
     duree: o.duree_minutes > 0 && o.duree_minutes <= 24 * 60 ? o.duree_minutes : null, journee: o.journee,
     lieu: o.lieu.trim() || null, priorite: o.priorite || "moyenne" };
@@ -218,9 +227,34 @@ async function agendaEcrire(corps: Record<string, unknown>): Promise<any> {
   return j;
 }
 
+// ---------- Réponses (mail, SMS, WhatsApp) : préparées par Victor, jamais envoyées sans Antonin ----------
+const extrait = (t: string, n = 160) => { const u = t.replace(/\s+/g, " ").trim(); return u.length > n ? u.slice(0, n - 1) + "…" : u; };
+async function repondre(c: Comprise, x: Contexte): Promise<Reponse> {
+  const pre = x.essai ? "Essai (rien d'écrit) : " : "";
+  if (!c.correspondant || !c.consigne) return { texte: "Je n'ai pas compris à qui répondre ni quoi dire : rien de préparé. Exemple : « Réponds à Toynamics que je passe vendredi »." };
+  if (c.canal === "sms" || c.canal === "whatsapp") {
+    const t = await rediger(c.canal, c.consigne, c.correspondant);
+    const nom = c.canal === "sms" ? "SMS" : "WhatsApp";
+    if (!x.essai) await db.from("reponses").insert({ canal: c.canal, consigne: x.phrase, destinataire: c.correspondant, texte: t, statut: "ouvert" });
+    return { texte: `${pre}${nom} pour ${c.correspondant} : « ${t} ». Choisis ${c.correspondant} puis envoie.`,
+      ouvrir: c.canal === "sms" ? `sms:&body=${encodeURIComponent(t)}` : `https://wa.me/?text=${encodeURIComponent(t)}` };
+  }
+  const m = await dernierMail(db, c.correspondant, BOITE_DU_PROJET[c.activite_id]);
+  if (!m) return { texte: `Je n'ai trouvé aucun mail reçu de « ${c.correspondant} » ces 6 derniers mois : rien de préparé.` };
+  const t = await rediger("mail", c.consigne, m.de, m);
+  const quand = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "long" }).format(new Date(m.recu_le));
+  const resume = `Réponse à ${m.de.replace(/\s*<.*>/, "") || m.de} (« ${extrait(m.objet, 60)} », reçu le ${quand}, boîte ${m.compte.email}) : « ${extrait(t, 220)} »`;
+  if (x.essai) return { texte: `${pre}${resume}` };
+  const b = await deposerBrouillon(db, m, t);
+  const { data } = await db.from("reponses").insert({ canal: "mail", consigne: x.phrase, destinataire: b.destinataire, boite: m.compte.email,
+    fournisseur: m.compte.fournisseur, objet: b.objet, texte: t, original_de: m.de, original_objet: m.objet, original_extrait: extrait(m.texte, 600),
+    original_recu_le: m.recu_le, mail_id: m.id, fil_id: m.fil, brouillon_id: b.brouillon_id }).select("id").single();
+  return { texte: `Brouillon prêt, rien n'est parti. ${resume}. À valider dans le cockpit.`, status: 201, ouvrir: `${SITE}#reponses${data ? "/" + data.id : ""}` };
+}
+
 // ---------- Actions ----------
 type Contexte = { phrase: string; aujourdhui: string; essai: boolean; nomProjet: (id: string) => string };
-type Reponse = { texte: string; status?: number; journal?: Record<string, unknown> };
+type Reponse = { texte: string; status?: number; journal?: Record<string, unknown>; ouvrir?: string };
 
 async function creer(c: Comprise, x: Contexte): Promise<Reponse> {
   const titre = (c.titre || x.phrase).slice(0, 200);
@@ -349,41 +383,47 @@ async function agirSurCible(c: Comprise, x: Contexte, taches: TacheOuverte[], rd
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return texte("Envoyer la phrase en POST.", 405);
-  const cle = req.headers.get("x-cle-tache") ?? "";
-  // CLE_TACHE_ESSAI : clé temporaire pour tester sans toucher à celle du téléphone (posée puis retirée par l'API d'administration)
-  if (!egal(CLE_TACHE, cle) && !egal(Deno.env.get("CLE_TACHE_ESSAI") ?? "", cle)) return texte("Clé refusée : vérifier l'en-tête x-cle-tache du raccourci.", 401);
-
   const brut = await req.text();
-  let corps: { texte?: string; essai?: boolean } = {};
+  let corps: { texte?: string; essai?: boolean; format?: string } = {};
   try { corps = JSON.parse(brut); } catch { corps = { texte: brut }; }
   if (typeof corps !== "object" || corps === null) corps = { texte: String(corps) };
+  // Raccourci à jour (champ format = json) : toujours { texte, ouvrir? }, même pour une erreur
+  const enJson = corps.format === "json";
+  const sortie = (t: string, status = 200, ouvrir?: string) => enJson
+    ? new Response(JSON.stringify({ texte: t, ...(ouvrir ? { ouvrir } : {}) }), { status, headers: { "Content-Type": "application/json; charset=utf-8" } })
+    : texte(t + (ouvrir && !ouvrir.startsWith(SITE) ? " (mettre à jour le raccourci pour l'ouvrir directement)" : ""), status);
+  const cle = req.headers.get("x-cle-tache") ?? "";
+  // CLE_TACHE_ESSAI : clé temporaire pour tester sans toucher à celle du téléphone (posée puis retirée par l'API d'administration)
+  if (!egal(CLE_TACHE, cle) && !egal(Deno.env.get("CLE_TACHE_ESSAI") ?? "", cle)) return sortie("Clé refusée : vérifier l'en-tête x-cle-tache du raccourci.", 401);
   const phrase = String(corps.texte ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
   if (!phrase) { // noté pour comprendre d'où vient le vide (champ absent, corps vide, dictée vide), sans contenu
     await db.from("dictees").insert({ phrase: "", action: "vide", resultat: `type=${req.headers.get("content-type") ?? "-"} octets=${brut.length} champs=${Object.keys(corps).join(",") || "-"} texte=${JSON.stringify(corps.texte ?? null).slice(0, 40)}` });
-    return texte("Je n'ai rien reçu (dictée vide) : rien d'ajouté. Recommencer, et laisser la dictée s'arrêter seule ou toucher « Terminé ».", 400);
+    return sortie("Je n'ai rien reçu (dictée vide) : rien d'ajouté. Recommencer, et laisser la dictée s'arrêter seule ou toucher « Terminé ».", 400);
   }
   // Un seul mot = dictée coupée trop tôt (la suite est partie vers Siri) : rien n'est fait (sauf « annule »)
-  if (phrase.split(" ").length < 2 && !/^annule/i.test(phrase)) return texte(`Je n'ai entendu que « ${phrase} » : rien d'ajouté. Recommencer en parlant sans pause.`, 422);
+  if (phrase.split(" ").length < 2 && !/^annule/i.test(phrase)) return sortie(`Je n'ai entendu que « ${phrase} » : rien d'ajouté. Recommencer en parlant sans pause.`, 422);
 
   const aujourdhui = jourParis();
   const { data: acts, error } = await db.from("activites").select("id, nom, description, mots_cles").order("ordre");
-  if (error || !acts?.length) return texte("Cockpit injoignable, réessayer dans un instant.", 500);
+  if (error || !acts?.length) return sortie("Cockpit injoignable, réessayer dans un instant.", 500);
   const x: Contexte = { phrase, aujourdhui, essai: !!corps.essai,
     nomProjet: (id) => COURTS[id] ?? acts.find((a) => a.id === id)?.nom ?? id };
 
-  let c: Comprise, secours = false, rep: Reponse;
+  let c: Comprise, secours = false, rep: Reponse, enReponse = false;
   try {
     if (!Deno.env.get("ANTHROPIC_API_KEY")) throw new Error("clé ANTHROPIC_API_KEY absente");
     const [taches, rdvs] = await Promise.all([tachesOuvertes(), rdvCibles()]);
     c = await comprendre(phrase, acts as Activite[], aujourdhui, taches, rdvs);
-    rep = c.action === "creer" ? await creer(c, x) : c.action === "annuler" ? await annuler(x) : await agirSurCible(c, x, taches, rdvs);
+    rep = c.action === "creer" ? await creer(c, x) : c.action === "annuler" ? await annuler(x) : c.action === "repondre" ? (enReponse = true, await repondre(c, x))
+      : await agirSurCible(c, x, taches, rdvs);
   } catch (e) {
     console.error("ajouter-tache :", message(e));
+    if (enReponse) return sortie(`La réponse n'a pas pu être préparée, rien n'est parti : réessayer.${x.essai ? ` (${message(e)})` : ""}`, 502);
     if (!/claude|anthropic|réponse illisible|ANTHROPIC/i.test(message(e)) && !(e instanceof Anthropic.APIError)) {
-      return texte(`Ça n'a pas marché, réessayer dans un instant.${x.essai ? ` (${message(e)})` : ""}`, 500);
+      return sortie(`Ça n'a pas marché, réessayer dans un instant.${x.essai ? ` (${message(e)})` : ""}`, 500);
     }
     secours = true; // Claude indisponible : simple tâche d'après les mots-clés
-    c = { action: "creer", cibles: [], champs: [], type: "tache", titre: phrase.charAt(0).toUpperCase() + phrase.slice(1),
+    c = { action: "creer", cibles: [], champs: [], canal: "", correspondant: "", consigne: "", type: "tache", titre: phrase.charAt(0).toUpperCase() + phrase.slice(1),
       activite_id: parMotsCles(phrase, acts as Activite[]), date: null, heure: null, heure_fin: null, duree: null, journee: false, lieu: null, priorite: "moyenne" };
     rep = await creer(c, x);
     rep.texte += " (projet deviné sans Claude, à vérifier)";
@@ -393,5 +433,5 @@ Deno.serve(async (req) => {
     await db.from("dictees").delete().lt("cree_le", new Date(Date.now() - 60 * 864e5).toISOString());
   }
   if (secours) console.error("ajouter-tache : réponse de secours sans Claude");
-  return texte(rep.texte, rep.status ?? 200);
+  return sortie(rep.texte, rep.status ?? 200, rep.ouvrir); // « ouvrir » : page ou appli où valider et envoyer
 });

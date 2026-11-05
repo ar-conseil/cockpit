@@ -1049,3 +1049,17 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .tri-boites td { font-variant-numeric: tabular-nums; }
 .tri-corbeille summary { cursor: pointer; font-size: 13.5px; color: var(--encre-2); }
 .tri-corbeille[open] summary { margin-bottom: 6px; }
+
+/* Réponses préparées par Victor */
+.reponses { display: grid; gap: 14px; }
+.reponse { display: grid; gap: 10px; padding: 16px 18px; border-radius: 14px; border: 1px solid var(--filet); background: var(--blanc); scroll-margin-top: calc(var(--haut-nav, 48px) + 12px); }
+.reponse.ouverte { border-color: var(--encre-3); box-shadow: 0 6px 20px rgba(23, 21, 15, .07); }
+.reponse p { margin: 0; }
+.reponse-tete { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.reponse-tete small { color: var(--encre-3); font-size: 12px; }
+.reponse-objet { font-weight: 600; font-size: 14px; }
+.reponse-origine summary { cursor: pointer; color: var(--encre-2); font-size: 13px; }
+.reponse-origine p { margin-top: 8px; color: var(--encre-2); font-size: 13px; white-space: pre-line; }
+.reponse-texte { min-height: 160px; }
+.reponse-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.aside.erreur { color: var(--rouge); }

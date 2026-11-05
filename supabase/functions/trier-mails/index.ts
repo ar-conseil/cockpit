@@ -18,7 +18,7 @@ import { connexionImap, enTete, lireFetch } from "../_partage/mails.ts";
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
 const CLE_SYNCHRO = Deno.env.get("CLE_SYNCHRO") ?? "";
-const BUDGET = 100_000, LOT = 100, EXTRAIT = 400;
+const BUDGET = 90_000, LOT = 100, PAQUET = 25, EXTRAIT = 400, RECENT = 14 * 864e5;
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { "Content-Type": "application/json" } });
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const court = (t: string, n = EXTRAIT) => t.replace(/\s+/g, " ").trim().slice(0, n);
@@ -49,6 +49,21 @@ type Boite = {
   fermer(): Promise<void>;
 };
 
+// Appel d'API qui patiente quand Gmail ou Outlook demandent de ralentir (quota par minute), puis réessaie.
+const pause = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+async function appelPatient(url: string, jeton: string, options: RequestInit = {}) {
+  for (let essai = 0; ; essai++) {
+    const r = await fetch(url, { ...options, headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" } });
+    const t = await r.text(); const j = t ? JSON.parse(t) : {};
+    if (r.ok) return j;
+    const message = j?.error?.message || `HTTP ${r.status}`;
+    if (essai < 2 && (r.status === 429 || r.status === 503 || /quota|rate ?limit|too many/i.test(message))) {
+      await pause(4000); continue;
+    }
+    throw new Error(message);
+  }
+}
+
 // Applique f à chaque élément, par paquets de n en parallèle
 async function paquets<T, R>(liste: T[], n: number, f: (x: T) => Promise<R>) {
   const sortie: R[] = [];
@@ -59,12 +74,7 @@ async function paquets<T, R>(liste: T[], n: number, f: (x: T) => Promise<R>) {
 // ---------- Gmail : étiquettes ----------
 function gmail(email: string, jeton: string): Boite {
   const api = "https://gmail.googleapis.com/gmail/v1/users/me";
-  const appel = async (chemin: string, options: RequestInit = {}) => {
-    const r = await fetch(api + chemin, { ...options, headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" } });
-    const t = await r.text(); const j = t ? JSON.parse(t) : {};
-    if (!r.ok) throw new Error(j?.error?.message || `HTTP ${r.status}`);
-    return j;
-  };
+  const appel = (chemin: string, options: RequestInit = {}) => appelPatient(api + chemin, jeton, options);
   let etiquettes: Map<string, string> | null = null;
   const enCours = new Map<string, Promise<string>>(); // une seule création par étiquette, même en parallèle
   const etiquette = (nom: string) => {
@@ -77,11 +87,11 @@ function gmail(email: string, jeton: string): Boite {
     return enCours.get(cle)!;
   };
   return {
-    email, nom: PAR_BOITE[email]?.[0] ?? email, parallele: 8,
+    email, nom: PAR_BOITE[email]?.[0] ?? email, parallele: 3,
     async lister(limite, n) {
       const q = `in:inbox before:${Math.floor(limite.getTime() / 1000)}`;
       const liste = await appel(`/messages?maxResults=${n}&q=${encodeURIComponent(q)}`);
-      return await paquets((liste.messages ?? []) as { id: string }[], 10, async ({ id }) => {
+      return await paquets((liste.messages ?? []) as { id: string }[], 3, async ({ id }) => {
         const d = await appel(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe&metadataHeaders=Precedence`);
         const h = (k: string) => (d.payload?.headers ?? []).find((x: { name: string }) => x.name.toLowerCase() === k)?.value ?? "";
         return { ref: `gmail:${id}`, id, de: h("from"), objet: h("subject"), recu_le: new Date(+d.internalDate).toISOString(),
@@ -104,12 +114,7 @@ function gmail(email: string, jeton: string): Boite {
 // ---------- Outlook (Microsoft Graph) : dossiers ----------
 function outlook(email: string, jeton: string): Boite {
   const api = "https://graph.microsoft.com/v1.0/me";
-  const appel = async (chemin: string, options: RequestInit = {}) => {
-    const r = await fetch(api + chemin, { ...options, headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" } });
-    const t = await r.text(); const j = t ? JSON.parse(t) : {};
-    if (!r.ok) throw new Error(j?.error?.message || `HTTP ${r.status}`);
-    return j;
-  };
+  const appel = (chemin: string, options: RequestInit = {}) => appelPatient(api + chemin, jeton, options);
   let dossiers: Map<string, string> | null = null;
   const enCours = new Map<string, Promise<string>>();
   const dossierId = (nom: string) => {
@@ -249,12 +254,19 @@ ${Object.entries(THEMES).map(([n, d]) => `- ${n} : ${d}`).join("\n")}
   return { dossiers, consignes, defaut: (email) => parNom.get(PAR_BOITE[email]?.[1] ?? "perso") ?? "Perso" };
 }
 
+// Classe un lot par paquets de 25 mails envoyés en parallèle à Claude
 async function classer(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[]) {
+  const paquets_: Mail[][] = [];
+  for (let i = 0; i < mails.length; i += PAQUET) paquets_.push(mails.slice(i, i + PAQUET));
+  return (await Promise.all(paquets_.map((p) => classerPaquet(client, ctx, boite, p)))).flat();
+}
+
+async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[]) {
   const Tri = z.object({ mails: z.array(z.object({
     id: z.string(), dossier: z.enum(ctx.dossiers as [string, ...string[]]), important: z.boolean(), sensible: z.boolean(), resume: z.string() })) });
   const r = await client.messages.parse({
     model: "claude-haiku-5-5",
-    max_tokens: 16000,
+    max_tokens: 8000,
     output_config: { effort: "low", format: zodOutputFormat(Tri) },
     system: ctx.consignes,
     messages: [{ role: "user", content:
@@ -266,7 +278,8 @@ async function classer(client: Anthropic, ctx: Contexte, boite: Boite, mails: Ma
   return mails.map((m, i) => {
     const d = parId.get("m" + (i + 1));
     let dossier = d?.dossier ?? ctx.defaut(boite.email);
-    const important = !!d?.important;
+    // Étoile seulement pour un mail récent : un vieux mail du stock n'appelle plus d'action
+    const important = !!d?.important && Date.now() - Date.parse(m.recu_le) < RECENT;
     // Garde-fou : ne part à la corbeille qu'un envoi de masse non important ; sinon, rangé dans Newsletters.
     if (dossier === PUB && (!m.masse || important)) dossier = "Newsletters";
     return { mail: m, dossier, important, sensible: !!d?.sensible, resume: court(d?.resume ?? "", 200) };
@@ -303,18 +316,21 @@ async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: bo
   if (!corps.compter && !corps.apercu) await db.from("tri_mails").delete().lt("trie_le", new Date(Date.now() - 60 * 864e5).toISOString());
   const ctx = corps.compter ? null : await contexte();
   const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
-  const bilan = [];
+  // Les boîtes sont rangées en même temps : chacune a ses propres limites chez Google ou Microsoft
+  const bilan = [], travaux: Promise<void>[] = [];
   for (const b of await ouvrir(!!(corps.compter || corps.apercu))) {
     // deno-lint-ignore no-explicit-any
     const r: Record<string, any> = { boite: b.nom };
     if ("erreur" in b) { bilan.push({ ...r, erreur: b.erreur }); continue; }
     bilan.push(r);
-    await (async () => { try {
+    travaux.push((async () => { try {
       if (corps.compter) { Object.assign(r, await b.compter()); return; }
       r.ranges = 0; r.jetes = 0; r.importants = 0; r.restant = false;
+      let tour = 0; // durée du dernier tour : on n'en commence pas un qui dépasserait le temps imparti
       for (;;) {
-        if (Date.now() - t0 > BUDGET) { r.restant = true; break; }
-        const mails = await b.lister(limite, corps.apercu ? Math.min(corps.n ?? 15, LOT) : LOT);
+        if (Date.now() - t0 + tour * 1.2 > BUDGET) { r.restant = true; break; }
+        const debutTour = Date.now();
+        const mails = await b.lister(limite, corps.apercu ? Math.min(corps.n ?? 15, LOT) : b.parallele > 1 ? LOT : 40);
         if (!mails.length) break;
         const decisions = await classer(client, ctx!, b, mails);
         if (corps.apercu) { r.apercu = decisions.map((d) => ({ de: d.mail.de, objet: d.sensible ? "Mail personnel" : d.mail.objet, diffusion: d.mail.masse, dossier: d.dossier, important: d.important, sensible: d.sensible, resume: d.resume })); break; }
@@ -330,10 +346,12 @@ async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: bo
         const faits = journal.length;
         if (journal.length) await db.from("tri_mails").upsert(journal, { onConflict: "boite,message_id", ignoreDuplicates: true });
         if (!faits) throw new Error(r.erreur ?? "aucun mail n'a pu être rangé");
+        tour = Date.now() - debutTour;
       }
-    } catch (e) { r.erreur = message(e); }
-    finally { await b.fermer(); } })();
+    } catch (e) { r.erreur = message(e); if (/quota|rate ?limit|too many/i.test(r.erreur)) r.restant = true; }
+    finally { await b.fermer(); } })());
   }
+  await Promise.all(travaux);
   return { limite: limite.toISOString(), duree_s: Math.round((Date.now() - t0) / 1000), restant: bilan.some((x) => x.restant), bilan };
 }
 

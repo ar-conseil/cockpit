@@ -58,6 +58,8 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   sous-dossier Factures › <fournisseur> (noms rapprochés : « Phanine BV » = « Phanine »). Jamais SAUVEGARDE ni Archive.
   Chemins avec « › » (des noms contiennent « / »). `{ reclasser: "<dossier du tri>", boite, apercu?, depuis? }` déplace
   vers ces dossiers personnels les mails déjà rangés par le tri qui leur correspondent.
+  Boîtes pro (`BOITES_PRO` : Palomano, Evoa) : jamais de dossier pour une autre activité (-> Perso ou thème) ; Harnes
+  n'en fait pas partie, Evoa travaillant avec Harnes Volley.
   Boîte Palomano autorisée au tri le 5 novembre 2026 (accord de l'administrateur Microsoft, droit enregistré à la main).
   Mail qui demande une action d'Antonin : libellé « 1. À faire » dans Gmail (plus d'étoile), drapeau dans Outlook et IONOS.
   Boîte arouzier (`BOITES_TACHES`) : chaque fil « À faire » devient une tâche (`taches.mail_boite`, `mail_fil`, `mail_a_faire`) ;

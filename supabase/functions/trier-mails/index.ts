@@ -54,7 +54,8 @@ const libelle = (dossier: string) => dossier === A_FAIRE || dossier === "Perso" 
 const BOITES_TACHES = new Set(["arouzier@gmail.com"]);
 // Boîtes professionnelles : jamais de dossier pour une autre activité (demande d'Antonin, 5 novembre 2026). Ce qui en relève
 // va dans Perso ou dans un dossier de thème ; le dossier de la boîte (Palomano…) et les thèmes restent.
-const BOITES_PRO = new Set(["lille@palomano.com", "a.rouzier@evoa-courtage.fr", "antonin.rouzier@harnes-volleyball.fr"]); // boîtes dont les mails « À faire » deviennent des tâches
+// Pas Harnes : Evoa travaille avec Harnes Volley, la boîte Harnes garde son dossier Evoa (choix d'Antonin).
+const BOITES_PRO = new Set(["lille@palomano.com", "a.rouzier@evoa-courtage.fr"]); // boîtes dont les mails « À faire » deviennent des tâches
 // Anciens libellés faits à la main (nom sans émoticône) -> dossier où leurs mails sont fusionnés
 const ANCIENS: Record<string, string> = {
   "Administratif": "Banque & administratif", "Banque & Finance": "Banque & administratif", "Investissement": "Banque & administratif",

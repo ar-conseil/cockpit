@@ -103,6 +103,12 @@ select cron.schedule('tri-mails', '*/10 5-8 * * *', \$\$ select net.http_post(ur
     headers := jsonb_build_object('Content-Type', 'application/json',
       'x-cle-synchro', (select decrypted_secret from vault.decrypted_secrets where name = 'cle_synchro')),
     body := '{}'::jsonb, timeout_milliseconds := 60000) \$\$);
+-- Mails « À faire » : tâche terminée -> libellé retiré, libellé retiré -> tâche terminée ; toutes les 15 minutes de 5 h à 21 h UTC
+select cron.unschedule('a-faire') where exists (select 1 from cron.job where jobname = 'a-faire');
+select cron.schedule('a-faire', '*/15 5-21 * * *', \$\$ select net.http_post(url := 'https://$SUPABASE_PROJECT_REF.supabase.co/functions/v1/trier-mails',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cle-synchro', (select decrypted_secret from vault.decrypted_secrets where name = 'cle_synchro')),
+    body := '{"a_faire": true}'::jsonb, timeout_milliseconds := 60000) \$\$);
 select cron.unschedule('menage-evenements') where exists (select 1 from cron.job where jobname = 'menage-evenements');
 select cron.schedule('menage-evenements', '17 3 * * *', \$\$ delete from public.evenements where fin < now() - interval '90 days' \$\$);
 SQL

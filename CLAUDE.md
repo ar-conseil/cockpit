@@ -47,11 +47,20 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   sur Aujourd'hui ; une proposition acceptée devient une tâche. Notes du jour dans ~/.cockpit/victor/ (jamais dans le dépôt).
 - Tri des boîtes (fonction `trier-mails`, pg_cron `tri-mails` toutes les 10 min de 5 h à 8 h 50 UTC) : une fois le point du jour
   publié, les mails de la réception reçus AVANT ce point sont classés par Claude Haiku 5.5 et rangés (un dossier par activité,
-  plus Factures & compta, Banque & administratif, Newsletters, Notifications), marqués lus, importants étoilés (drapeau Outlook) ;
-  les publicités (envoi de masse seulement) vont à la corbeille. Jamais d'envoi ni d'effacement définitif. Droits nécessaires :
+  plus Factures & compta, Banque & administratif, Newsletters, Notifications), marqués lus ; les publicités (envoi de masse
+  seulement) vont à la corbeille. Jamais d'envoi ni d'effacement définitif. Droits nécessaires :
   gmail.modify / Mail.ReadWrite (colonne `comptes_agenda.droits`, bouton « Autoriser le tri » page Agendas) ; IONOS par IMAP.
+  Libellés Gmail (validés par Antonin le 5 novembre 2026, plus d'émoticônes) : « 1. À faire » en tête, Projets/<activité>
+  (Palomano, Evoa, Harnes Volley, Camp, Berkay, Wealthy), Perso, Classement/(Factures & compta, Banque & administratif,
+  Newsletters, Notifications). Outlook et IONOS gardent des dossiers à plat. Le journal garde les noms courts.
+  Mail qui demande une action d'Antonin : libellé « 1. À faire » dans Gmail (plus d'étoile), drapeau dans Outlook et IONOS.
+  Boîte arouzier (`BOITES_TACHES`) : chaque fil « À faire » devient une tâche (`taches.mail_boite`, `mail_fil`, `mail_a_faire`) ;
+  tâche terminée -> libellé retiré du fil ; libellé retiré dans Gmail (ou fil à la corbeille) -> tâche terminée. Accord fait
+  à chaque tri et par pg_cron `a-faire` (`{ a_faire: true }`, toutes les 15 min de 5 h à 21 h UTC).
   Journal `tri_mails` (60 jours, objet masqué pour la santé), bilan `tri_resume(depuis)` affiché dans le point de Victor.
   Stock : `{ attendre: true }` à relancer tant que `restant` ; `{ compter: true }` et `{ apercu: true }` ne touchent à rien.
+  `{ libelles: true, apercu?, boite? }` : remise en ordre des libellés Gmail (anciens libellés renommés ou fusionnés puis
+  supprimés une fois vides, « Travail & Pro » reclassé par Claude, « Notes » masqué) ; rejouable sans risque.
 - Dictée depuis l'iPhone (fonction `ajouter-tache`, Raccourci iOS « Tâche pour Victor », lancé par la phrase « Tâche pour Victor » des Raccourcis vocaux d'Accessibilité : par Siri, « tâche … Victor » part vers Rappels/Calendrier et le contact Victor) : POST `{ texte }` (ou texte brut)
   avec l'en-tête `x-cle-tache` ; Claude Haiku 5.5 en tire l'action (creer, annuler, modifier, supprimer, terminer), la cible,
   le titre, le projet, la date, l'heure, la durée, le lieu et la priorité ; réponse en une ligne lisible pour la notification.

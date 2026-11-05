@@ -1,13 +1,20 @@
 // Tri des boîtes mail par Victor : chaque mail de la réception est rangé dans un dossier par thème (un par activité,
-// plus Factures & compta, Banque & administratif, Newsletters, Notifications) et marqué comme lu ; les mails importants
-// gardent une étoile (un drapeau dans Outlook) ; les publicités vont à la corbeille (récupérables 30 jours).
-// Jamais d'envoi, de réponse, ni d'effacement définitif. Chaque décision est notée dans tri_mails pour le cockpit.
+// plus Factures & compta, Banque & administratif, Newsletters, Notifications) et marqué comme lu ; les mails qui demandent
+// une action d'Antonin reçoivent le libellé « 1. À faire » dans Gmail (un drapeau dans Outlook et IONOS) ; les publicités
+// vont à la corbeille (récupérables 30 jours). Dans Gmail, les libellés sont imbriqués : Projets/<activité>,
+// Classement/<thème>, Perso. Jamais d'envoi, de réponse, ni d'effacement définitif. Chaque décision est notée dans tri_mails.
 // Le matin, seuls les mails reçus AVANT la publication du point de Victor sont rangés : Victor les a donc déjà lus.
+// Boîte Gmail arouzier : chaque fil « À faire » devient une tâche du cockpit ; tâche terminée -> libellé retiré,
+// libellé retiré à la main -> tâche terminée (à chaque tri et toutes les 15 minutes en journée).
 //  POST {}                        -> en tâche de fond (cron, chaque matin après le point de Victor)
 //  POST { attendre: true }        -> attend la fin et renvoie le bilan ({ restant: true } s'il en reste : relancer)
 //  POST { compter: true }         -> nombre de mails en réception, par boîte, sans rien toucher
 //  POST { apercu: true, n? }      -> classe quelques mails par boîte sans rien toucher (test)
 //  POST { forcer: true }          -> range aussi les mails arrivés après le point du jour
+//  POST { a_faire: true }         -> accorde seulement les libellés « À faire » et les tâches liées (cron de journée)
+//  POST { libelles: true, apercu?, boite? } -> remet en ordre les libellés Gmail : anciens libellés fusionnés dans les
+//                                    nouveaux puis supprimés une fois vides, « Travail & Pro » reclassé par Claude ; à relancer
+//                                    tant que restant ; avec apercu, dit seulement ce qui serait fait
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.4.0/helpers/zod";
@@ -37,8 +44,21 @@ const PAR_BOITE: Record<string, [string, string]> = { // adresse -> [nom de la b
   "a.rouzier@evoa-courtage.fr": ["Evoa", "evoa-courtage"], "antonin.rouzier@harnes-volleyball.fr": ["Harnes", "harnes-volley"],
   "lille@palomano.com": ["Palomano", "palomano"],
 };
+// Libellés Gmail : « 1. À faire » en tête, activités sous Projets/, thèmes sous Classement/, Perso à part.
+// Le journal tri_mails et le classement par Claude gardent les noms courts (Palomano, Factures & compta…).
+const A_FAIRE = "1. À faire";
+const libelle = (dossier: string) => dossier === A_FAIRE || dossier === "Perso" ? dossier
+  : THEMES[dossier] ? `Classement/${dossier}` : `Projets/${dossier}`;
+const BOITES_TACHES = new Set(["arouzier@gmail.com"]); // boîtes dont les mails « À faire » deviennent des tâches
+// Anciens libellés faits à la main (nom sans émoticône) -> dossier où leurs mails sont fusionnés
+const ANCIENS: Record<string, string> = {
+  "Administratif": "Banque & administratif", "Banque & Finance": "Banque & administratif", "Investissement": "Banque & administratif",
+  "Abonnements": "Factures & compta", "Sécurité & Comptes": "Notifications", "Achats & Livraisons": "Notifications", "Famille & École": "Perso",
+};
+const A_RECLASSER = new Set(["Travail & Pro"]); // sans équivalent : chaque mail est reclassé par Claude
+const sansEmoticone = (nom: string) => nom.replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
-type Mail = { ref: string; id: string; de: string; objet: string; recu_le: string; extrait: string; masse: boolean };
+type Mail = { ref: string; id: string; fil?: string; de: string; objet: string; recu_le: string; extrait: string; masse: boolean };
 type Boite = {
   email: string; nom: string; parallele: number; // opérations menées en même temps sur la boîte
 
@@ -50,6 +70,9 @@ type Boite = {
   rangerLot?(groupes: { dossier: string; important: boolean; mails: Mail[] }[]): Promise<void>;
   // Stock Gmail : onglets Promotions (corbeille) et Réseaux sociaux (Notifications) rangés par blocs, sans lire chaque mail
   massif?(limite: Date, finAvant: number): Promise<{ jetes: number; ranges: number; restant: boolean }>;
+  // Gmail : libellés « À faire » et tâches du cockpit accordés ; remise en ordre des anciens libellés
+  aFaire?(): Promise<{ retires: number; terminees: number }>;
+  libelles?(ctx: Contexte, client: Anthropic, apercu: boolean, finAvant: number): Promise<Record<string, unknown>>;
   fermer(): Promise<void>;
 };
 
@@ -75,36 +98,50 @@ async function paquets<T, R>(liste: T[], n: number, f: (x: T) => Promise<R>) {
   return sortie;
 }
 
-// ---------- Gmail : étiquettes ----------
+// ---------- Gmail : libellés ----------
+type Etiquette = { id: string; name: string; type?: string; labelListVisibility?: string };
 function gmail(email: string, jeton: string): Boite {
   const api = "https://gmail.googleapis.com/gmail/v1/users/me";
   const appel = (chemin: string, options: RequestInit = {}) => appelPatient(api + chemin, jeton, options);
+  const nomBoite = PAR_BOITE[email]?.[0] ?? email;
   let etiquettes: Map<string, string> | null = null;
-  const enCours = new Map<string, Promise<string>>(); // une seule création par étiquette, même en parallèle
-  const etiquette = (nom: string) => {
+  const enCours = new Map<string, Promise<string>>(); // une seule création par libellé, même en parallèle
+  // Identifiant d'un libellé par son nom complet (« Projets/Evoa »), créé au besoin avec son parent (« Projets »)
+  const etiquette = (nom: string): Promise<string> => {
     const cle = nom.toLowerCase();
     if (!enCours.has(cle)) enCours.set(cle, (async () => {
-      if (!etiquettes) etiquettes = new Map(((await appel("/labels")).labels ?? []).map((l: { name: string; id: string }) => [l.name.toLowerCase(), l.id]));
-      return etiquettes.get(cle) ?? (await appel("/labels", { method: "POST",
+      if (!etiquettes) etiquettes = new Map(((await appel("/labels")).labels ?? []).map((l: Etiquette) => [l.name.toLowerCase(), l.id]));
+      const deja = etiquettes.get(cle);
+      if (deja) return deja;
+      if (nom.includes("/")) await etiquette(nom.slice(0, nom.lastIndexOf("/")));
+      return (await appel("/labels", { method: "POST",
         body: JSON.stringify({ name: nom, labelListVisibility: "labelShow", messageListVisibility: "show" }) })).id as string;
     })());
     return enCours.get(cle)!;
   };
+  const oublier = () => { etiquettes = null; enCours.clear(); };
+  // Libellés posés sur un mail rangé : son dossier, plus « À faire » s'il demande une action d'Antonin
+  const ajouts = async (dossier: string, important: boolean) =>
+    [await etiquette(libelle(dossier)), ...(important ? [await etiquette(A_FAIRE)] : [])];
+  // En-têtes utiles de quelques mails, lus 8 par 8
+  const details = (ids: string[]) => paquets(ids, 8, async (id) => {
+    const d = await appel(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe&metadataHeaders=Precedence`);
+    const h = (k: string) => (d.payload?.headers ?? []).find((x: { name: string }) => x.name.toLowerCase() === k)?.value ?? "";
+    return { ref: `gmail:${id}`, id, fil: d.threadId, de: h("from"), objet: h("subject"), recu_le: new Date(+d.internalDate).toISOString(),
+      extrait: court(d.snippet ?? ""), masse: !!h("list-unsubscribe") || /bulk|list/i.test(h("precedence")) || (d.labelIds ?? []).includes("CATEGORY_PROMOTIONS") } as Mail;
+  });
+  const deplacer = (ids: string[], ajout: string[], retrait: string[]) =>
+    appel("/messages/batchModify", { method: "POST", body: JSON.stringify({ ids, addLabelIds: ajout, removeLabelIds: retrait }) });
   return {
-    email, nom: PAR_BOITE[email]?.[0] ?? email, parallele: 3,
+    email, nom: nomBoite, parallele: 3,
     async lister(limite, n) {
       const q = `in:inbox before:${Math.floor(limite.getTime() / 1000)}`;
       const liste = await appel(`/messages?maxResults=${n}&q=${encodeURIComponent(q)}`);
-      return await paquets((liste.messages ?? []) as { id: string }[], 8, async ({ id }) => {
-        const d = await appel(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe&metadataHeaders=Precedence`);
-        const h = (k: string) => (d.payload?.headers ?? []).find((x: { name: string }) => x.name.toLowerCase() === k)?.value ?? "";
-        return { ref: `gmail:${id}`, id, de: h("from"), objet: h("subject"), recu_le: new Date(+d.internalDate).toISOString(),
-          extrait: court(d.snippet ?? ""), masse: !!h("list-unsubscribe") || /bulk|list/i.test(h("precedence")) || (d.labelIds ?? []).includes("CATEGORY_PROMOTIONS") } as Mail;
-      });
+      return await details(((liste.messages ?? []) as { id: string }[]).map((m) => m.id));
     },
     async ranger(m, dossier, important) {
       await appel(`/messages/${m.id}/modify`, { method: "POST", body: JSON.stringify({
-        addLabelIds: [await etiquette(dossier), ...(important ? ["STARRED"] : [])], removeLabelIds: ["INBOX", "UNREAD"] }) });
+        addLabelIds: await ajouts(dossier, important), removeLabelIds: ["INBOX", "UNREAD"] }) });
     },
     async jeter(m) {
       await appel(`/messages/${m.id}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: ["UNREAD"] }) });
@@ -119,9 +156,8 @@ function gmail(email: string, jeton: string): Boite {
           const q = `in:inbox category:${categorie} before:${Math.floor(limite.getTime() / 1000)}`;
           const ids = ((await appel(`/messages?maxResults=500&q=${encodeURIComponent(q)}`)).messages ?? []).map((m: { id: string }) => m.id) as string[];
           if (!ids.length) break;
-          await appel("/messages/batchModify", { method: "POST", body: JSON.stringify({
-            ids, addLabelIds: dossier === PUB ? ["TRASH"] : [await etiquette(dossier)], removeLabelIds: ["INBOX", "UNREAD"] }) });
-          await db.from("tri_mails").upsert(ids.map((id) => ({ boite: PAR_BOITE[email]?.[0] ?? email, message_id: `gmail:${id}`,
+          await deplacer(ids, dossier === PUB ? ["TRASH"] : [await etiquette(libelle(dossier))], ["INBOX", "UNREAD"]);
+          await db.from("tri_mails").upsert(ids.map((id) => ({ boite: nomBoite, message_id: `gmail:${id}`,
             dossier: dossier === PUB ? CORBEILLE : dossier, important: false, resume: `Onglet ${categorie === "promotions" ? "Promotions" : "Réseaux sociaux"} de Gmail (rangé en bloc)` })),
             { onConflict: "boite,message_id", ignoreDuplicates: true });
           if (dossier === PUB) bilan.jetes += ids.length; else bilan.ranges += ids.length;
@@ -131,10 +167,114 @@ function gmail(email: string, jeton: string): Boite {
     },
     async rangerLot(groupes) {
       for (const g of groupes) {
-        const ajout = g.dossier === PUB ? ["TRASH"] : [await etiquette(g.dossier), ...(g.important ? ["STARRED"] : [])];
-        await appel("/messages/batchModify", { method: "POST", body: JSON.stringify({
-          ids: g.mails.map((m) => m.id), addLabelIds: ajout, removeLabelIds: ["INBOX", "UNREAD"] }) });
+        await deplacer(g.mails.map((m) => m.id), g.dossier === PUB ? ["TRASH"] : await ajouts(g.dossier, g.important), ["INBOX", "UNREAD"]);
       }
+    },
+    // Tâche terminée dans le cockpit -> libellé « À faire » retiré du fil ; libellé retiré (ou fil à la corbeille) -> tâche terminée
+    async aFaire() {
+      const bilan = { retires: 0, terminees: 0 };
+      const suivies = (await db.from("taches").select("id, mail_fil, statut").eq("mail_boite", nomBoite).eq("mail_a_faire", true)).data ?? [];
+      if (!suivies.length) return bilan;
+      const id = await etiquette(A_FAIRE);
+      for (const t of suivies.filter((t) => t.statut === "fait")) {
+        await appel(`/threads/${t.mail_fil}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: [id] }) })
+          .catch((e) => { if (!/not found/i.test(message(e))) throw e; });
+        await db.from("taches").update({ mail_a_faire: false }).eq("id", t.id);
+        bilan.retires++;
+      }
+      const ouvertes = suivies.filter((t) => t.statut !== "fait");
+      if (!ouvertes.length) return bilan;
+      const fils = new Set<string>();
+      let page = "";
+      do {
+        const r = await appel(`/threads?labelIds=${id}&maxResults=500${page ? `&pageToken=${page}` : ""}`);
+        for (const f of r.threads ?? []) fils.add(f.id);
+        page = r.nextPageToken ?? "";
+      } while (page);
+      const fermees = ouvertes.filter((t) => !fils.has(t.mail_fil)).map((t) => t.id);
+      if (fermees.length) {
+        await db.from("taches").update({ statut: "fait", fait_le: new Date().toISOString(), mail_a_faire: false }).in("id", fermees);
+        bilan.terminees = fermees.length;
+      }
+      return bilan;
+    },
+    // Remise en ordre : anciens libellés du tri renommés (Palomano -> Projets/Palomano), anciens libellés à émoticônes
+    // fusionnés dans les nouveaux puis supprimés une fois vides, « Travail & Pro » reclassé mail par mail, « Notes » masqué.
+    async libelles(ctx, client, apercu, finAvant) {
+      const liste = ((await appel("/labels")).labels ?? []) as Etiquette[];
+      const parNom = new Map(liste.map((l) => [l.name.toLowerCase(), l]));
+      const compte = async (l: Etiquette) => ((await appel(`/labels/${l.id}`)).messagesTotal ?? 0) as number;
+      type Etape = { l: Etiquette; action: "renommer" | "fusionner" | "reclasser" | "masquer"; vers?: string; ancien: boolean };
+      const plan: Etape[] = [];
+      for (const l of liste.filter((x) => x.type === "user")) {
+        const s = sansEmoticone(l.name), ancien = s !== l.name;
+        if (ancien && ANCIENS[s]) plan.push({ l, action: "fusionner", vers: libelle(ANCIENS[s]), ancien });
+        else if (ancien && A_RECLASSER.has(s)) plan.push({ l, action: "reclasser", ancien });
+        else if (!ancien && l.name !== PUB && ctx.dossiers.includes(l.name) && libelle(l.name) !== l.name) plan.push({ l, action: "fusionner", vers: libelle(l.name), ancien });
+        else if (l.name === "Notes" && l.labelListVisibility !== "labelHide") plan.push({ l, action: "masquer", ancien });
+      }
+      plan.sort((a, b) => +a.ancien - +b.ancien); // libellés du tri d'abord : renommés, ils gardent leurs réglages
+      // Nouveau libellé absent : l'ancien est simplement renommé (ses mails suivent)
+      const prevus = new Set<string>();
+      for (const p of plan) if (p.vers && !parNom.has(p.vers.toLowerCase()) && !prevus.has(p.vers.toLowerCase())) {
+        p.action = "renommer"; prevus.add(p.vers.toLowerCase());
+      }
+      const bilan: { restant: boolean; etapes: Record<string, unknown>[] } = { restant: false, etapes: [] };
+      if (apercu) {
+        bilan.etapes = await Promise.all(plan.map(async (p) => ({ libelle: p.l.name, action: p.action, vers: p.vers, mails: await compte(p.l) })));
+        return bilan;
+      }
+      const cible = async (nom: string) => parNom.get(nom.toLowerCase())?.id ?? await etiquette(nom);
+      await etiquette(A_FAIRE);
+      for (const p of plan) {
+        if (Date.now() > finAvant) { bilan.restant = true; break; }
+        const etape: Record<string, unknown> = { libelle: p.l.name, action: p.action, vers: p.vers };
+        bilan.etapes.push(etape);
+        if (p.action === "masquer") {
+          if (await compte(p.l) === 0) await appel(`/labels/${p.l.id}`, { method: "PATCH", body: JSON.stringify({ labelListVisibility: "labelHide" }) });
+          else etape.action = "laissé (contient des mails)";
+          continue;
+        }
+        if (p.action === "renommer") {
+          if (p.vers!.includes("/")) await etiquette(p.vers!.slice(0, p.vers!.lastIndexOf("/")));
+          await appel(`/labels/${p.l.id}`, { method: "PATCH", body: JSON.stringify({ name: p.vers, labelListVisibility: "labelShow", messageListVisibility: "show" }) });
+          parNom.set(p.vers!.toLowerCase(), { ...p.l, name: p.vers! });
+          oublier();
+          etape.mails = await compte(p.l);
+          continue;
+        }
+        // Fusion ou reclassement : on vide l'ancien libellé par lots, puis on le supprime (les mails, eux, restent)
+        const vers = p.action === "fusionner" ? await cible(p.vers!) : "";
+        const parDossier: Record<string, number> = {};
+        let mails = 0, precedent = "";
+        for (;;) {
+          if (Date.now() > finAvant) { bilan.restant = true; break; }
+          const n = p.action === "reclasser" ? LOT : 500;
+          const ids = ((await appel(`/messages?labelIds=${p.l.id}&maxResults=${n}&includeSpamTrash=true`)).messages ?? []).map((m: { id: string }) => m.id) as string[];
+          if (!ids.length) break;
+          if (ids.join() === precedent) throw new Error(`« ${p.l.name} » : les mails ne quittent pas ce libellé`);
+          precedent = ids.join();
+          if (p.action === "fusionner") await deplacer(ids, [vers], [p.l.id]);
+          else {
+            const groupes = new Map<string, string[]>();
+            for (const d of await classer(client, ctx, { email, nom: nomBoite } as Boite, await details(ids))) {
+              const dossier = d.dossier === PUB ? "Newsletters" : d.dossier; // vieux mails : jamais à la corbeille
+              groupes.set(dossier, [...(groupes.get(dossier) ?? []), d.mail.id]);
+            }
+            for (const [dossier, g] of groupes) {
+              await deplacer(g, [await cible(libelle(dossier))], [p.l.id]);
+              parDossier[dossier] = (parDossier[dossier] ?? 0) + g.length;
+            }
+            etape.par_dossier = parDossier;
+          }
+          mails += ids.length;
+        }
+        etape.mails = mails;
+        if (bilan.restant) break;
+        await appel(`/labels/${p.l.id}`, { method: "DELETE" });
+        etape.supprime = true;
+      }
+      return bilan;
     },
     async fermer() {},
   };
@@ -257,7 +397,7 @@ async function ionos(email: string, mdp: string): Promise<Boite> {
 }
 
 // ---------- Classement par Claude ----------
-type Contexte = { dossiers: string[]; consignes: string; defaut: (email: string) => string };
+type Contexte = { dossiers: string[]; consignes: string; defaut: (email: string) => string; activite: (dossier: string, email: string) => string };
 
 async function contexte(): Promise<Contexte> {
   const { data: acts } = await db.from("activites").select("id, nom, mots_cles").order("ordre");
@@ -276,11 +416,13 @@ ${Object.entries(THEMES).map(([n, d]) => `- ${n} : ${d}`).join("\n")}
 - Un mail écrit par une personne (client, prospect, partenaire, collègue, fournisseur) va dans le dossier de l'activité concernée. Une facture, un devis ou un paiement va dans Factures & compta. Sans activité claire, utilise le dossier par défaut de la boîte, indiqué avec les mails.
 - « diffusion » vaut true pour un envoi de masse (lien de désabonnement).
 - important = true seulement si le mail demande une action ou une réponse d'Antonin, ou s'il ne doit pas le manquer : client ou prospect qui écrit, échéance, rendez-vous, document à signer, paiement à faire, problème. Jamais pour une newsletter, une notification banale ou une publicité.
-- resume : une phrase de 15 mots au plus. Les particuliers (clients d'Evoa Courtage, enfants inscrits au Camp et leurs familles) sont désignés par leurs initiales. Jamais d'IBAN, de code, de mot de passe ni de détail de santé.
+- resume : une phrase de 15 mots au plus ; pour un mail important, elle dit l'action attendue d'Antonin (« Répondre à … sur … », « Payer la facture … avant le … »), car elle devient une tâche. Les particuliers (clients d'Evoa Courtage, enfants inscrits au Camp et leurs familles) sont désignés par leurs initiales. Jamais d'IBAN, de code, de mot de passe ni de détail de santé.
 - sensible = true pour un mail de santé (médecin, soin, Assurance Maladie, mutuelle santé) ou très personnel : son résumé reste neutre (« Document de santé à consulter »), sans nom de soignant ni de soin.
 - Rends une entrée par mail, avec son id exact.`;
   const parNom = new Map((acts ?? []).map((a) => [a.id, nomDossier(a)]));
-  return { dossiers, consignes, defaut: (email) => parNom.get(PAR_BOITE[email]?.[1] ?? "perso") ?? "Perso" };
+  const parDossier = new Map((acts ?? []).map((a) => [nomDossier(a), a.id as string]));
+  return { dossiers, consignes, defaut: (email) => parNom.get(PAR_BOITE[email]?.[1] ?? "perso") ?? "Perso",
+    activite: (dossier, email) => parDossier.get(dossier) ?? PAR_BOITE[email]?.[1] ?? "perso" };
 }
 
 // Classe un lot par paquets de 25 mails envoyés en parallèle à Claude
@@ -316,10 +458,32 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
   });
 }
 
+// Mails « À faire » de la boîte Gmail arouzier -> une tâche du cockpit par fil (sauf si une tâche ouverte le suit déjà)
+type Decision = Awaited<ReturnType<typeof classerPaquet>>[number];
+async function creerTaches(ctx: Contexte, b: Boite, decisions: Decision[]) {
+  const aFaire = decisions.filter((d) => d.important && d.mail.fil && d.dossier !== PUB);
+  if (!aFaire.length) return 0;
+  const { data: deja, error: e1 } = await db.from("taches").select("mail_fil").eq("mail_boite", b.nom).neq("statut", "fait")
+    .in("mail_fil", [...new Set(aFaire.map((d) => d.mail.fil!))]);
+  if (e1) throw new Error(`tâches : ${e1.message}`);
+  const vus = new Set((deja ?? []).map((t) => t.mail_fil as string));
+  const lignes = [];
+  for (const d of aFaire) {
+    if (vus.has(d.mail.fil!)) continue;
+    vus.add(d.mail.fil!);
+    lignes.push({ titre: court(d.resume || d.mail.objet || "Mail à traiter", 200), activite_id: ctx.activite(d.dossier, b.email),
+      priorite: "moyenne", statut: "a-faire", mail_boite: b.nom, mail_fil: d.mail.fil, mail_a_faire: true,
+      notes: `Mail de ${court(d.mail.de, 120)}${d.sensible ? "" : ` : « ${court(d.mail.objet, 200)} »`}, libellé « ${A_FAIRE} » dans Gmail. ` +
+        `Terminer la tâche retire le libellé. https://mail.google.com/mail/u/${b.email}/#all/${d.mail.fil}` });
+  }
+  if (lignes.length) { const { error } = await db.from("taches").insert(lignes); if (error) throw new Error(`tâches : ${error.message}`); }
+  return lignes.length;
+}
+
 // ---------- Orchestration ----------
 function aujourdhuiParis() { return new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date()); }
 
-async function ouvrir(lecture: boolean): Promise<(Boite | { email: string; nom: string; erreur: string })[]> {
+async function ouvrir(lecture: boolean, imap = true): Promise<(Boite | { email: string; nom: string; erreur: string })[]> {
   const { data: comptes } = await db.from("comptes_agenda").select("*").eq("usage", "mail");
   const boites: (Boite | { email: string; nom: string; erreur: string })[] = [];
   for (const c of (comptes ?? []) as Compte[]) {
@@ -329,32 +493,42 @@ async function ouvrir(lecture: boolean): Promise<(Boite | { email: string; nom: 
     catch (e) { boites.push({ email: c.email, nom, erreur: message(e) }); }
   }
   const email = Deno.env.get("IONOS_EMAIL") ?? "", mdp = Deno.env.get("IONOS_MOT_DE_PASSE") ?? "";
-  if (email && mdp) {
+  if (imap && email && mdp) {
     try { boites.push(await ionos(email, mdp)); } catch (e) { boites.push({ email, nom: "Harnes", erreur: message(e) }); }
   }
   return boites;
 }
 
-async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean }) {
+type Corps = { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean; a_faire?: boolean; libelles?: boolean; boite?: string };
+async function travail(corps: Corps) {
   const t0 = Date.now();
+  const special = corps.compter || corps.apercu || corps.a_faire || corps.libelles;
   let limite = new Date();
-  if (!corps.forcer && !corps.apercu && !corps.compter) {
+  if (!corps.forcer && !special) {
     const { data: b } = await db.from("briefings").select("jour, mise_a_jour").eq("jour", aujourdhuiParis()).maybeSingle();
     if (!b) return { ignore: "le point de Victor du jour n'est pas encore publié" };
     limite = new Date(b.mise_a_jour);
   }
-  if (!corps.compter && !corps.apercu) await db.from("tri_mails").delete().lt("trie_le", new Date(Date.now() - 60 * 864e5).toISOString());
-  const ctx = corps.compter ? null : await contexte();
+  if (!special) await db.from("tri_mails").delete().lt("trie_le", new Date(Date.now() - 60 * 864e5).toISOString());
+  const ctx = corps.compter || corps.a_faire ? null : await contexte();
   const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
   // Les boîtes sont rangées en même temps : chacune a ses propres limites chez Google ou Microsoft
-  const bilan = [], travaux: Promise<void>[] = [];
-  for (const b of await ouvrir(!!(corps.compter || corps.apercu))) {
+  // deno-lint-ignore no-explicit-any
+  const bilan: Record<string, any>[] = [], travaux: Promise<void>[] = [];
+  for (const b of await ouvrir(!!(corps.compter || corps.apercu), !corps.a_faire && !corps.libelles)) {
     // deno-lint-ignore no-explicit-any
     const r: Record<string, any> = { boite: b.nom };
+    const concernee = (corps.a_faire ? BOITES_TACHES.has(b.email) : true) && (!corps.boite || corps.boite === b.nom)
+      && ("erreur" in b || !corps.libelles || !!b.libelles);
+    if (!concernee) { if (!("erreur" in b)) await b.fermer(); continue; }
     if ("erreur" in b) { bilan.push({ ...r, erreur: b.erreur }); continue; }
     bilan.push(r);
     travaux.push((async () => { try {
       if (corps.compter) { Object.assign(r, await b.compter()); return; }
+      if (corps.a_faire) { if (b.aFaire) Object.assign(r, await b.aFaire()); return; }
+      if (corps.libelles) { Object.assign(r, await b.libelles!(ctx!, client, !!corps.apercu, t0 + BUDGET)); return; }
+      const avecTaches = !corps.apercu && BOITES_TACHES.has(b.email) && !!b.aFaire;
+      if (avecTaches) r.a_faire = await b.aFaire!(); // d'abord accorder les tâches terminées et les libellés retirés
       r.ranges = 0; r.jetes = 0; r.importants = 0; r.restant = false; r.temps = { lister: 0, classer: 0, ranger: 0 };
       if (corps.massif && b.massif) {
         const m = await b.massif(limite, t0 + BUDGET);
@@ -401,6 +575,11 @@ async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: bo
         const faits = journal.length;
         r.temps.ranger += Date.now() - t2;
         if (journal.length) await db.from("tri_mails").upsert(journal, { onConflict: "boite,message_id", ignoreDuplicates: true });
+        if (avecTaches) {
+          const ranges = new Set(journal.map((l) => l.message_id));
+          try { r.taches = (r.taches ?? 0) + await creerTaches(ctx!, b, decisions.filter((d) => ranges.has(d.mail.ref))); }
+          catch (e) { r.erreur = message(e); }
+        }
         if (!faits) throw new Error(r.erreur ?? "aucun mail n'a pu être rangé");
         tour = Date.now() - debutTour;
       }
@@ -414,9 +593,9 @@ async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: bo
 Deno.serve(async (req) => {
   if (!(CLE_SYNCHRO && req.headers.get("x-cle-synchro") === CLE_SYNCHRO)) return json({ erreur: "non autorisé" }, 401);
   const corps = await req.json().catch(() => ({}));
-  if (!corps.compter && !Deno.env.get("ANTHROPIC_API_KEY")) return json({ erreur: "clé ANTHROPIC_API_KEY manquante (outils/claude-cle.sh)" }, 400);
+  if (!corps.compter && !corps.a_faire && !Deno.env.get("ANTHROPIC_API_KEY")) return json({ erreur: "clé ANTHROPIC_API_KEY manquante (outils/claude-cle.sh)" }, 400);
   const tache = travail(corps).catch((e) => { console.error("Tri :", message(e)); return { erreur: message(e) }; });
-  if (corps.attendre || corps.apercu || corps.compter) return json(await tache);
+  if (corps.attendre || corps.apercu || corps.compter || corps.libelles) return json(await tache);
   EdgeRuntime.waitUntil(tache.then((r) => console.log("Tri :", JSON.stringify(r))));
   return json({ lance: true }, 202);
 });

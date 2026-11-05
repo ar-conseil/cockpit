@@ -325,7 +325,7 @@ Deno.serve(async (req) => {
   try { corps = JSON.parse(brut); } catch { corps = { texte: brut }; }
   if (typeof corps !== "object" || corps === null) corps = { texte: String(corps) };
   const phrase = String(corps.texte ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
-  if (!phrase) return texte("Rien à faire : la phrase est vide.", 400);
+  if (!phrase) return texte("Je n'ai rien reçu (dictée vide) : rien d'ajouté. Recommencer, et laisser la dictée s'arrêter seule ou toucher « Terminé ».", 400);
   // Un seul mot = dictée coupée trop tôt (la suite est partie vers Siri) : rien n'est fait (sauf « annule »)
   if (phrase.split(" ").length < 2 && !/^annule/i.test(phrase)) return texte(`Je n'ai entendu que « ${phrase} » : rien d'ajouté. Recommencer en parlant sans pause.`, 422);
 

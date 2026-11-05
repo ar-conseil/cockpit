@@ -2142,6 +2142,9 @@
           el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
           el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur || !trie(c) ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : trie(c) ? "Mails · lus et rangés par Victor" : "Lecture seule : reconnectez la boîte pour autoriser le tri" })]),
           trie(c) ? null : el("button", { type: "button", class: "btn-contour petit", text: "Autoriser le tri", onclick: function () { connecter(c.fournisseur, "mail"); } }),
+          // Outlook : l'envoi des réponses validées dans la page Réponses demande un droit de plus (Mail.Send)
+          trie(c) && c.fournisseur === "microsoft" && !/Mail\.Send/i.test(c.droits || "") ? el("button", { type: "button", class: "btn-contour petit", text: "Autoriser l'envoi",
+            title: "Pour envoyer depuis le cockpit les réponses que vous avez validées", onclick: function () { connecter("microsoft", "mail"); } }) : null,
           el("button", { type: "button", class: "btn-texte danger", text: "Déconnecter", onclick: function () {
             if (!confirm("Ne plus faire lire " + c.email + " par Victor ?")) return;
             db.from("comptes_agenda").delete().eq("id", c.id).then(verifier).then(function () { chargerTout().then(dessiner); });
@@ -2166,7 +2169,8 @@
     var quand = function (d) { return fmt(new Date(d), { weekday: "short", day: "numeric", month: "short" }) + " · " + hm(new Date(d)); };
     var zone = el("textarea", { class: "notes reponse-texte", rows: "8", "aria-label": "Texte de la réponse" });
     zone.value = x.texte;
-    var outlook = x.fournisseur === "microsoft";
+    var compte = S.comptes.filter(function (c) { return c.usage === "mail" && c.email === x.boite; })[0];
+    var outlook = x.fournisseur === "microsoft" && !(compte && /Mail\.Send/i.test(compte.droits || "")); // Outlook sans droit d'envoi
     var envoyer = el("button", { type: "button", class: "btn-plein", onclick: function () {
       if (!confirm("Envoyer cette réponse à " + x.destinataire + " depuis " + x.boite + " ?")) return;
       agirReponse(x, "envoyer", zone.value, envoyer);
@@ -2178,7 +2182,8 @@
         el("p", { text: x.original_extrait || "" })]),
       el("p", { class: "aside", text: "Vous avez dicté : « " + x.consigne + " »" }),
       zone,
-      outlook ? el("p", { class: "aside", text: "Outlook n'autorise pas le cockpit à envoyer : enregistrez ici si besoin, puis envoyez le brouillon depuis Outlook (dossier Brouillons)." }) : null,
+      outlook ? el("p", { class: "aside" }, ["Le cockpit n'a pas encore le droit d'envoyer depuis cette boîte Outlook : enregistrez ici si besoin, puis envoyez le brouillon depuis Outlook (dossier Brouillons), ou ",
+        el("a", { href: "#agendas", text: "autorisez l'envoi" }), " (page Agendas, Boîtes connectées)."]) : null,
       x.erreur ? el("p", { class: "aside erreur", text: "Dernière erreur : " + x.erreur }) : null,
       el("div", { class: "reponse-actions" }, [
         outlook ? null : envoyer,

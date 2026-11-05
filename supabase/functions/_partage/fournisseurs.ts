@@ -25,11 +25,14 @@ const MICROSOFT = {
 };
 
 // Mails : lecture, rangement dans des dossiers, marquage lu et mise à la corbeille (jamais d'envoi ni d'effacement définitif).
-const SCOPES_MAIL = { google: "openid email https://www.googleapis.com/auth/gmail.modify", microsoft: "offline_access openid email User.Read Mail.ReadWrite" };
+// Outlook : Mail.Send sert seulement à envoyer une réponse dictée qu'Antonin a validée dans le cockpit (fonction reponses).
+const SCOPES_MAIL = { google: "openid email https://www.googleapis.com/auth/gmail.modify", microsoft: "offline_access openid email User.Read Mail.ReadWrite Mail.Send" };
+const SCOPES_MAIL_SANS_ENVOI = "offline_access openid email User.Read Mail.ReadWrite";
 // Boîtes Outlook connectées avant le tri (lecture seule) : leur jeton se renouvelle avec les droits d'origine.
 const SCOPES_MAIL_LECTURE = "offline_access openid email User.Read Mail.Read";
 export const scopes = (f: Fournisseur, u: Usage = "agenda") => u === "mail" ? SCOPES_MAIL[f] : f === "google" ? GOOGLE.scopes : MICROSOFT.scopes;
 export const peutTrier = (c: Compte) => /gmail\.modify|Mail\.ReadWrite/i.test(c.droits ?? "");
+export const peutEnvoyer = (c: Compte) => /gmail\.modify|Mail\.Send/i.test(c.droits ?? "");
 
 export function urlAutorisation(f: Fournisseur, etat: string, u: Usage = "agenda"): string {
   const p: Record<string, string> = f === "google"
@@ -71,9 +74,11 @@ export async function echangerCode(f: Fournisseur, code: string, u: Usage = "age
 export async function jetonAcces(db: any, c: Compte): Promise<string> {
   if (c.jeton_acces && c.jeton_expire_le && Date.parse(c.jeton_expire_le) > Date.now()) return c.jeton_acces;
   if (!c.refresh_token) throw new Error("connexion expirée : reconnectez le compte");
-  const lectureSeule = c.usage === "mail" && c.fournisseur === "microsoft" && !peutTrier(c);
+  // Une boîte Outlook se renouvelle avec les droits qu'elle a reçus (sinon Microsoft refuse) : lecture seule, tri, ou tri et envoi.
+  const outlookMail = c.usage === "mail" && c.fournisseur === "microsoft";
+  const lectureSeule = outlookMail && !peutTrier(c);
   const j = await demanderJeton(c.fournisseur, { grant_type: "refresh_token", refresh_token: c.refresh_token }, c.usage ?? "agenda",
-    lectureSeule ? SCOPES_MAIL_LECTURE : scopes(c.fournisseur, c.usage ?? "agenda"));
+    lectureSeule ? SCOPES_MAIL_LECTURE : outlookMail && !peutEnvoyer(c) ? SCOPES_MAIL_SANS_ENVOI : scopes(c.fournisseur, c.usage ?? "agenda"));
   c.jeton_acces = j.access_token;
   c.jeton_expire_le = new Date(Date.now() + (j.expires_in - 60) * 1000).toISOString();
   const maj: Record<string, string> = { jeton_acces: c.jeton_acces, jeton_expire_le: c.jeton_expire_le };

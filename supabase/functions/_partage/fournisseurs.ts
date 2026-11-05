@@ -185,6 +185,19 @@ export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, acti
   return j.id;
 }
 
+// Rendez-vous reçu en invitation ? Renvoie le nom de l'organisateur si ce n'est pas le titulaire du compte, sinon null.
+// Google : le titulaire figure parmi les participants sans être l'organisateur. Outlook : isOrganizer vaut false.
+export async function organisateurAutre(c: Compte, jeton: string, agendaId: string, rdvId: string): Promise<string | null> {
+  if (c.fournisseur === "google") {
+    const e = await appel(jeton, `${GOOGLE.api}/calendars/${encodeURIComponent(agendaId)}/events/${encodeURIComponent(rdvId)}`);
+    // deno-lint-ignore no-explicit-any
+    const moi = (e?.attendees ?? []).find((a: any) => a.self);
+    return moi && !moi.organizer && !e.organizer?.self ? (e.organizer?.displayName || e.organizer?.email || "quelqu'un d'autre") : null;
+  }
+  const e = await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId)}?$select=isOrganizer,organizer`);
+  return e && e.isOrganizer === false ? (e.organizer?.emailAddress?.name || e.organizer?.emailAddress?.address || "quelqu'un d'autre") : null;
+}
+
 // Projet par défaut d'un agenda d'après son nom et l'adresse du compte.
 export function projetParDefaut(nom: string, email: string): string | null {
   const t = `${nom} ${email}`.toLowerCase();

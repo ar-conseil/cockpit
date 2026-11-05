@@ -4,9 +4,9 @@
 // Rendez-vous (une heure est dite, ou « toute la journée ») : écrit par agenda-ecrire dans l'agenda du projet
 // (Palomano : Outlook avec lien Teams ; Harnes, Camp : leurs agendas Google ; Perso, Berkay, Wealthy : agenda Google principal).
 // Evoa : son agenda Outlook une fois connecté (page Agendas), sinon une tâche « À caler ». Un chevauchement est signalé, pas bloqué.
-// Modifier, supprimer, terminer : seulement si UNE seule tâche ouverte (ou un seul rendez-vous créé par dictée) correspond ;
+// Modifier, supprimer, terminer : seulement si UNE seule tâche ouverte (ou un seul rendez-vous à venir d'un agenda modifiable) correspond ;
 // sinon rien n'est touché et la réponse demande de préciser. « Annule la dernière » défait le dernier ajout dicté (12 h).
-// Chaque dictée est notée dans `dictees`. Les rendez-vous non créés par dictée (invitations comprises) ne sont jamais touchés.
+// Chaque dictée est notée dans `dictees`. Une invitation reçue (organisateur autre qu'Antonin, vérifié chez Google ou Outlook) n'est jamais touchée.
 // Protégée par une clé personnelle dédiée (secret CLE_TACHE, posée par outils/cle-tache.sh), passée dans l'en-tête x-cle-tache.
 //  POST { texte: "Relancer Toynamics pour le solde créditeur vendredi" }   (ou le texte brut en corps)
 //  -> 201, texte court : « Ajoutée : Relancer Toynamics pour le solde créditeur · Palomano · demain, vendredi 6 »
@@ -15,6 +15,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.4.0/helpers/zod";
 import { z } from "npm:zod@4.6.7";
+import { jetonAcces, organisateurAutre, type Compte } from "../_partage/fournisseurs.ts";
 
 const CLE_TACHE = Deno.env.get("CLE_TACHE") ?? "";
 const URL_PROJET = Deno.env.get("SUPABASE_URL")!;
@@ -36,7 +37,7 @@ type Comprise = {
   duree: number | null; journee: boolean; lieu: string | null; priorite: "haute" | "moyenne" | "basse";
 };
 type TacheOuverte = { id: string; titre: string; activite_id: string; echeance: string | null; priorite: string };
-type RdvDicte = { dictee: string; id: string; titre: string; debut: string; fin: string; journee: boolean; lieu: string | null; agenda: string };
+type RdvDicte = { dictee: string | null; id: string; titre: string; debut: string; fin: string; journee: boolean; lieu: string | null; agenda: string; agenda_id?: string };
 
 function egal(a: string, b: string) { // comparaison à temps constant
   if (!a || a.length !== b.length) return false;
@@ -96,6 +97,36 @@ async function rdvDictes(): Promise<RdvDicte[]> { // rendez-vous à venir créé
   return sortie;
 }
 
+// Cibles possibles : les rendez-vous dictés, puis tous les rendez-vous à venir (45 jours) des agendas que le cockpit peut écrire.
+// Une invitation reçue est écartée au moment d'agir (organisateurAutre), pas ici : la synchro ne connaît pas l'organisateur.
+async function rdvCibles(): Promise<RdvDicte[]> {
+  const dictes = await rdvDictes();
+  const { data } = await db.from("evenements").select("id, titre, debut, fin, journee, lieu, agenda_id, agendas!inner(nom, ecriture, actif)")
+    .eq("modifiable", true).eq("annule", false).eq("agendas.ecriture", true).eq("agendas.actif", true)
+    .gt("fin", new Date(Date.now() - 864e5).toISOString()).lt("debut", new Date(Date.now() + 45 * 864e5).toISOString())
+    .order("debut").limit(250);
+  const vus = new Set(dictes.map((e) => e.id)), cles = new Set(dictes.map((e) => `${e.titre}|${e.debut}`));
+  const autres: RdvDicte[] = [];
+  // deno-lint-ignore no-explicit-any
+  for (const e of (data ?? []) as any[]) {
+    const cle = `${e.titre}|${e.debut}`; // un même rendez-vous copié dans deux agendas : une seule entrée
+    if (vus.has(e.id) || cles.has(cle) || !e.titre) continue;
+    cles.add(cle);
+    autres.push({ dictee: null, id: e.id, titre: e.titre, debut: e.debut, fin: e.fin, journee: e.journee, lieu: e.lieu, agenda: e.agendas?.nom ?? "", agenda_id: e.agenda_id });
+  }
+  return [...dictes, ...autres];
+}
+
+// Nom de l'organisateur si le rendez-vous est une invitation reçue (on n'y touche pas), sinon null.
+async function invitation(r: RdvDicte): Promise<string | null> {
+  if (r.dictee) return null; // créé par dictée : Antonin en est l'organisateur
+  const { data: e } = await db.from("evenements").select("externe_id, agendas!inner(externe_id, comptes_agenda!inner(*))").eq("id", r.id).single();
+  // deno-lint-ignore no-explicit-any
+  const ag = (e as any)?.agendas, compte = ag?.comptes_agenda as Compte | undefined;
+  if (!e?.externe_id || !ag?.externe_id || !compte) return "inconnu";
+  return await organisateurAutre(compte, await jetonAcces(db, compte), ag.externe_id, e.externe_id);
+}
+
 // ---------- Compréhension par Claude ----------
 async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, taches: TacheOuverte[], rdvs: RdvDicte[]): Promise<Comprise> {
   const [{ data: clients }] = await Promise.all([db.from("clients").select("nom, activite_id").limit(400)]);
@@ -105,7 +136,7 @@ async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, 
     cibles: z.array(z.string()), champs: z.array(z.enum(CHAMPS)),
     type: z.enum(["tache", "rdv"]), titre: z.string(), activite: z.enum([...acts.map((a) => a.id), ""] as [string, ...string[]]),
     date: z.string(), heure: z.string(), heure_fin: z.string(), duree_minutes: z.number().int(), journee: z.boolean(),
-    lieu: z.string(), priorite: z.enum(["haute", "moyenne", "basse"]),
+    lieu: z.string(), priorite: z.enum(["haute", "moyenne", "basse", ""]),
   });
   const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
   const r = await client.messages.parse({
@@ -130,7 +161,7 @@ async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, 
 - duree_minutes : durée dite (« pendant 2 h » = 120, « une demi-heure » = 30), sinon 0.
 - journee : true seulement pour un rendez-vous sur toute la journée sans heure.
 - lieu : le lieu dit (« au bureau », « à la Maillerie »), sans la préposition, sinon chaîne vide.
-- priorite : « haute » si c'est dit urgent ou important, « basse » si c'est dit sans urgence ou « quand j'ai le temps », sinon « moyenne ».
+- priorite : « haute » si c'est dit urgent ou important, « basse » si c'est dit sans urgence ou « quand j'ai le temps », sinon « moyenne ». Pour modifier sans changer la priorité : chaîne vide.
 
 Maintenant : ${JOURS[enDate(aujourdhui).getUTCDay()]} ${aujourdhui}, ${heureParis(new Date())} (Europe/Paris). Jours à venir : ${calendrier.join(", ")}.
 
@@ -143,8 +174,8 @@ ${acts.map((a) => `- ${a.id} : ${(clients ?? []).filter((c) => c.activite_id ===
 Tâches ouvertes (identifiant : [projet] titre, échéance) :
 ${taches.map((t, i) => `- t${i + 1} : [${t.activite_id}] ${t.titre}${t.echeance ? `, ${t.echeance}` : ""}`).join("\n") || "-"}
 
-Rendez-vous créés par dictée (identifiant : titre, quand) :
-${rdvs.map((e, i) => `- r${i + 1} : ${e.titre}, ${direRdv(e, aujourdhui)}${e.lieu ? `, ${e.lieu}` : ""}`).join("\n") || "-"}`,
+Rendez-vous à venir (identifiant : titre, quand, agenda) :
+${rdvs.map((e, i) => `- r${i + 1} : ${e.titre}, ${direRdv(e, aujourdhui)}${e.lieu ? `, ${e.lieu}` : ""}, ${e.agenda}`).join("\n") || "-"}`,
     messages: [{ role: "user", content: phrase }],
   });
   const o = r.parsed_output;
@@ -154,7 +185,7 @@ ${rdvs.map((e, i) => `- r${i + 1} : ${e.titre}, ${direRdv(e, aujourdhui)}${e.lie
   return { action: o.action, cibles: [...new Set(o.cibles)], champs: o.champs,
     type: o.type, titre: o.titre.trim(), activite_id: o.activite || parMotsCles(phrase, acts), date, heure: hh(o.heure), heure_fin: hh(o.heure_fin),
     duree: o.duree_minutes > 0 && o.duree_minutes <= 24 * 60 ? o.duree_minutes : null, journee: o.journee,
-    lieu: o.lieu.trim() || null, priorite: o.priorite };
+    lieu: o.lieu.trim() || null, priorite: o.priorite || "moyenne" };
 }
 
 // ---------- Agendas ----------
@@ -255,7 +286,7 @@ async function agirSurCible(c: Comprise, x: Contexte, taches: TacheOuverte[], rd
   const trouvees = c.cibles.map((id) => id.startsWith("t") ? { t: taches[Number(id.slice(1)) - 1] } : { r: rdvs[Number(id.slice(1)) - 1] })
     .filter((o) => o.t || o.r);
   const verbe = { modifier: "modifier", supprimer: "supprimer", terminer: "terminer" }[c.action as "modifier"];
-  if (!trouvees.length) return { texte: `Je n'ai trouvé aucune tâche ouverte ni rendez-vous dicté qui corresponde : rien de changé.` };
+  if (!trouvees.length) return { texte: `Je n'ai trouvé aucune tâche ouverte ni rendez-vous à venir qui corresponde : rien de changé.` };
   if (trouvees.length > 1) {
     const noms = trouvees.slice(0, 3).map((o) => o.t ? o.t.titre : o.r!.titre).join(" ; ");
     return { texte: `J'ai trouvé ${trouvees.length} correspondances (${noms}${trouvees.length > 3 ? " ; …" : ""}) : préciser. Rien de changé.` };
@@ -282,11 +313,13 @@ async function agirSurCible(c: Comprise, x: Contexte, taches: TacheOuverte[], rd
     return { texte: `${pre}Modifiée : ${desc} → ${dit.join(", ")}`, journal: { tache_id: t.id } };
   }
 
-  // Rendez-vous créé par dictée
+  // Rendez-vous : jamais une invitation reçue
   const desc = `${r!.titre} · ${direRdv(r!, x.aujourdhui)}`;
   if (c.action === "terminer") return { texte: `« ${r!.titre} » est un rendez-vous, pas une tâche : rien de changé.` };
+  const orga = await invitation(r!);
+  if (orga) return { texte: `« ${r!.titre} » (${direRdv(r!, x.aujourdhui)}) est ${orga === "inconnu" ? "un rendez-vous dont je ne peux pas vérifier l'organisateur" : `une invitation de ${orga}`} : je n'y touche pas, à changer depuis l'agenda.` };
   if (c.action === "supprimer") {
-    if (!x.essai) { await agendaEcrire({ action: "supprimer", evenement_id: r!.id }); await db.from("dictees").update({ annulee: true }).eq("id", r!.dictee); }
+    if (!x.essai) { await agendaEcrire({ action: "supprimer", evenement_id: r!.id }); if (r!.dictee) await db.from("dictees").update({ annulee: true }).eq("id", r!.dictee); }
     return { texte: `${pre}Rendez-vous supprimé : ${desc} (${r!.agenda})` };
   }
   const ancienDebut = new Date(r!.debut), ancienneFin = new Date(r!.fin);
@@ -308,7 +341,7 @@ async function agirSurCible(c: Comprise, x: Contexte, taches: TacheOuverte[], rd
   let ev = null;
   if (!x.essai) {
     ev = (await agendaEcrire({ action: "modifier", evenement_id: r!.id, titre, debut: debut.toISOString(), fin: fin.toISOString(), journee, lieu })).evenement;
-    if (ev) await db.from("dictees").update({ evenement_id: ev.id, evenement_externe: ev.externe_id, evenement_titre: titre }).eq("id", r!.dictee);
+    if (ev && r!.dictee) await db.from("dictees").update({ evenement_id: ev.id, evenement_externe: ev.externe_id, evenement_titre: titre }).eq("id", r!.dictee);
   }
   const apres = [titre, direRdv({ debut: debut.toISOString(), fin: fin.toISOString(), journee }, x.aujourdhui), lieu].filter(Boolean).join(" · ");
   return { texte: `${pre}Rendez-vous modifié : ${apres} (était ${direRdv(r!, x.aujourdhui)})${conflit ? `. Attention : chevauche « ${conflit} »` : ""}` };
@@ -338,7 +371,7 @@ Deno.serve(async (req) => {
   let c: Comprise, secours = false, rep: Reponse;
   try {
     if (!Deno.env.get("ANTHROPIC_API_KEY")) throw new Error("clé ANTHROPIC_API_KEY absente");
-    const [taches, rdvs] = await Promise.all([tachesOuvertes(), rdvDictes()]);
+    const [taches, rdvs] = await Promise.all([tachesOuvertes(), rdvCibles()]);
     c = await comprendre(phrase, acts as Activite[], aujourdhui, taches, rdvs);
     rep = c.action === "creer" ? await creer(c, x) : c.action === "annuler" ? await annuler(x) : await agirSurCible(c, x, taches, rdvs);
   } catch (e) {

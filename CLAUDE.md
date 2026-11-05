@@ -77,9 +77,9 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   Google principal ; Evoa : son agenda Outlook dès qu'il est connecté (accord de l'administrateur Evoa demandé), sinon une
   tâche « À caler », jamais l'agenda perso. Chevauchement signalé, pas bloqué. Sinon une tâche.
   Modifier / supprimer / terminer : seulement si UNE seule tâche ouverte, ou un seul rendez-vous créé par dictée, correspond
-  (sinon « préciser », rien de changé) ; les autres rendez-vous (invitations comprises) ne sont jamais touchés.
-  « Annule la dernière » défait le dernier ajout dicté (12 h). Journal `dictees` (60 jours) : base de l'annulation et des
-  rendez-vous modifiables. Une phrase d'un seul mot (dictée coupée) ne fait rien. Sans Claude : tâche d'après les mots-clés.
+  (sinon « préciser », rien de changé). Rendez-vous visés : ceux à venir (45 jours) des agendas que le cockpit peut écrire ;
+  une invitation reçue (organisateur autre qu'Antonin, vérifié chez Google ou Outlook par `organisateurAutre`) n'est jamais touchée.
+  « Annule la dernière » défait le dernier ajout dicté (12 h). Journal `dictees` (60 jours) : base de l'annulation. Une phrase d'un seul mot (dictée coupée) ne fait rien. Sans Claude : tâche d'après les mots-clés.
   `{ texte, essai: true }` n'écrit rien et affiche l'erreur éventuelle. Clé dédiée CLE_TACHE (jamais la clé de synchro), posée
   par `outils/cle-tache.sh` (à lancer dans le Terminal de macOS, pas depuis une conversation) ; secret temporaire
   CLE_TACHE_ESSAI pour tester sans toucher au téléphone, à retirer après l'essai.

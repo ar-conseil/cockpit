@@ -51,7 +51,10 @@ const PAR_BOITE: Record<string, [string, string]> = { // adresse -> [nom de la b
 const A_FAIRE = "1. À faire";
 const libelle = (dossier: string) => dossier === A_FAIRE || dossier === "Perso" ? dossier
   : THEMES[dossier] ? `Classement/${dossier}` : `Projets/${dossier}`;
-const BOITES_TACHES = new Set(["arouzier@gmail.com"]); // boîtes dont les mails « À faire » deviennent des tâches
+const BOITES_TACHES = new Set(["arouzier@gmail.com"]);
+// Boîtes professionnelles : jamais de dossier pour une autre activité (demande d'Antonin, 5 novembre 2026). Ce qui en relève
+// va dans Perso ou dans un dossier de thème ; le dossier de la boîte (Palomano…) et les thèmes restent.
+const BOITES_PRO = new Set(["lille@palomano.com", "a.rouzier@evoa-courtage.fr", "antonin.rouzier@harnes-volleyball.fr"]); // boîtes dont les mails « À faire » deviennent des tâches
 // Anciens libellés faits à la main (nom sans émoticône) -> dossier où leurs mails sont fusionnés
 const ANCIENS: Record<string, string> = {
   "Administratif": "Banque & administratif", "Banque & Finance": "Banque & administratif", "Investissement": "Banque & administratif",
@@ -509,7 +512,13 @@ function memeFournisseur(a: string, b: string) {
 }
 
 async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[], perso: Perso[] = []) {
-  const choix = [...ctx.dossiers, ...perso.map((p) => p.chemin)];
+  const propre = ctx.defaut(boite.email);
+  const autres = BOITES_PRO.has(boite.email)
+    ? ctx.dossiers.filter((d) => !THEMES[d] && d !== PUB && d !== "Perso" && d !== propre) : [];
+  const choix = [...ctx.dossiers.filter((d) => !autres.includes(d)), ...perso.map((p) => p.chemin)];
+  const consignePro = autres.length ? `Boîte professionnelle de ${propre} : n'utilise jamais les dossiers ${autres.join(", ")}. ` +
+    `Un mail qui parle de ${propre}, même venant d'un bailleur, d'un assureur, d'un comptable ou d'un partenaire, va dans ${propre}, ` +
+    `un dossier de thème ou un dossier personnel ; ce qui relève vraiment d'une autre activité d'Antonin va dans Perso.\n` : "";
   const Tri = z.object({ mails: z.array(z.object({
     // Nom libre puis contrôlé ici : une longue liste en énumération fait parfois échouer la sortie structurée
     id: z.string(), dossier: z.string(), important: z.boolean(), sensible: z.boolean(), resume: z.string(),
@@ -522,7 +531,7 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
     output_config: { effort: "low", format: zodOutputFormat(Tri) },
     system: ctx.consignes,
     messages: [{ role: "user", content:
-      `Boîte « ${boite.nom} » (${boite.email}) ; dossier par défaut : ${ctx.defaut(boite.email)}.\n${consignesPerso(perso)}Mails (JSON) :\n` +
+      `Boîte « ${boite.nom} » (${boite.email}) ; dossier par défaut : ${ctx.defaut(boite.email)}.\n${consignePro}${consignesPerso(perso)}Mails (JSON) :\n` +
       JSON.stringify(mails.map((m, i) => ({ id: "m" + (i + 1), de: m.de, objet: m.objet, recu_le: m.recu_le.slice(0, 10), diffusion: m.masse, extrait: m.extrait }))) }],
   });
   if (!r.parsed_output) throw new Error(`classement illisible (${r.stop_reason})`);
@@ -534,6 +543,8 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
     let fournisseurPropose = d?.fournisseur ?? "";
     if (!dossier && factures && propose.startsWith("Factures" + SEP)) { dossier = "Factures & compta"; fournisseurPropose ||= propose.slice(8 + SEP.length); }
     dossier ||= ctx.defaut(boite.email);
+    // Garde-fou : jamais d'autre activité dans une boîte pro (proposée quand même : Perso)
+    if (autres.includes(dossier) || autres.some((x) => x.toLowerCase() === propose.toLowerCase())) dossier = "Perso";
     // Étoile seulement pour un mail récent : un vieux mail du stock n'appelle plus d'action
     const important = !!d?.important && Date.now() - Date.parse(m.recu_le) < RECENT;
     // Garde-fou : ne part à la corbeille qu'un envoi de masse non important ; sinon, rangé dans Newsletters.

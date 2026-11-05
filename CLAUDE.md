@@ -52,13 +52,18 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   gmail.modify / Mail.ReadWrite (colonne `comptes_agenda.droits`, bouton « Autoriser le tri » page Agendas) ; IONOS par IMAP.
   Journal `tri_mails` (60 jours, objet masqué pour la santé), bilan `tri_resume(depuis)` affiché dans le point de Victor.
   Stock : `{ attendre: true }` à relancer tant que `restant` ; `{ compter: true }` et `{ apercu: true }` ne touchent à rien.
-- Tâche ou rendez-vous dicté depuis l'iPhone (fonction `ajouter-tache`, Raccourci iOS) : POST `{ texte }` (ou texte brut)
-  avec l'en-tête `x-cle-tache` ; Claude Haiku 5.5 en tire type, titre, projet (clients, mots-clés, tâches récentes), date,
-  heure, durée, lieu et priorité ; la fonction répond une ligne lisible (« Ajoutée : … · Palomano · demain, vendredi 6 »).
-  Une heure dite (ou « toute la journée ») = rendez-vous, écrit par `agenda-ecrire` (clé de synchro) : Palomano dans Outlook
-  avec lien Teams (`teams: true`), Harnes et Camp dans leurs agendas Google, Perso, Berkay et Wealthy dans l'agenda Google
-  principal ; Evoa : son agenda Outlook dès qu'il est connecté (accord de l'administrateur Evoa demandé), sinon une tâche « À caler », jamais l'agenda perso. Chevauchement signalé, pas bloqué. Sans Claude :
-  tâche d'après les mots-clés. `{ texte, essai: true }` n'écrit rien. Clé dédiée CLE_TACHE (jamais la clé de synchro), posée
+- Dictée depuis l'iPhone (fonction `ajouter-tache`, Raccourci iOS « Dictée cockpit ») : POST `{ texte }` (ou texte brut)
+  avec l'en-tête `x-cle-tache` ; Claude Haiku 5.5 en tire l'action (creer, annuler, modifier, supprimer, terminer), la cible,
+  le titre, le projet, la date, l'heure, la durée, le lieu et la priorité ; réponse en une ligne lisible pour la notification.
+  Créer : une heure dite (ou « toute la journée ») = rendez-vous écrit par `agenda-ecrire` (clé de synchro) : Palomano dans
+  Outlook avec lien Teams (`teams: true`), Harnes et Camp dans leurs agendas Google, Perso, Berkay et Wealthy dans l'agenda
+  Google principal ; Evoa : son agenda Outlook dès qu'il est connecté (accord de l'administrateur Evoa demandé), sinon une
+  tâche « À caler », jamais l'agenda perso. Chevauchement signalé, pas bloqué. Sinon une tâche.
+  Modifier / supprimer / terminer : seulement si UNE seule tâche ouverte, ou un seul rendez-vous créé par dictée, correspond
+  (sinon « préciser », rien de changé) ; les autres rendez-vous (invitations comprises) ne sont jamais touchés.
+  « Annule la dernière » défait le dernier ajout dicté (12 h). Journal `dictees` (60 jours) : base de l'annulation et des
+  rendez-vous modifiables. Une phrase d'un seul mot (dictée coupée) ne fait rien. Sans Claude : tâche d'après les mots-clés.
+  `{ texte, essai: true }` n'écrit rien et affiche l'erreur éventuelle. Clé dédiée CLE_TACHE (jamais la clé de synchro), posée
   par `outils/cle-tache.sh` (à lancer dans le Terminal de macOS, pas depuis une conversation) ; secret temporaire
   CLE_TACHE_ESSAI pour tester sans toucher au téléphone, à retirer après l'essai.
 - Site installable sur l'écran d'accueil (`manifest.webmanifest`, icônes `assets/icone-*.png`) ; la session Supabase reste

@@ -1,13 +1,16 @@
-// Tâche ou rendez-vous dicté depuis l'iPhone (Raccourci « Tâche pour Victor ») : une phrase libre devient une ligne de
-// `taches` ou un rendez-vous dans le bon agenda. Claude Haiku 5.5 en tire le type, le titre, le projet, la date, l'heure,
-// la durée, le lieu et la priorité ; sans lui, une tâche est créée d'après les mots-clés des projets.
+// Tâches et rendez-vous dictés depuis l'iPhone (Raccourci « Dictée cockpit ») : une phrase libre crée, modifie, supprime
+// ou termine une tâche, ou un rendez-vous dans le bon agenda. Claude Haiku 5.5 en tire l'action, la cible, le titre, le projet,
+// la date, l'heure, la durée, le lieu et la priorité ; sans lui, une tâche est créée d'après les mots-clés des projets.
 // Rendez-vous (une heure est dite, ou « toute la journée ») : écrit par agenda-ecrire dans l'agenda du projet
 // (Palomano : Outlook avec lien Teams ; Harnes, Camp : leurs agendas Google ; Perso, Berkay, Wealthy : agenda Google principal).
 // Evoa : son agenda Outlook une fois connecté (page Agendas), sinon une tâche « À caler ». Un chevauchement est signalé, pas bloqué.
+// Modifier, supprimer, terminer : seulement si UNE seule tâche ouverte (ou un seul rendez-vous créé par dictée) correspond ;
+// sinon rien n'est touché et la réponse demande de préciser. « Annule la dernière » défait le dernier ajout dicté (12 h).
+// Chaque dictée est notée dans `dictees`. Les rendez-vous non créés par dictée (invitations comprises) ne sont jamais touchés.
 // Protégée par une clé personnelle dédiée (secret CLE_TACHE, posée par outils/cle-tache.sh), passée dans l'en-tête x-cle-tache.
 //  POST { texte: "Relancer Toynamics pour le solde créditeur vendredi" }   (ou le texte brut en corps)
 //  -> 201, texte court : « Ajoutée : Relancer Toynamics pour le solde créditeur · Palomano · demain, vendredi 6 »
-//  POST { texte, essai: true } -> renvoie ce qui serait créé, sans rien écrire
+//  POST { texte, essai: true } -> renvoie ce qui serait fait, sans rien écrire
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.4.0/helpers/zod";
@@ -17,17 +20,23 @@ const CLE_TACHE = Deno.env.get("CLE_TACHE") ?? "";
 const URL_PROJET = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(URL_PROJET, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const texte = (corps: string, status = 200) => new Response(corps, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 const COURTS: Record<string, string> = { "evoa-courtage": "Evoa", "camp-rouzier-marechal": "Camp", "wealthy": "Wealthy", "harnes-volley": "Harnes" };
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const AVEC_TEAMS = new Set(["palomano"]); // projets dont les rendez-vous Outlook reçoivent un lien Teams
 const SANS_REPLI = new Set(["evoa-courtage"]); // sans agenda propre connecté, le rendez-vous devient une tâche (jamais l'agenda perso)
+const CHAMPS = ["date", "heure", "duree", "lieu", "priorite", "activite", "titre"] as const;
 
 type Activite = { id: string; nom: string; description: string | null; mots_cles: string[] | null };
+type Action = "creer" | "annuler" | "modifier" | "supprimer" | "terminer";
 type Comprise = {
+  action: Action; cibles: string[]; champs: string[];
   type: "tache" | "rdv"; titre: string; activite_id: string; date: string | null; heure: string | null; heure_fin: string | null;
-  duree: number; journee: boolean; lieu: string | null; priorite: "haute" | "moyenne" | "basse";
+  duree: number | null; journee: boolean; lieu: string | null; priorite: "haute" | "moyenne" | "basse";
 };
+type TacheOuverte = { id: string; titre: string; activite_id: string; echeance: string | null; priorite: string };
+type RdvDicte = { dictee: string; id: string; titre: string; debut: string; fin: string; journee: boolean; lieu: string | null; agenda: string };
 
 function egal(a: string, b: string) { // comparaison à temps constant
   if (!a || a.length !== b.length) return false;
@@ -38,6 +47,7 @@ function egal(a: string, b: string) { // comparaison à temps constant
 
 // ---------- Dates (Europe/Paris) ----------
 const jourParis = (d = new Date()) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(d); // AAAA-MM-JJ
+const hhmmParis = (d: Date) => new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" }).format(d); // HH:MM
 const enDate = (iso: string) => new Date(iso + "T12:00:00Z");
 const plus = (iso: string, n: number) => new Date(enDate(iso).getTime() + n * 864e5).toISOString().slice(0, 10);
 function parisEnUtc(date: string, hhmm: string): Date { // « 2026-11-12 », « 14:30 » (heure de Paris) -> instant UTC
@@ -47,10 +57,7 @@ function parisEnUtc(date: string, hhmm: string): Date { // « 2026-11-12 », « 
   const v = (k: string) => Number(p.find((x) => x.type === k)!.value);
   return new Date(brut - (Date.UTC(v("year"), v("month") - 1, v("day"), v("hour"), v("minute")) - brut));
 }
-const heureParis = (d: Date) => {
-  const [h, m] = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" }).format(d).split(":");
-  return `${Number(h)} h${m === "00" ? "" : " " + m}`;
-};
+const heureParis = (d: Date) => { const [h, m] = hhmmParis(d).split(":"); return `${Number(h)} h${m === "00" ? "" : " " + m}`; };
 function dire(echeance: string, aujourdhui: string) {
   const d = enDate(echeance), ecart = Math.round((d.getTime() - enDate(aujourdhui).getTime()) / 864e5);
   const jour = `${JOURS[d.getUTCDay()]} ${d.getUTCDate()}`;
@@ -58,39 +65,71 @@ function dire(echeance: string, aujourdhui: string) {
   if (ecart === 1) return `demain, ${jour}`;
   return ecart > 0 && ecart < 7 ? jour : `${jour} ${MOIS[d.getUTCMonth()]}`;
 }
+const direRdv = (r: { debut: string; fin: string; journee: boolean }, aujourdhui: string) =>
+  `${dire(jourParis(new Date(r.debut)), aujourdhui)}${r.journee ? ", toute la journée" : `, ${heureParis(new Date(r.debut))} – ${heureParis(new Date(r.fin))}`}`;
 
 function parMotsCles(phrase: string, acts: Activite[]) {
   const p = ` ${phrase.toLowerCase()} `;
   return acts.find((a) => (a.mots_cles ?? []).some((m) => m && p.includes(m.toLowerCase())))?.id ?? "perso";
 }
 
+// ---------- Ce qui existe déjà (cibles possibles) ----------
+async function tachesOuvertes(): Promise<TacheOuverte[]> {
+  const { data } = await db.from("taches").select("id, titre, activite_id, echeance, priorite").neq("statut", "fait")
+    .order("cree_le", { ascending: false }).limit(250);
+  return (data ?? []) as TacheOuverte[];
+}
+async function rdvDictes(): Promise<RdvDicte[]> { // rendez-vous à venir créés par dictée et toujours présents
+  const { data } = await db.from("dictees").select("id, evenement_id, agenda_id, evenement_externe, evenements(id, titre, debut, fin, journee, lieu), agendas(nom)")
+    .eq("action", "creer").eq("annulee", false).not("agenda_id", "is", null).order("cree_le", { ascending: false }).limit(100);
+  const sortie: RdvDicte[] = [];
+  // deno-lint-ignore no-explicit-any
+  for (const d of (data ?? []) as any[]) {
+    let e = d.evenements;
+    if (!e && d.evenement_externe) { // la ligne a été remplacée (synchro) : on la retrouve par son identifiant distant
+      const { data: x } = await db.from("evenements").select("id, titre, debut, fin, journee, lieu").eq("agenda_id", d.agenda_id).eq("externe_id", d.evenement_externe).maybeSingle();
+      e = x;
+      if (e) await db.from("dictees").update({ evenement_id: e.id }).eq("id", d.id);
+    }
+    if (e && Date.parse(e.fin) > Date.now() - 864e5) sortie.push({ dictee: d.id, ...e, agenda: d.agendas?.nom ?? "" });
+  }
+  return sortie;
+}
+
 // ---------- Compréhension par Claude ----------
-async function comprendre(phrase: string, acts: Activite[], aujourdhui: string): Promise<Comprise> {
-  const [{ data: clients }, { data: recentes }] = await Promise.all([
-    db.from("clients").select("nom, activite_id").limit(400),
-    db.from("taches").select("titre, activite_id").order("cree_le", { ascending: false }).limit(80),
-  ]);
+async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, taches: TacheOuverte[], rdvs: RdvDicte[]): Promise<Comprise> {
+  const [{ data: clients }] = await Promise.all([db.from("clients").select("nom, activite_id").limit(400)]);
   const calendrier = Array.from({ length: 21 }, (_, i) => { const j = plus(aujourdhui, i); return `${JOURS[enDate(j).getUTCDay()]} ${j}`; });
   const Sortie = z.object({
-    type: z.enum(["tache", "rdv"]), titre: z.string(), activite: z.enum(acts.map((a) => a.id) as [string, ...string[]]),
+    action: z.enum(["creer", "annuler", "modifier", "supprimer", "terminer"]),
+    cibles: z.array(z.string()), champs: z.array(z.enum(CHAMPS)),
+    type: z.enum(["tache", "rdv"]), titre: z.string(), activite: z.enum([...acts.map((a) => a.id), ""] as [string, ...string[]]),
     date: z.string(), heure: z.string(), heure_fin: z.string(), duree_minutes: z.number().int(), journee: z.boolean(),
     lieu: z.string(), priorite: z.enum(["haute", "moyenne", "basse"]),
   });
   const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
   const r = await client.messages.parse({
     model: "claude-haiku-5-5",
-    max_tokens: 1000,
+    max_tokens: 1500,
     output_config: { effort: "low", format: zodOutputFormat(Sortie) },
-    system: `Tu es Victor, l'assistant d'Antonin Rouzier. Antonin te dicte depuis son téléphone une tâche ou un rendez-vous ; tu le ranges dans son cockpit. Français, sans émoticônes.
+    system: `Tu es Victor, l'assistant d'Antonin Rouzier. Antonin te dicte depuis son téléphone une tâche ou un rendez-vous à ajouter, ou un changement sur ce qui existe ; tu le ranges dans son cockpit. Français, sans émoticônes.
 
+- action :
+  « creer » pour ajouter quelque chose (cas par défaut) ;
+  « annuler » pour défaire le dernier ajout (« annule », « annule la dernière », « supprime ce que je viens de dire », « c'était une erreur ») ;
+  « modifier » pour changer une tâche ou un rendez-vous existant (« décale Toynamics à lundi », « le rendez-vous Monteil passe à 15 h », « mets Excom en priorité haute », « range la tâche Monteil dans Wealthy », « renomme… ») ;
+  « supprimer » pour effacer une tâche ou un rendez-vous existant (« supprime la tâche Toynamics », « annule le rendez-vous avec Julien ») ;
+  « terminer » pour une tâche faite (« Toynamics, c'est fait », « j'ai appelé Édouard »).
+- cibles (modifier, supprimer, terminer) : les identifiants (t… ou r…) des tâches ouvertes et rendez-vous de la liste ci-dessous qu'Antonin désigne. Si sa description en désigne clairement un seul (« la relance Dupont » = « Relancer Dupont pour le devis », pas « Appeler Dupont »), mets seulement celui-là ; s'il reste plusieurs candidats aussi plausibles, mets-les tous (ne choisis jamais au hasard) ; liste vide si aucun. Pour creer et annuler : liste vide.
+- champs (modifier) : les éléments à changer, parmi date, heure, duree, lieu, priorite, activite, titre ; les nouvelles valeurs vont dans les champs ci-dessous. Pour les autres actions : liste vide.
 - type : « rdv » si une heure précise est dite (« à 14 h », « de 9 h à 10 h », « 14 h 30 ») ou si c'est un événement sur toute la journée (« toute la journée », « salon mardi ») ; sinon « tache ». « Appeler X demain » est une tâche ; « Appeler X demain à 10 h » est un rendez-vous.
-- titre : court, sans la date, l'heure, la durée ni le lieu, et sans les mots « tâche », « rendez-vous pour Victor », « rappelle-moi ». Tâche : à l'infinitif, majuscule au début (« Relancer Toynamics pour le solde créditeur »). Rendez-vous : comme dans un agenda (« Point Excom avec Julien », « Déjeuner avec A. Monteil »). Garde les noms propres tels quels (corrige seulement une faute de dictée évidente).
-- activite : le projet concerné, d'après les noms de clients, les mots-clés et les tâches récentes ci-dessous ; « perso » si rien ne correspond.
-- date : AAAA-MM-JJ si un jour est dit (« vendredi » = le prochain vendredi à venir, aujourd'hui exclu ; « demain » ; « fin de semaine » = vendredi ; « la semaine prochaine » = lundi prochain ; « avant le 15 » = le 15), sinon chaîne vide. Un rendez-vous avec une heure mais sans jour : aujourd'hui si l'heure n'est pas passée, sinon demain.
+- titre : court, sans la date, l'heure, la durée ni le lieu, et sans les mots « tâche », « rappelle-moi », « Victor ». Tâche : à l'infinitif, majuscule au début (« Relancer Toynamics pour le solde créditeur »). Rendez-vous : comme dans un agenda (« Point Excom avec Julien », « Déjeuner avec A. Monteil »). Garde les noms propres tels quels (corrige seulement une faute de dictée évidente). Pour modifier : le nouveau titre seulement si « titre » est dans champs, sinon chaîne vide.
+- activite : le projet concerné, d'après les noms de clients, les mots-clés et les tâches ouvertes ci-dessous ; « perso » si rien ne correspond. Pour modifier : le nouveau projet si « activite » est dans champs, sinon chaîne vide.
+- date : AAAA-MM-JJ si un jour est dit (« vendredi » = le prochain vendredi à venir, aujourd'hui exclu ; « demain » ; « fin de semaine » = vendredi ; « la semaine prochaine » = lundi prochain ; « avant le 15 » = le 15), sinon chaîne vide. Un rendez-vous à créer avec une heure mais sans jour : aujourd'hui si l'heure n'est pas passée, sinon demain.
 - heure : HH:MM (24 h) du début d'un rendez-vous (« 14 h » = 14:00, « 9 h et demie » = 09:30), sinon chaîne vide. heure_fin : HH:MM si une heure de fin est dite, sinon chaîne vide.
 - duree_minutes : durée dite (« pendant 2 h » = 120, « une demi-heure » = 30), sinon 0.
 - journee : true seulement pour un rendez-vous sur toute la journée sans heure.
-- lieu : le lieu dit (« au bureau », « à la Maillerie », « chez le client »), sans la préposition, sinon chaîne vide.
+- lieu : le lieu dit (« au bureau », « à la Maillerie »), sans la préposition, sinon chaîne vide.
 - priorite : « haute » si c'est dit urgent ou important, « basse » si c'est dit sans urgence ou « quand j'ai le temps », sinon « moyenne ».
 
 Maintenant : ${JOURS[enDate(aujourdhui).getUTCDay()]} ${aujourdhui}, ${heureParis(new Date())} (Europe/Paris). Jours à venir : ${calendrier.join(", ")}.
@@ -101,20 +140,24 @@ ${acts.map((a) => `- ${a.id} (${a.nom}) : ${a.description ?? ""}${a.mots_cles?.l
 Clients par projet :
 ${acts.map((a) => `- ${a.id} : ${(clients ?? []).filter((c) => c.activite_id === a.id).map((c) => c.nom).join(", ") || "-"}`).join("\n")}
 
-Tâches récentes (projet : titre) :
-${(recentes ?? []).map((t) => `- ${t.activite_id} : ${t.titre}`).join("\n")}`,
+Tâches ouvertes (identifiant : [projet] titre, échéance) :
+${taches.map((t, i) => `- t${i + 1} : [${t.activite_id}] ${t.titre}${t.echeance ? `, ${t.echeance}` : ""}`).join("\n") || "-"}
+
+Rendez-vous créés par dictée (identifiant : titre, quand) :
+${rdvs.map((e, i) => `- r${i + 1} : ${e.titre}, ${direRdv(e, aujourdhui)}${e.lieu ? `, ${e.lieu}` : ""}`).join("\n") || "-"}`,
     messages: [{ role: "user", content: phrase }],
   });
   const o = r.parsed_output;
   if (!o) throw new Error(`réponse illisible (${r.stop_reason})`);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(o.date) && o.date >= aujourdhui && o.date <= plus(aujourdhui, 730) ? o.date : null;
   const hh = (h: string) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(h) ? h : null);
-  return { type: o.type, titre: o.titre.trim() || phrase, activite_id: o.activite, date, heure: hh(o.heure), heure_fin: hh(o.heure_fin),
-    duree: o.duree_minutes > 0 && o.duree_minutes <= 24 * 60 ? o.duree_minutes : 60, journee: o.journee,
+  return { action: o.action, cibles: [...new Set(o.cibles)], champs: o.champs,
+    type: o.type, titre: o.titre.trim(), activite_id: o.activite || parMotsCles(phrase, acts), date, heure: hh(o.heure), heure_fin: hh(o.heure_fin),
+    duree: o.duree_minutes > 0 && o.duree_minutes <= 24 * 60 ? o.duree_minutes : null, journee: o.journee,
     lieu: o.lieu.trim() || null, priorite: o.priorite };
 }
 
-// ---------- Rendez-vous ----------
+// ---------- Agendas ----------
 type Agenda = { id: string; nom: string; activite_id: string | null; fournisseur: string; email: string };
 async function agendaPour(activite: string): Promise<Agenda | null> {
   const { data } = await db.from("agendas").select("id, nom, activite_id, comptes_agenda!inner(fournisseur, email, usage)")
@@ -127,23 +170,152 @@ async function agendaPour(activite: string): Promise<Agenda | null> {
   return liste.find((a) => a.fournisseur === "google" && a.nom === a.email && !a.activite_id) ?? null; // agenda principal (Perso, Berkay, Wealthy…)
 }
 
-async function chevauchement(debut: Date, fin: Date) {
-  const { data } = await db.from("evenements").select("titre, debut, fin").eq("annule", false).eq("journee", false)
+async function chevauchement(debut: Date, fin: Date, sauf?: string) {
+  const { data } = await db.from("evenements").select("id, titre, debut, fin").eq("annule", false).eq("journee", false)
     .lt("debut", fin.toISOString()).gt("fin", debut.toISOString()).order("debut").limit(20);
   // les séjours sur plusieurs jours (week-end, déplacement) ne comptent pas comme un chevauchement
-  return (data ?? []).find((e) => Date.parse(e.fin) - Date.parse(e.debut) < 12 * 3600e3)?.titre ?? null;
+  return (data ?? []).find((e) => e.id !== sauf && Date.parse(e.fin) - Date.parse(e.debut) < 12 * 3600e3)?.titre ?? null;
 }
 
-async function creerRdv(corps: Record<string, unknown>) {
+// deno-lint-ignore no-explicit-any
+async function agendaEcrire(corps: Record<string, unknown>): Promise<any> {
   const r = await fetch(`${URL_PROJET}/functions/v1/agenda-ecrire`, {
     method: "POST", headers: { "x-cle-synchro": Deno.env.get("CLE_SYNCHRO") ?? "", "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "creer", ...corps }) });
+    body: JSON.stringify(corps) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.erreur ?? `HTTP ${r.status}`);
+  return j;
+}
+
+// ---------- Actions ----------
+type Contexte = { phrase: string; aujourdhui: string; essai: boolean; nomProjet: (id: string) => string };
+type Reponse = { texte: string; status?: number; journal?: Record<string, unknown> };
+
+async function creer(c: Comprise, x: Contexte): Promise<Reponse> {
+  const titre = (c.titre || x.phrase).slice(0, 200);
+  const nom = x.nomProjet(c.activite_id);
+  const pre = x.essai ? "Essai (rien d'écrit) : " : "";
+  let titreTache = titre;
+  if (c.type === "rdv" && c.date && (c.heure || c.journee)) {
+    const debut = parisEnUtc(c.date, c.heure ?? "00:00");
+    let fin = c.heure ? (c.heure_fin ? parisEnUtc(c.date, c.heure_fin) : new Date(debut.getTime() + (c.duree ?? 60) * 60000)) : parisEnUtc(plus(c.date, 1), "00:00");
+    if (fin <= debut) fin = new Date(debut.getTime() + 60 * 60000);
+    const quand = direRdv({ debut: debut.toISOString(), fin: fin.toISOString(), journee: !c.heure }, x.aujourdhui);
+    const agenda = await agendaPour(c.activite_id);
+    if (agenda) {
+      const teams = agenda.fournisseur === "microsoft" && AVEC_TEAMS.has(c.activite_id) && !!c.heure;
+      const conflit = c.heure ? await chevauchement(debut, fin) : null;
+      const rdv = { action: "creer", agenda_id: agenda.id, titre, debut: debut.toISOString(), fin: fin.toISOString(), journee: !c.heure, lieu: c.lieu,
+        ...(agenda.activite_id !== c.activite_id ? { activite_forcee: c.activite_id } : {}) };
+      let sansTeams = false, ev = null;
+      if (!x.essai) {
+        try { ev = (await agendaEcrire({ ...rdv, teams })).evenement; }
+        catch (e) {
+          if (!teams) { console.error("ajouter-tache : rendez-vous", message(e)); return { texte: `Le rendez-vous n'a pas pu être créé dans ${agenda.nom}, réessayer.`, status: 502 }; }
+          try { ev = (await agendaEcrire(rdv)).evenement; sansTeams = true; } // Teams refusé par le compte : rendez-vous créé sans lien
+          catch (e2) { console.error("ajouter-tache : rendez-vous", message(e2)); return { texte: `Le rendez-vous n'a pas pu être créé dans ${agenda.nom}, réessayer.`, status: 502 }; }
+        }
+      }
+      const ou = `${nom} (${agenda.fournisseur === "microsoft" ? "Outlook" : "agenda " + agenda.nom}${teams ? (sansTeams ? ", sans lien Teams" : ", lien Teams") : ""})`;
+      return { texte: `${pre || "Rendez-vous ajouté : "}${[titre, ou, quand, c.lieu].filter(Boolean).join(" · ")}${conflit ? `. Attention : chevauche « ${conflit} »` : ""}`,
+        status: 201, journal: { agenda_id: agenda.id, evenement_id: ev?.id ?? null, evenement_externe: ev?.externe_id ?? null, evenement_titre: titre } };
+    }
+    // Pas d'agenda modifiable pour ce projet (Evoa, tant que son Outlook n'est pas connecté) : une tâche « À caler » à la date dite
+    titreTache = `À caler : ${titre} (${c.heure ? quand.split(", ").pop() : "journée"}${c.lieu ? `, ${c.lieu}` : ""})`.slice(0, 200);
+  }
+  const resume = [titreTache, nom, c.date ? dire(c.date, x.aujourdhui) : null, c.priorite === "moyenne" ? null : `priorité ${c.priorite}`].filter(Boolean).join(" · ");
+  if (x.essai) return { texte: `${pre}tâche ${resume}` };
+  const notes = "Dictée depuis l'iPhone" + (x.phrase.toLowerCase() !== titreTache.toLowerCase() ? ` : « ${x.phrase} »` : "");
+  const { data, error } = await db.from("taches").insert({ titre: titreTache, activite_id: c.activite_id, echeance: c.date, priorite: c.priorite, notes, statut: "a-faire" }).select("id").single();
+  if (error) { console.error("ajouter-tache :", error.message); return { texte: "La tâche n'a pas pu être enregistrée, réessayer.", status: 500 }; }
+  return { texte: `Ajoutée : ${resume}`, status: 201, journal: { tache_id: data.id } };
+}
+
+async function annuler(x: Contexte): Promise<Reponse> {
+  const { data: d } = await db.from("dictees").select("id, tache_id, evenement_id, agenda_id, evenement_externe, evenement_titre, taches(titre)")
+    .eq("action", "creer").eq("annulee", false).gt("cree_le", new Date(Date.now() - 12 * 3600e3).toISOString())
+    .order("cree_le", { ascending: false }).limit(1).maybeSingle();
+  // deno-lint-ignore no-explicit-any
+  const der = d as any;
+  if (!der || (!der.tache_id && !der.agenda_id)) return { texte: "Rien à annuler : aucun ajout dicté ces 12 dernières heures." };
+  const pre = x.essai ? "Essai (rien d'écrit) : " : "";
+  if (der.tache_id) {
+    const titre = der.taches?.titre ?? "la tâche";
+    if (!x.essai) { await db.from("taches").delete().eq("id", der.tache_id); await db.from("dictees").update({ annulee: true }).eq("id", der.id); }
+    return { texte: `${pre}Annulée : ${titre} (tâche supprimée)` };
+  }
+  const rdv = (await rdvDictes()).find((e) => e.dictee === der.id);
+  if (!rdv) return { texte: `Rien à annuler : le rendez-vous « ${der.evenement_titre ?? ""} » n'est plus dans l'agenda.` };
+  if (!x.essai) { await agendaEcrire({ action: "supprimer", evenement_id: rdv.id }); await db.from("dictees").update({ annulee: true }).eq("id", der.id); }
+  return { texte: `${pre}Annulé : ${rdv.titre} · ${direRdv(rdv, x.aujourdhui)} (rendez-vous supprimé de ${rdv.agenda})` };
+}
+
+async function agirSurCible(c: Comprise, x: Contexte, taches: TacheOuverte[], rdvs: RdvDicte[]): Promise<Reponse> {
+  const pre = x.essai ? "Essai (rien d'écrit) : " : "";
+  const trouvees = c.cibles.map((id) => id.startsWith("t") ? { t: taches[Number(id.slice(1)) - 1] } : { r: rdvs[Number(id.slice(1)) - 1] })
+    .filter((o) => o.t || o.r);
+  const verbe = { modifier: "modifier", supprimer: "supprimer", terminer: "terminer" }[c.action as "modifier"];
+  if (!trouvees.length) return { texte: `Je n'ai trouvé aucune tâche ouverte ni rendez-vous dicté qui corresponde : rien de changé.` };
+  if (trouvees.length > 1) {
+    const noms = trouvees.slice(0, 3).map((o) => o.t ? o.t.titre : o.r!.titre).join(" ; ");
+    return { texte: `J'ai trouvé ${trouvees.length} correspondances (${noms}${trouvees.length > 3 ? " ; …" : ""}) : préciser. Rien de changé.` };
+  }
+  const { t, r } = trouvees[0];
+
+  if (t) {
+    const desc = `${t.titre} · ${x.nomProjet(t.activite_id)}`;
+    if (c.action === "supprimer") {
+      if (!x.essai) await db.from("taches").delete().eq("id", t.id);
+      return { texte: `${pre}Supprimée : ${desc}` };
+    }
+    if (c.action === "terminer") {
+      if (!x.essai) await db.from("taches").update({ statut: "fait", fait_le: new Date().toISOString() }).eq("id", t.id);
+      return { texte: `${pre}Terminée : ${desc}`, journal: { tache_id: t.id } };
+    }
+    const maj: Record<string, unknown> = {}, dit: string[] = [];
+    if (c.champs.includes("date") && c.date) { maj.echeance = c.date; dit.push(`échéance ${dire(c.date, x.aujourdhui)}${t.echeance ? ` (était ${dire(t.echeance, x.aujourdhui)})` : ""}`); }
+    if (c.champs.includes("priorite")) { maj.priorite = c.priorite; dit.push(`priorité ${c.priorite}`); }
+    if (c.champs.includes("activite") && c.activite_id !== t.activite_id) { maj.activite_id = c.activite_id; dit.push(`projet ${x.nomProjet(c.activite_id)}`); }
+    if (c.champs.includes("titre") && c.titre) { maj.titre = c.titre.slice(0, 200); dit.push(`nouveau titre « ${maj.titre} »`); }
+    if (!dit.length) return { texte: `Je n'ai pas compris quoi changer sur « ${t.titre} » : rien de changé. (Une tâche n'a pas d'heure : pour un créneau, dicter un rendez-vous.)` };
+    if (!x.essai) await db.from("taches").update(maj).eq("id", t.id);
+    return { texte: `${pre}Modifiée : ${desc} → ${dit.join(", ")}`, journal: { tache_id: t.id } };
+  }
+
+  // Rendez-vous créé par dictée
+  const desc = `${r!.titre} · ${direRdv(r!, x.aujourdhui)}`;
+  if (c.action === "terminer") return { texte: `« ${r!.titre} » est un rendez-vous, pas une tâche : rien de changé.` };
+  if (c.action === "supprimer") {
+    if (!x.essai) { await agendaEcrire({ action: "supprimer", evenement_id: r!.id }); await db.from("dictees").update({ annulee: true }).eq("id", r!.dictee); }
+    return { texte: `${pre}Rendez-vous supprimé : ${desc} (${r!.agenda})` };
+  }
+  const ancienDebut = new Date(r!.debut), ancienneFin = new Date(r!.fin);
+  const jour = c.champs.includes("date") && c.date ? c.date : jourParis(ancienDebut);
+  const heure = c.champs.includes("heure") && c.heure ? c.heure : (r!.journee ? null : hhmmParis(ancienDebut));
+  const journee = !heure;
+  const debut = parisEnUtc(jour, heure ?? "00:00");
+  let fin: Date;
+  if (journee) fin = parisEnUtc(plus(jour, Math.max(1, Math.round((ancienneFin.getTime() - ancienDebut.getTime()) / 864e5))), "00:00");
+  else if (c.heure_fin && c.champs.includes("heure")) fin = parisEnUtc(jour, c.heure_fin);
+  else if (c.champs.includes("duree") && c.duree) fin = new Date(debut.getTime() + c.duree * 60000);
+  else fin = new Date(debut.getTime() + (r!.journee ? 3600e3 : ancienneFin.getTime() - ancienDebut.getTime()));
+  if (fin <= debut) fin = new Date(debut.getTime() + 3600e3);
+  const titre = c.champs.includes("titre") && c.titre ? c.titre.slice(0, 200) : r!.titre;
+  const lieu = c.champs.includes("lieu") ? c.lieu : r!.lieu;
+  const change = debut.getTime() !== ancienDebut.getTime() || fin.getTime() !== ancienneFin.getTime() || titre !== r!.titre || lieu !== r!.lieu;
+  if (!change) return { texte: `Je n'ai pas compris quoi changer sur « ${r!.titre} » : rien de changé.` };
+  const conflit = journee ? null : await chevauchement(debut, fin, r!.id);
+  let ev = null;
+  if (!x.essai) {
+    ev = (await agendaEcrire({ action: "modifier", evenement_id: r!.id, titre, debut: debut.toISOString(), fin: fin.toISOString(), journee, lieu })).evenement;
+    if (ev) await db.from("dictees").update({ evenement_id: ev.id, evenement_externe: ev.externe_id, evenement_titre: titre }).eq("id", r!.dictee);
+  }
+  const apres = [titre, direRdv({ debut: debut.toISOString(), fin: fin.toISOString(), journee }, x.aujourdhui), lieu].filter(Boolean).join(" · ");
+  return { texte: `${pre}Rendez-vous modifié : ${apres} (était ${direRdv(r!, x.aujourdhui)})${conflit ? `. Attention : chevauche « ${conflit} »` : ""}` };
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return texte("Envoyer la tâche en POST.", 405);
+  if (req.method !== "POST") return texte("Envoyer la phrase en POST.", 405);
   const cle = req.headers.get("x-cle-tache") ?? "";
   // CLE_TACHE_ESSAI : clé temporaire pour tester sans toucher à celle du téléphone (posée puis retirée par l'API d'administration)
   if (!egal(CLE_TACHE, cle) && !egal(Deno.env.get("CLE_TACHE_ESSAI") ?? "", cle)) return texte("Clé refusée : vérifier l'en-tête x-cle-tache du raccourci.", 401);
@@ -153,63 +325,37 @@ Deno.serve(async (req) => {
   try { corps = JSON.parse(brut); } catch { corps = { texte: brut }; }
   if (typeof corps !== "object" || corps === null) corps = { texte: String(corps) };
   const phrase = String(corps.texte ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
-  if (!phrase) return texte("Rien à ajouter : la phrase est vide.", 400);
-  // Un seul mot = dictée coupée trop tôt (la suite est partie vers Siri) : rien n'est créé
-  if (phrase.split(" ").length < 2) return texte(`Je n'ai entendu que « ${phrase} » : rien d'ajouté. Recommencer en parlant sans pause.`, 422);
+  if (!phrase) return texte("Rien à faire : la phrase est vide.", 400);
+  // Un seul mot = dictée coupée trop tôt (la suite est partie vers Siri) : rien n'est fait (sauf « annule »)
+  if (phrase.split(" ").length < 2 && !/^annule/i.test(phrase)) return texte(`Je n'ai entendu que « ${phrase} » : rien d'ajouté. Recommencer en parlant sans pause.`, 422);
 
   const aujourdhui = jourParis();
   const { data: acts, error } = await db.from("activites").select("id, nom, description, mots_cles").order("ordre");
   if (error || !acts?.length) return texte("Cockpit injoignable, réessayer dans un instant.", 500);
+  const x: Contexte = { phrase, aujourdhui, essai: !!corps.essai,
+    nomProjet: (id) => COURTS[id] ?? acts.find((a) => a.id === id)?.nom ?? id };
 
-  let c: Comprise, secours = false;
+  let c: Comprise, secours = false, rep: Reponse;
   try {
     if (!Deno.env.get("ANTHROPIC_API_KEY")) throw new Error("clé ANTHROPIC_API_KEY absente");
-    c = await comprendre(phrase, acts as Activite[], aujourdhui);
+    const [taches, rdvs] = await Promise.all([tachesOuvertes(), rdvDictes()]);
+    c = await comprendre(phrase, acts as Activite[], aujourdhui, taches, rdvs);
+    rep = c.action === "creer" ? await creer(c, x) : c.action === "annuler" ? await annuler(x) : await agirSurCible(c, x, taches, rdvs);
   } catch (e) {
-    console.error("ajouter-tache : Claude indisponible,", e instanceof Error ? e.message : e);
-    secours = true;
-    c = { type: "tache", titre: phrase.charAt(0).toUpperCase() + phrase.slice(1), activite_id: parMotsCles(phrase, acts as Activite[]),
-      date: null, heure: null, heure_fin: null, duree: 60, journee: false, lieu: null, priorite: "moyenne" };
-  }
-  c.titre = c.titre.slice(0, 200);
-  const nom = COURTS[c.activite_id] ?? acts.find((a) => a.id === c.activite_id)?.nom ?? c.activite_id;
-  const essai = corps.essai ? "Essai (rien d'écrit) : " : "";
-
-  // ----- Rendez-vous -----
-  if (c.type === "rdv" && c.date && (c.heure || c.journee)) {
-    const debut = c.heure ? parisEnUtc(c.date, c.heure) : parisEnUtc(c.date, "00:00");
-    let fin = c.heure ? (c.heure_fin ? parisEnUtc(c.date, c.heure_fin) : new Date(debut.getTime() + c.duree * 60000)) : parisEnUtc(plus(c.date, 1), "00:00");
-    if (fin <= debut) fin = new Date(debut.getTime() + 60 * 60000);
-    const quand = `${dire(c.date, aujourdhui)}${c.heure ? `, ${heureParis(debut)} – ${heureParis(fin)}` : ", toute la journée"}`;
-    const agenda = await agendaPour(c.activite_id);
-    if (agenda) {
-      const teams = agenda.fournisseur === "microsoft" && AVEC_TEAMS.has(c.activite_id) && !!c.heure;
-      const conflit = c.heure ? await chevauchement(debut, fin) : null;
-      const rdv = { agenda_id: agenda.id, titre: c.titre, debut: debut.toISOString(), fin: fin.toISOString(), journee: !c.heure, lieu: c.lieu,
-        ...(agenda.activite_id !== c.activite_id ? { activite_forcee: c.activite_id } : {}) };
-      let sansTeams = false;
-      if (!essai) {
-        try { await creerRdv({ ...rdv, teams }); }
-        catch (e) {
-          if (!teams) { console.error("ajouter-tache : rendez-vous", e instanceof Error ? e.message : e); return texte(`Le rendez-vous n'a pas pu être créé dans ${agenda.nom}, réessayer.`, 502); }
-          try { await creerRdv(rdv); sansTeams = true; } // Teams refusé par le compte : rendez-vous créé sans lien
-          catch (e2) { console.error("ajouter-tache : rendez-vous", e2 instanceof Error ? e2.message : e2); return texte(`Le rendez-vous n'a pas pu être créé dans ${agenda.nom}, réessayer.`, 502); }
-        }
-      }
-      const ou = `${nom} (${agenda.fournisseur === "microsoft" ? "Outlook" : "agenda " + agenda.nom}${teams ? (sansTeams ? ", sans lien Teams" : ", lien Teams") : ""})`;
-      const resume = [c.titre, ou, quand, c.lieu].filter(Boolean).join(" · ");
-      return texte(`${essai || "Rendez-vous ajouté : "}${resume}${conflit ? `. Attention : chevauche « ${conflit} »` : ""}`, essai ? 200 : 201);
+    console.error("ajouter-tache :", message(e));
+    if (!/claude|anthropic|réponse illisible|ANTHROPIC/i.test(message(e)) && !(e instanceof Anthropic.APIError)) {
+      return texte(`Ça n'a pas marché, réessayer dans un instant.${x.essai ? ` (${message(e)})` : ""}`, 500);
     }
-    // Pas d'agenda modifiable pour ce projet (Evoa, tant que son Outlook n'est pas connecté) : une tâche « À caler » à la date dite
-    c = { ...c, type: "tache", titre: `À caler : ${c.titre} (${c.heure ? quand.split(", ").pop() : "journée"}${c.lieu ? `, ${c.lieu}` : ""})`.slice(0, 200) };
+    secours = true; // Claude indisponible : simple tâche d'après les mots-clés
+    c = { action: "creer", cibles: [], champs: [], type: "tache", titre: phrase.charAt(0).toUpperCase() + phrase.slice(1),
+      activite_id: parMotsCles(phrase, acts as Activite[]), date: null, heure: null, heure_fin: null, duree: null, journee: false, lieu: null, priorite: "moyenne" };
+    rep = await creer(c, x);
+    rep.texte += " (projet deviné sans Claude, à vérifier)";
   }
-
-  // ----- Tâche -----
-  const resume = [c.titre, nom, c.date ? dire(c.date, aujourdhui) : null, c.priorite === "moyenne" ? null : `priorité ${c.priorite}`]
-    .filter(Boolean).join(" · ");
-  if (essai) return texte(`${essai}tâche ${resume}${secours ? " (sans Claude)" : ""}`);
-  const notes = "Dictée depuis l'iPhone" + (phrase.toLowerCase() !== c.titre.toLowerCase() ? ` : « ${phrase} »` : "");
-  const { error: e2 } = await db.from("taches").insert({ titre: c.titre, activite_id: c.activite_id, echeance: c.date, priorite: c.priorite, notes, statut: "a-faire" });
-  if (e2) { console.error("ajouter-tache :", e2.message); return texte("La tâche n'a pas pu être enregistrée, réessayer.", 500); }
-  return texte(`Ajoutée : ${resume}${secours ? " (projet deviné sans Claude, à vérifier)" : ""}`, 201);
+  if (!x.essai) {
+    await db.from("dictees").insert({ phrase, action: c.action, resultat: rep.texte, ...(rep.journal ?? {}) });
+    await db.from("dictees").delete().lt("cree_le", new Date(Date.now() - 60 * 864e5).toISOString());
+  }
+  if (secours) console.error("ajouter-tache : réponse de secours sans Claude");
+  return texte(rep.texte, rep.status ?? 200);
 });

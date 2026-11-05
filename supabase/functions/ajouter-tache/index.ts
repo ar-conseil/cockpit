@@ -1,4 +1,4 @@
-// Tâches et rendez-vous dictés depuis l'iPhone (Raccourci iOS « Cockpit », phrase vocale « Tâche pour Victor ») : une phrase libre crée, modifie, supprime
+// Tâches et rendez-vous dictés depuis l'iPhone (Raccourci iOS « Tâche pour Victor », lancé par les Raccourcis vocaux) : une phrase libre crée, modifie, supprime
 // ou termine une tâche, ou un rendez-vous dans le bon agenda. Claude Haiku 5.5 en tire l'action, la cible, le titre, le projet,
 // la date, l'heure, la durée, le lieu et la priorité ; sans lui, une tâche est créée d'après les mots-clés des projets.
 // Rendez-vous (une heure est dite, ou « toute la journée ») : écrit par agenda-ecrire dans l'agenda du projet

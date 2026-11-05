@@ -52,7 +52,7 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   gmail.modify / Mail.ReadWrite (colonne `comptes_agenda.droits`, bouton « Autoriser le tri » page Agendas) ; IONOS par IMAP.
   Journal `tri_mails` (60 jours, objet masqué pour la santé), bilan `tri_resume(depuis)` affiché dans le point de Victor.
   Stock : `{ attendre: true }` à relancer tant que `restant` ; `{ compter: true }` et `{ apercu: true }` ne touchent à rien.
-- Dictée depuis l'iPhone (fonction `ajouter-tache`, Raccourci iOS « Cockpit », lancé par la phrase « Tâche pour Victor » des Raccourcis vocaux d'Accessibilité : par Siri, « tâche … Victor » part vers Rappels/Calendrier et le contact Victor) : POST `{ texte }` (ou texte brut)
+- Dictée depuis l'iPhone (fonction `ajouter-tache`, Raccourci iOS « Tâche pour Victor », lancé par la phrase « Tâche pour Victor » des Raccourcis vocaux d'Accessibilité : par Siri, « tâche … Victor » part vers Rappels/Calendrier et le contact Victor) : POST `{ texte }` (ou texte brut)
   avec l'en-tête `x-cle-tache` ; Claude Haiku 5.5 en tire l'action (creer, annuler, modifier, supprimer, terminer), la cible,
   le titre, le projet, la date, l'heure, la durée, le lieu et la priorité ; réponse en une ligne lisible pour la notification.
   Créer : une heure dite (ou « toute la journée ») = rendez-vous écrit par `agenda-ecrire` (clé de synchro) : Palomano dans

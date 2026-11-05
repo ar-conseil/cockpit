@@ -15,6 +15,8 @@
 //  POST { libelles: true, apercu?, boite? } -> remet en ordre les libellés Gmail : anciens libellés fusionnés dans les
 //                                    nouveaux puis supprimés une fois vides, « Travail & Pro » reclassé par Claude ; à relancer
 //                                    tant que restant ; avec apercu, dit seulement ce qui serait fait
+//  POST { rattraper: true, jours?, apercu? } -> Gmail arouzier : remplit « À faire » (et les tâches) avec les mails à traiter
+//                                    des <jours> derniers jours (30 par défaut) où Antonin n'a pas encore répondu
 //  POST { reclasser: "<dossier du tri>", boite, apercu?, depuis? } -> Outlook : déplace vers les dossiers personnels d'Antonin
 //                                    les mails déjà rangés dans ce dossier du tri qui leur correspondent
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
@@ -87,6 +89,9 @@ type Boite = {
   libelles?(ctx: Contexte, client: Anthropic, apercu: boolean, finAvant: number): Promise<Record<string, unknown>>;
   // Outlook : dossiers personnels (hors dossiers du tri) avec quelques exemples, et lecture d'un dossier
   personnels?(dossiersTri: string[]): Promise<Perso[]>;
+  // Gmail : en-têtes de quelques mails et « Antonin a-t-il déjà répondu dans le fil ? » ; libellé À faire posé
+  detailsFils?(ids: string[], verifierFil: boolean): Promise<Map<string, { mail: Mail; repondu: boolean }>>;
+  marquerAFaire?(ids: string[]): Promise<void>;
   listerDossier?(chemin: string, saut: number, n: number): Promise<Mail[]>;
   fermer(): Promise<void>;
 };
@@ -99,8 +104,8 @@ async function appelPatient(url: string, jeton: string, options: RequestInit = {
     const t = await r.text(); const j = t ? JSON.parse(t) : {};
     if (r.ok) return j;
     const message = j?.error?.message || `HTTP ${r.status}`;
-    if (essai < 2 && (r.status === 429 || r.status === 503 || /quota|rate ?limit|too many/i.test(message))) {
-      await pause(4000); continue;
+    if (essai < 5 && (r.status === 429 || r.status === 503 || /quota|rate ?limit|too many/i.test(message))) {
+      await pause(4000 * (essai + 1)); continue; // jusqu'à une minute : le quota Gmail se compte par minute
     }
     throw new Error(message);
   }
@@ -180,6 +185,20 @@ function gmail(email: string, jeton: string): Boite {
       }
       return bilan;
     },
+    async detailsFils(ids, verifierFil) {
+      const sortie = new Map<string, { mail: Mail; repondu: boolean }>();
+      for (const m of await details(ids)) {
+        if (!verifierFil) { sortie.set(m.id, { mail: m, repondu: false }); continue; }
+        const f = await appel(`/threads/${m.fil}?format=minimal`);
+        const repondu = (f.messages ?? []).some((x: { labelIds?: string[]; internalDate: string }) =>
+          (x.labelIds ?? []).includes("SENT") && +x.internalDate > Date.parse(m.recu_le));
+        sortie.set(m.id, { mail: m, repondu });
+      }
+      return sortie;
+    },
+    async marquerAFaire(ids) {
+      for (let i = 0; i < ids.length; i += 500) await deplacer(ids.slice(i, i + 500), [await etiquette(A_FAIRE)], []);
+    },
     async rangerLot(groupes) {
       for (const g of groupes) {
         await deplacer(g.mails.map((m) => m.id), g.dossier === PUB ? ["TRASH"] : await ajouts(g.dossier, g.important), ["INBOX", "UNREAD"]);
@@ -192,7 +211,7 @@ function gmail(email: string, jeton: string): Boite {
       if (!suivies.length) return bilan;
       const id = await etiquette(A_FAIRE);
       for (const t of suivies.filter((t) => t.statut === "fait")) {
-        await appel(`/threads/${t.mail_fil}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: [id] }) })
+        for (const fil of filsDe(t)) await appel(`/threads/${fil}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: [id] }) })
           .catch((e) => { if (!/not found/i.test(message(e))) throw e; });
         await db.from("taches").update({ mail_a_faire: false }).eq("id", t.id);
         bilan.retires++;
@@ -206,7 +225,7 @@ function gmail(email: string, jeton: string): Boite {
         for (const f of r.threads ?? []) fils.add(f.id);
         page = r.nextPageToken ?? "";
       } while (page);
-      const fermees = ouvertes.filter((t) => !fils.has(t.mail_fil)).map((t) => t.id);
+      const fermees = ouvertes.filter((t) => !filsDe(t).some((f) => fils.has(f))).map((t) => t.id);
       if (fermees.length) {
         await db.from("taches").update({ statut: "fait", fait_le: new Date().toISOString(), mail_a_faire: false }).in("id", fermees);
         bilan.terminees = fermees.length;
@@ -482,10 +501,10 @@ ${Object.entries(THEMES).map(([n, d]) => `- ${n} : ${d}`).join("\n")}
 }
 
 // Classe un lot par paquets de 25 mails envoyés en parallèle à Claude
-async function classer(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[], perso: Perso[] = []) {
+async function classer(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[], perso: Perso[] = [], fenetre = RECENT, note = "") {
   const paquets_: Mail[][] = [];
   for (let i = 0; i < mails.length; i += PAQUET) paquets_.push(mails.slice(i, i + PAQUET));
-  return (await Promise.all(paquets_.map((p) => classerPaquet(client, ctx, boite, p, perso)))).flat();
+  return (await Promise.all(paquets_.map((p) => classerPaquet(client, ctx, boite, p, perso, fenetre, note)))).flat();
 }
 
 // Consignes propres à une boîte qui a ses dossiers personnels (Outlook Palomano)
@@ -512,7 +531,7 @@ function memeFournisseur(a: string, b: string) {
   return court_.length >= 4 && ` ${long_} `.includes(` ${court_} `);
 }
 
-async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[], perso: Perso[] = []) {
+async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[], perso: Perso[] = [], fenetre = RECENT, note = "") {
   const propre = ctx.defaut(boite.email);
   const autres = BOITES_PRO.has(boite.email)
     ? ctx.dossiers.filter((d) => !THEMES[d] && d !== PUB && d !== "Perso" && d !== propre) : [];
@@ -532,7 +551,7 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
     output_config: { effort: "low", format: zodOutputFormat(Tri) },
     system: ctx.consignes,
     messages: [{ role: "user", content:
-      `Boîte « ${boite.nom} » (${boite.email}) ; dossier par défaut : ${ctx.defaut(boite.email)}.\n${consignePro}${consignesPerso(perso)}Mails (JSON) :\n` +
+      `Boîte « ${boite.nom} » (${boite.email}) ; dossier par défaut : ${ctx.defaut(boite.email)}.\n${consignePro}${consignesPerso(perso)}${note}Mails (JSON) :\n` +
       JSON.stringify(mails.map((m, i) => ({ id: "m" + (i + 1), de: m.de, objet: m.objet, recu_le: m.recu_le.slice(0, 10), diffusion: m.masse, extrait: m.extrait }))) }],
   });
   if (!r.parsed_output) throw new Error(`classement illisible (${r.stop_reason})`);
@@ -547,7 +566,7 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
     // Garde-fou : jamais d'autre activité dans une boîte pro (proposée quand même : Perso)
     if (autres.includes(dossier) || autres.some((x) => x.toLowerCase() === propose.toLowerCase())) dossier = "Perso";
     // Étoile seulement pour un mail récent : un vieux mail du stock n'appelle plus d'action
-    const important = !!d?.important && Date.now() - Date.parse(m.recu_le) < RECENT;
+    const important = !!d?.important && Date.now() - Date.parse(m.recu_le) < fenetre;
     // Garde-fou : ne part à la corbeille qu'un envoi de masse non important ; sinon, rangé dans Newsletters.
     if (dossier === PUB && (!m.masse || important)) dossier = "Newsletters";
     // Facture d'un nouveau fournisseur : sous-dossier Factures › <fournisseur> (repris s'il existe déjà, sans tenir compte de la casse)
@@ -563,17 +582,30 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
 
 // Mails « À faire » de la boîte Gmail arouzier -> une tâche du cockpit par fil (sauf si une tâche ouverte le suit déjà)
 type Decision = Awaited<ReturnType<typeof classerPaquet>>[number];
+const filsDe = (t: { mail_fil: string | null }) => (t.mail_fil ?? "").split(",").filter(Boolean);
+const expediteur = (de: string) => (/<([^>]+)>/.exec(de)?.[1] ?? de).trim().toLowerCase();
 async function creerTaches(ctx: Contexte, b: Boite, decisions: Decision[]) {
-  const aFaire = decisions.filter((d) => d.important && d.mail.fil && d.dossier !== PUB);
-  if (!aFaire.length) return 0;
-  const { data: deja, error: e1 } = await db.from("taches").select("mail_fil").eq("mail_boite", b.nom).neq("statut", "fait")
-    .in("mail_fil", [...new Set(aFaire.map((d) => d.mail.fil!))]);
+  const candidats = decisions.filter((d) => d.important && d.mail.fil && d.dossier !== PUB);
+  if (!candidats.length) return 0;
+  const { data: deja, error: e1 } = await db.from("taches").select("mail_fil").eq("mail_boite", b.nom).neq("statut", "fait").not("mail_fil", "is", null);
   if (e1) throw new Error(`tâches : ${e1.message}`);
-  const vus = new Set((deja ?? []).map((t) => t.mail_fil as string));
+  const vus = new Set((deja ?? []).flatMap(filsDe));
+  const aFaire: Decision[] = [];
+  for (const d of candidats) if (!vus.has(d.mail.fil!)) { vus.add(d.mail.fil!); aFaire.push(d); }
+  // Trois mails ou plus du même expéditeur (alertes de banque…) : une seule tâche qui suit tous leurs fils
+  const parExpediteur = new Map<string, Decision[]>();
+  for (const d of aFaire) parExpediteur.set(expediteur(d.mail.de), [...(parExpediteur.get(expediteur(d.mail.de)) ?? []), d]);
   const lignes = [];
+  for (const groupe of parExpediteur.values()) {
+    if (groupe.length < 3) continue;
+    const d = groupe[0], nom = court(d.mail.de.replace(/<[^>]*>/, "").replace(/"/g, ""), 60) || expediteur(d.mail.de);
+    lignes.push({ titre: court(`${groupe.length} mails de ${nom} à traiter : ${d.resume}`, 200), activite_id: ctx.activite(d.dossier, b.email),
+      priorite: "moyenne", statut: "a-faire", mail_boite: b.nom, mail_fil: groupe.map((x) => x.mail.fil).join(","), mail_a_faire: true,
+      notes: `Libellé « ${A_FAIRE} » dans Gmail sur ${groupe.length} fils ; terminer la tâche retire le libellé de tous. ` +
+        groupe.map((x) => `${x.mail.recu_le.slice(0, 10)} ${x.resume}`).join(" ; ") });
+  }
   for (const d of aFaire) {
-    if (vus.has(d.mail.fil!)) continue;
-    vus.add(d.mail.fil!);
+    if ((parExpediteur.get(expediteur(d.mail.de))?.length ?? 0) >= 3) continue;
     lignes.push({ titre: court(d.resume || d.mail.objet || "Mail à traiter", 200), activite_id: ctx.activite(d.dossier, b.email),
       priorite: "moyenne", statut: "a-faire", mail_boite: b.nom, mail_fil: d.mail.fil, mail_a_faire: true,
       notes: `Mail de ${court(d.mail.de, 120)}${d.sensible ? "" : ` : « ${court(d.mail.objet, 200)} »`}, libellé « ${A_FAIRE} » dans Gmail. ` +
@@ -624,10 +656,46 @@ async function reclasser(client: Anthropic, ctx: Contexte, b: Boite, perso: Pers
   return bilan;
 }
 
-type Corps = { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean; a_faire?: boolean; libelles?: boolean; boite?: string; reclasser?: string; depuis?: number };
+// Rattrapage « À faire » (boîte arouzier) : mails jugés à traiter par le tri (étoilés avant le libellé), plus les mails de
+// 14 à <jours> jours (hors Newsletters, Notifications, corbeille) réexaminés par Claude ; les fils où Antonin a déjà répondu
+// après le mail sont écartés. Libellé posé, tâches créées, journal mis à jour. Rejouable : rien n'est fait deux fois.
+async function rattraper(client: Anthropic, ctx: Contexte, b: Boite, corps: Corps) {
+  if (!b.detailsFils || !b.marquerAFaire) return { erreur: "rattrapage prévu pour Gmail seulement" };
+  const jours = Math.min(corps.jours ?? 30, 90), depuis = new Date(Date.now() - jours * 864e5).toISOString();
+  const { data, error } = await db.from("tri_mails").select("id, message_id, dossier, important, resume, objet, recu_le")
+    .eq("boite", b.nom).gt("recu_le", depuis).neq("dossier", CORBEILLE).like("message_id", "gmail:%");
+  if (error) throw new Error(error.message);
+  const lignes = data ?? [];
+  const sures = lignes.filter((l) => l.important);
+  const douteuses = lignes.filter((l) => !l.important && !["Newsletters", "Notifications"].includes(l.dossier)
+    && Date.now() - Date.parse(l.recu_le) >= RECENT);
+  const id = (l: { message_id: string }) => l.message_id.slice("gmail:".length);
+  const lus = await b.detailsFils([...sures, ...douteuses].map(id), false);
+  const aDecider = douteuses.map((l) => lus.get(id(l))?.mail).filter((m): m is Mail => !!m);
+  const note = `Nous sommes le ${aujourdhuiParis()}. Ces mails ont plus de 14 jours : important = true seulement si l'action reste ` +
+    `à faire aujourd'hui (échéance, rendez-vous ou réunion pas encore passés, demande toujours en attente).\n`;
+  const nouvelles = (await classer(client, ctx, b, aDecider, [], jours * 864e5, note)).filter((d) => d.important);
+  const anciennes: Decision[] = sures.flatMap((l) => { const x = lus.get(id(l)); return x ? [{ mail: x.mail, dossier: l.dossier,
+    important: true, sensible: l.objet === "Mail personnel", resume: l.resume ?? "", fournisseur: "" } as Decision] : []; });
+  const toutes = [...anciennes, ...nouvelles];
+  const fils = await b.detailsFils(toutes.map((d) => d.mail.id), true);
+  const aFaire = toutes.filter((d) => !fils.get(d.mail.id)?.repondu);
+  // deno-lint-ignore no-explicit-any
+  const bilan: Record<string, any> = { jours, examines: sures.length + aDecider.length, a_traiter: toutes.length,
+    deja_repondu: toutes.length - aFaire.length, a_faire: aFaire.length };
+  if (corps.apercu) { bilan.apercu = aFaire.map((d) => ({ dossier: d.dossier, resume: d.resume, recu_le: d.mail.recu_le.slice(0, 10) })); return bilan; }
+  await b.marquerAFaire(aFaire.map((d) => d.mail.id));
+  const relevees = nouvelles.map((d) => d.mail.ref);
+  if (relevees.length) await db.from("tri_mails").update({ important: true }).eq("boite", b.nom).in("message_id", relevees);
+  bilan.taches = await creerTaches(ctx, b, aFaire);
+  return bilan;
+}
+
+type Corps = { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean; a_faire?: boolean; libelles?: boolean; boite?: string; reclasser?: string; depuis?: number;
+  rattraper?: boolean; jours?: number };
 async function travail(corps: Corps) {
   const t0 = Date.now();
-  const special = corps.compter || corps.apercu || corps.a_faire || corps.libelles || corps.reclasser;
+  const special = corps.compter || corps.apercu || corps.a_faire || corps.libelles || corps.reclasser || corps.rattraper;
   let limite = new Date();
   if (!corps.forcer && !special) {
     const { data: b } = await db.from("briefings").select("jour, mise_a_jour").eq("jour", aujourdhuiParis()).maybeSingle();
@@ -640,10 +708,10 @@ async function travail(corps: Corps) {
   // Les boîtes sont rangées en même temps : chacune a ses propres limites chez Google ou Microsoft
   // deno-lint-ignore no-explicit-any
   const bilan: Record<string, any>[] = [], travaux: Promise<void>[] = [];
-  for (const b of await ouvrir(!!(corps.compter || corps.apercu), !corps.a_faire && !corps.libelles)) {
+  for (const b of await ouvrir(!!(corps.compter || corps.apercu), !corps.a_faire && !corps.libelles && !corps.rattraper)) {
     // deno-lint-ignore no-explicit-any
     const r: Record<string, any> = { boite: b.nom };
-    const concernee = (corps.a_faire ? BOITES_TACHES.has(b.email) : true) && (!corps.boite || corps.boite === b.nom)
+    const concernee = (corps.a_faire || corps.rattraper ? BOITES_TACHES.has(b.email) : true) && (!corps.boite || corps.boite === b.nom)
       && ("erreur" in b || !corps.libelles || !!b.libelles);
     if (!concernee) { if (!("erreur" in b)) await b.fermer(); continue; }
     if ("erreur" in b) { bilan.push({ ...r, erreur: b.erreur }); continue; }
@@ -652,6 +720,7 @@ async function travail(corps: Corps) {
       if (corps.compter) { Object.assign(r, await b.compter()); return; }
       if (corps.a_faire) { if (b.aFaire) Object.assign(r, await b.aFaire()); return; }
       if (corps.libelles) { Object.assign(r, await b.libelles!(ctx!, client, !!corps.apercu, t0 + BUDGET)); return; }
+      if (corps.rattraper) { Object.assign(r, await rattraper(client, ctx!, b, corps)); return; }
       const perso = b.personnels ? await b.personnels(ctx!.dossiers) : [];
       if (perso.length) r.dossiers_personnels = perso.length;
       if (corps.reclasser) { Object.assign(r, await reclasser(client, ctx!, b, perso, corps, t0)); return; }
@@ -723,7 +792,7 @@ Deno.serve(async (req) => {
   const corps = await req.json().catch(() => ({}));
   if (!corps.compter && !corps.a_faire && !Deno.env.get("ANTHROPIC_API_KEY")) return json({ erreur: "clé ANTHROPIC_API_KEY manquante (outils/claude-cle.sh)" }, 400);
   const tache = travail(corps).catch((e) => { console.error("Tri :", message(e)); return { erreur: message(e) }; });
-  if (corps.attendre || corps.apercu || corps.compter || corps.libelles || corps.reclasser) return json(await tache);
+  if (corps.attendre || corps.apercu || corps.compter || corps.libelles || corps.reclasser || corps.rattraper) return json(await tache);
   EdgeRuntime.waitUntil(tache.then((r) => console.log("Tri :", JSON.stringify(r))));
   return json({ lance: true }, 202);
 });

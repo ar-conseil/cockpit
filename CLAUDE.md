@@ -65,6 +65,9 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   Boîte arouzier (`BOITES_TACHES`) : chaque fil « À faire » devient une tâche (`taches.mail_boite`, `mail_fil`, `mail_a_faire`) ;
   tâche terminée -> libellé retiré du fil ; libellé retiré dans Gmail (ou fil à la corbeille) -> tâche terminée. Accord fait
   à chaque tri et par pg_cron `a-faire` (`{ a_faire: true }`, toutes les 15 min de 5 h à 21 h UTC).
+  Trois mails ou plus du même expéditeur : une seule tâche qui suit tous leurs fils (`mail_fil` = fils séparés par des virgules).
+  `{ rattraper: true, jours?, apercu? }` : remplit À faire avec les mails à traiter des 30 derniers jours (étoilés avant le libellé,
+  et 14 à 30 jours réexaminés, échéances passées écartées), sauf les fils où Antonin a déjà répondu. Fait le 5 novembre 2026.
   Journal `tri_mails` (60 jours, objet masqué pour la santé), bilan `tri_resume(depuis)` affiché dans le point de Victor.
   Stock : `{ attendre: true }` à relancer tant que `restant` ; `{ compter: true }` et `{ apercu: true }` ne touchent à rien.
   `{ libelles: true, apercu?, boite? }` : remise en ordre des libellés Gmail (anciens libellés renommés ou fusionnés puis

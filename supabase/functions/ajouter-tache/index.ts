@@ -154,6 +154,8 @@ Deno.serve(async (req) => {
   if (typeof corps !== "object" || corps === null) corps = { texte: String(corps) };
   const phrase = String(corps.texte ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
   if (!phrase) return texte("Rien à ajouter : la phrase est vide.", 400);
+  // Un seul mot = dictée coupée trop tôt (la suite est partie vers Siri) : rien n'est créé
+  if (phrase.split(" ").length < 2) return texte(`Je n'ai entendu que « ${phrase} » : rien d'ajouté. Recommencer en parlant sans pause.`, 422);
 
   const aujourdhui = jourParis();
   const { data: acts, error } = await db.from("activites").select("id, nom, description, mots_cles").order("ordre");

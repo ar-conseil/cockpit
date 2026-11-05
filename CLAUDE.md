@@ -45,3 +45,10 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   `outils/ionos.sh`, jamais dans un fichier). Pas de transfert de mails (refusé par Antonin). Ensuite puis `outils/victor.py publier` écrit `briefings` et `propositions` et place jusqu'à 2 h de
   « Formation ORIAS » (8 h – 19 h, en semaine) via agenda-ecrire (clé de synchro). Le site affiche « Le point de Victor »
   sur Aujourd'hui ; une proposition acceptée devient une tâche. Notes du jour dans ~/.cockpit/victor/ (jamais dans le dépôt).
+- Tri des boîtes (fonction `trier-mails`, pg_cron `tri-mails` toutes les 10 min de 5 h à 8 h 50 UTC) : une fois le point du jour
+  publié, les mails de la réception reçus AVANT ce point sont classés par Claude Haiku 5.5 et rangés (un dossier par activité,
+  plus Factures & compta, Banque & administratif, Newsletters, Notifications), marqués lus, importants étoilés (drapeau Outlook) ;
+  les publicités (envoi de masse seulement) vont à la corbeille. Jamais d'envoi ni d'effacement définitif. Droits nécessaires :
+  gmail.modify / Mail.ReadWrite (colonne `comptes_agenda.droits`, bouton « Autoriser le tri » page Agendas) ; IONOS par IMAP.
+  Journal `tri_mails` (60 jours, objet masqué pour la santé), bilan `tri_resume(depuis)` affiché dans le point de Victor.
+  Stock : `{ attendre: true }` à relancer tant que `restant` ; `{ compter: true }` et `{ apercu: true }` ne touchent à rien.

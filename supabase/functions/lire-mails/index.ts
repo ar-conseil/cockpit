@@ -1,16 +1,15 @@
 // Mails récents des boîtes connectées pour Victor (comptes_agenda.usage = « mail », plus la boîte IONOS de Harnes
-// par IMAP avec les secrets IONOS_EMAIL / IONOS_MOT_DE_PASSE), en LECTURE SEULE (EXAMINE, BODY.PEEK : rien n'est marqué lu).
+// par IMAP avec les secrets IONOS_EMAIL / IONOS_MOT_DE_PASSE), en lecture (EXAMINE, BODY.PEEK : rien n'est marqué lu ; le rangement est fait par trier-mails).
 //  POST { depuis: ISO } avec l'en-tête x-cle-synchro -> { boites: [{ email, fournisseur, mails: [{ id, de, a, objet, recu_le, texte }], erreur? }] }
 // Rien n'est stocké : les mails ne font que passer vers la routine du Mac, qui en tire le briefing.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
+import { connexionImap, enTete, lireFetch, sansHtml } from "../_partage/mails.ts";
 
 const CLE_SYNCHRO = Deno.env.get("CLE_SYNCHRO") ?? "";
 const MAX = 80, TEXTE = 2500;
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { "Content-Type": "application/json" } });
 const b64 = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
-const sansHtml = (h: string) => h.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ")
-  .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"');
 const court = (t: string) => t.replace(/\s+/g, " ").trim().slice(0, TEXTE);
 
 async function appel(jeton: string, url: string, entetes: Record<string, string> = {}) {
@@ -55,81 +54,23 @@ async function outlook(jeton: string, depuis: Date) {
   }));
 }
 
-// ---------- IMAP minimal (IONOS) ----------
-function decoder(octets: Uint8Array, charset = "utf-8") {
-  try { return new TextDecoder(charset.toLowerCase().replace(/^(us-ascii|ascii)$/, "utf-8")).decode(octets); } catch { return new TextDecoder().decode(octets); }
-}
-const binaire = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 255);
-const qp = (s: string) => binaire(s.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))));
-const base64 = (s: string) => { try { return binaire(atob(s.replace(/[^A-Za-z0-9+/=]/g, ""))); } catch { return new Uint8Array(); } };
-// En-têtes encodés (=?UTF-8?B?…?= ou =?ISO-8859-1?Q?…?=)
-const enTete = (v: string) => v.replace(/\r?\n\s+/g, " ").replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=\s*/gi, (_, cs, e, t) =>
-  decoder(e.toUpperCase() === "B" ? base64(t) : qp(t.replace(/_/g, " ")), cs));
-function entetes(bloc: string) {
-  const h: Record<string, string> = {};
-  for (const l of bloc.replace(/\r?\n[ \t]+/g, " ").split(/\r?\n/)) { const i = l.indexOf(":"); if (i > 0) h[l.slice(0, i).trim().toLowerCase()] = l.slice(i + 1).trim(); }
-  return h;
-}
-// Texte lisible d'un corps MIME : la partie text/plain (sinon text/html sans balises), décodée.
-function texteMime(corps: string, type: string, cte: string): string {
-  const frontiere = /boundary="?([^";]+)"?/i.exec(type)?.[1];
-  if (/multipart\//i.test(type) && frontiere) {
-    const parties = corps.split("--" + frontiere).slice(1).map((p) => {
-      const i = p.search(/\r?\n\r?\n/); const h = entetes(p.slice(0, i)); return { h, c: p.slice(i).replace(/^\r?\n\r?\n/, "") };
-    });
-    const choisie = parties.find((p) => /text\/plain/i.test(p.h["content-type"] ?? "")) ?? parties.find((p) => /multipart|text\/html/i.test(p.h["content-type"] ?? ""));
-    return choisie ? texteMime(choisie.c, choisie.h["content-type"] ?? "", choisie.h["content-transfer-encoding"] ?? "") : "";
-  }
-  const cs = /charset="?([^";]+)"?/i.exec(type)?.[1] ?? "utf-8";
-  const octets = /base64/i.test(cte) ? base64(corps) : /quoted-printable/i.test(cte) ? qp(corps) : binaire(corps);
-  const t = decoder(octets, cs);
-  return /text\/html/i.test(type) ? sansHtml(t) : t;
-}
+// IONOS : EXAMINE (lecture seule) et BODY.PEEK, rien n'est marqué lu.
 async function imap(hote: string, utilisateur: string, motDePasse: string, depuis: Date) {
-  const conn = await Deno.connectTls({ hostname: hote, port: 993 });
-  const enc = new TextEncoder(), dec = new TextDecoder("latin1"); // octets bruts : décodés plus tard selon le charset
-  let tampon = "", n = 0;
-  const lire = async (fin: RegExp) => {
-    const buf = new Uint8Array(65536);
-    for (;;) {
-      const m = fin.exec(tampon);
-      if (m) { const rep = tampon.slice(0, m.index + m[0].length); tampon = tampon.slice(m.index + m[0].length); return { rep, m }; }
-      const lu = await conn.read(buf);
-      if (lu === null) throw new Error("connexion IMAP fermée");
-      tampon += dec.decode(buf.subarray(0, lu), { stream: true });
-    }
-  };
-  const cmd = async (c: string) => {
-    const tag = "V" + (++n);
-    await conn.write(enc.encode(`${tag} ${c}\r\n`));
-    const { rep, m } = await lire(new RegExp(`(^|\r\n)${tag} (OK|NO|BAD)[^\r\n]*\r\n`));
-    if (m[2] !== "OK") throw new Error(`IMAP : ${m[0].trim().replace(/^V\d+ /, "")}`);
-    return rep;
-  };
-  const cite = (s: string) => '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  const { cmd, fermer } = await connexionImap(hote, utilisateur, motDePasse);
   try {
-    await lire(/\r\n/);
-    await cmd(`LOGIN ${cite(utilisateur)} ${cite(motDePasse)}`);
-    await cmd("EXAMINE INBOX"); // lecture seule
+    await cmd("EXAMINE INBOX");
     const mois = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][depuis.getUTCMonth()];
     const uids = (/\* SEARCH([\d ]*)/.exec(await cmd(`UID SEARCH SINCE ${depuis.getUTCDate()}-${mois}-${depuis.getUTCFullYear()}`))?.[1] ?? "")
       .trim().split(/\s+/).filter(Boolean).slice(-MAX);
     const mails = [];
     for (const uid of uids) {
-      const r = await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] BODY.PEEK[TEXT]<0.12000>)`);
-      const date = /INTERNALDATE "([^"]+)"/.exec(r)?.[1];
-      const iH = r.indexOf("HEADER.FIELDS"), debutH = r.indexOf("}\r\n", iH) + 3;
-      const h = entetes(r.slice(debutH, r.indexOf("\r\n\r\n", debutH)));
-      const iT = r.search(/BODY\[TEXT\](<0>)? \{\d+\}\r\n/);
-      const corps = iT < 0 ? "" : r.slice(r.indexOf("}\r\n", iT) + 3).replace(/\)\r\nV\d+ OK[^\r\n]*\r\n$/, "");
-      const recu = date ? new Date(date.replace(/^(\d+)-(\w+)-(\d+) /, "$2 $1 $3 ")) : new Date();
+      const { recu, h, texte } = lireFetch(await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] BODY.PEEK[TEXT]<0.12000>)`));
       if (recu < depuis) continue;
       mails.push({ id: `ionos:${uid}`, de: enTete(h["from"] ?? ""), a: enTete(h["to"] ?? ""), objet: enTete(h["subject"] ?? ""), recu_le: recu.toISOString(),
-        texte: court(texteMime(corps, h["content-type"] ?? "text/plain", h["content-transfer-encoding"] ?? "")) });
+        texte: court(texte) });
     }
-    await cmd("LOGOUT").catch(() => null);
     return mails.reverse();
-  } finally { try { conn.close(); } catch { /* déjà fermée */ } }
+  } finally { await fermer(); }
 }
 
 Deno.serve(async (req) => {

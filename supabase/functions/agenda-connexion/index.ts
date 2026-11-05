@@ -44,12 +44,14 @@ Deno.serve(async (req) => {
     const { data: existant } = await db.from("comptes_agenda").select("id, refresh_token").eq("fournisseur", f).eq("email", j.email).eq("usage", u).maybeSingle();
     const { data: compte, error } = await db.from("comptes_agenda").upsert({
       fournisseur: f, email: j.email, usage: u, refresh_token: j.refresh_token ?? existant?.refresh_token ?? null,
-      jeton_acces: j.jeton_acces, jeton_expire_le: j.jeton_expire_le, derniere_erreur: null,
+      jeton_acces: j.jeton_acces, jeton_expire_le: j.jeton_expire_le, droits: j.droits, derniere_erreur: null,
     }, { onConflict: "fournisseur,email,usage" }).select().single();
     if (error) throw new Error(error.message);
     const c = compte as Compte;
-    // Boîte mail pour Victor : pas d'agenda à lister, lecture seule des mails.
-    if (u === "mail") return retour(`Boîte mail ${j.email} connectée : Victor la lira chaque matin.`);
+    // Boîte mail pour Victor : pas d'agenda à lister.
+    if (u === "mail") return retour(/gmail\.modify|Mail\.ReadWrite/i.test(j.droits ?? "")
+      ? `Boîte mail ${j.email} connectée : Victor la lira et la rangera chaque matin.`
+      : `Boîte mail ${j.email} connectée en lecture seule : Victor la lira, sans pouvoir la ranger.`);
     const agendas = await listerAgendas(c, await jetonAcces(db, c));
     for (const a of agendas) {
       const { data: deja } = await db.from("agendas").select("id").eq("compte_id", c.id).eq("externe_id", a.externe_id).maybeSingle();

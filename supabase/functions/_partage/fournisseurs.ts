@@ -2,8 +2,8 @@
 // Utilisé par agenda-connexion, sync-agendas et agenda-ecrire. Les jetons ne quittent jamais le serveur.
 
 export type Fournisseur = "google" | "microsoft";
-export type Usage = "agenda" | "mail"; // agendas (lecture et écriture) ou mails (lecture seule, pour Victor)
-export type Compte = { id: string; fournisseur: Fournisseur; email: string; refresh_token: string | null; jeton_acces: string | null; jeton_expire_le: string | null; usage?: Usage };
+export type Usage = "agenda" | "mail"; // agendas (lecture et écriture) ou mails (lecture et tri, pour Victor)
+export type Compte = { id: string; fournisseur: Fournisseur; email: string; refresh_token: string | null; jeton_acces: string | null; jeton_expire_le: string | null; usage?: Usage; droits?: string | null };
 export type AgendaDistant = { externe_id: string; nom: string; ecriture: boolean; principal: boolean; actif: boolean };
 export type RdvDistant = { externe_id: string; debut: string; fin: string; journee: boolean; titre: string | null; lieu: string | null; description: string | null; serie: boolean };
 export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null };
@@ -24,8 +24,12 @@ const MICROSOFT = {
   scopes: "offline_access openid email User.Read Calendars.ReadWrite",
 };
 
-const SCOPES_MAIL = { google: "openid email https://www.googleapis.com/auth/gmail.readonly", microsoft: "offline_access openid email User.Read Mail.Read" };
+// Mails : lecture, rangement dans des dossiers, marquage lu et mise à la corbeille (jamais d'envoi ni d'effacement définitif).
+const SCOPES_MAIL = { google: "openid email https://www.googleapis.com/auth/gmail.modify", microsoft: "offline_access openid email User.Read Mail.ReadWrite" };
+// Boîtes Outlook connectées avant le tri (lecture seule) : leur jeton se renouvelle avec les droits d'origine.
+const SCOPES_MAIL_LECTURE = "offline_access openid email User.Read Mail.Read";
 export const scopes = (f: Fournisseur, u: Usage = "agenda") => u === "mail" ? SCOPES_MAIL[f] : f === "google" ? GOOGLE.scopes : MICROSOFT.scopes;
+export const peutTrier = (c: Compte) => /gmail\.modify|Mail\.ReadWrite/i.test(c.droits ?? "");
 
 export function urlAutorisation(f: Fournisseur, etat: string, u: Usage = "agenda"): string {
   const p: Record<string, string> = f === "google"
@@ -36,16 +40,16 @@ export function urlAutorisation(f: Fournisseur, etat: string, u: Usage = "agenda
   return `${f === "google" ? GOOGLE.auth : MICROSOFT.auth}?${new URLSearchParams(p)}`;
 }
 
-async function demanderJeton(f: Fournisseur, champs: Record<string, string>, u: Usage = "agenda") {
+async function demanderJeton(f: Fournisseur, champs: Record<string, string>, u: Usage = "agenda", portee = scopes(f, u)) {
   const base: Record<string, string> = f === "google"
     ? { client_id: env("GOOGLE_CLIENT_ID"), client_secret: env("GOOGLE_CLIENT_SECRET") }
-    : { client_id: env("MS_CLIENT_ID"), client_secret: env("MS_CLIENT_SECRET"), scope: scopes(f, u) };
+    : { client_id: env("MS_CLIENT_ID"), client_secret: env("MS_CLIENT_SECRET"), scope: portee };
   const r = await fetch(f === "google" ? GOOGLE.jeton : MICROSOFT.jeton, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ ...base, ...champs }),
   });
   const j = await r.json();
   if (!r.ok) throw new Error(`${f} : ${j.error_description || j.error || r.status}`);
-  return j as { access_token: string; refresh_token?: string; expires_in: number; id_token?: string };
+  return j as { access_token: string; refresh_token?: string; expires_in: number; id_token?: string; scope?: string };
 }
 
 // Échange du code reçu au retour de la page d'autorisation : jetons + adresse du compte.
@@ -58,7 +62,7 @@ export async function echangerCode(f: Fournisseur, code: string, u: Usage = "age
     const moi = await (await fetch(`${MICROSOFT.api}/me`, { headers: { Authorization: `Bearer ${j.access_token}` } })).json();
     email = moi.mail || moi.userPrincipalName || "";
   }
-  return { email: email.toLowerCase(), refresh_token: j.refresh_token ?? null, jeton_acces: j.access_token,
+  return { email: email.toLowerCase(), refresh_token: j.refresh_token ?? null, jeton_acces: j.access_token, droits: j.scope ?? null,
     jeton_expire_le: new Date(Date.now() + (j.expires_in - 60) * 1000).toISOString() };
 }
 
@@ -67,7 +71,9 @@ export async function echangerCode(f: Fournisseur, code: string, u: Usage = "age
 export async function jetonAcces(db: any, c: Compte): Promise<string> {
   if (c.jeton_acces && c.jeton_expire_le && Date.parse(c.jeton_expire_le) > Date.now()) return c.jeton_acces;
   if (!c.refresh_token) throw new Error("connexion expirée : reconnectez le compte");
-  const j = await demanderJeton(c.fournisseur, { grant_type: "refresh_token", refresh_token: c.refresh_token }, c.usage ?? "agenda");
+  const lectureSeule = c.usage === "mail" && c.fournisseur === "microsoft" && !peutTrier(c);
+  const j = await demanderJeton(c.fournisseur, { grant_type: "refresh_token", refresh_token: c.refresh_token }, c.usage ?? "agenda",
+    lectureSeule ? SCOPES_MAIL_LECTURE : scopes(c.fournisseur, c.usage ?? "agenda"));
   c.jeton_acces = j.access_token;
   c.jeton_expire_le = new Date(Date.now() + (j.expires_in - 60) * 1000).toISOString();
   const maj: Record<string, string> = { jeton_acces: c.jeton_acces, jeton_expire_le: c.jeton_expire_le };

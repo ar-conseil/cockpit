@@ -144,11 +144,12 @@
       db.from("suivis").select("*").order("le", { ascending: false }).limit(500),
       db.from("semaine_type").select("*").order("debut"),
       db.from("factures").select("*"),
-      db.from("comptes_agenda").select("id, fournisseur, email, usage, derniere_erreur, cree_le").order("cree_le"),
+      db.from("comptes_agenda").select("id, fournisseur, email, usage, droits, derniere_erreur, cree_le").order("cree_le"),
       db.from("briefings").select("*").eq("jour", isoJour(new Date())).maybeSingle(),
       db.from("propositions").select("*").eq("statut", "proposee").order("cree_le"),
       db.from("recommandations").select("*").order("recue_le", { ascending: false }),
-      db.from("production").select("*").order("annee").order("mois").order("cree_le")
+      db.from("production").select("*").order("annee").order("mois").order("cree_le"),
+      db.rpc("tri_resume", { depuis: debutJour(new Date()).toISOString() })
     ]).then(function (r) {
       r.forEach(verifier);
       S.activites = r[0].data; S.agendas = r[1].data;
@@ -166,6 +167,7 @@
         .sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
       S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || []; S.production = r[12].data || [];
+      S.tri = r[13].data || null;
     });
   }
   var redessinPrevu = null;
@@ -887,6 +889,32 @@
         type: /orias/i.test(e.titre || "") ? "orias" : "rdv", passe: new Date(e.fin) < maintenant };
     });
   }
+  // Tri des boîtes du jour : ce que Victor a rangé, les mails importants (étoilés) et les publicités jetées
+  function blocTri() {
+    var t = S.tri;
+    if (!t || !t.total) return null;
+    var jetes = (t.par_dossier || []).filter(function (x) { return x.dossier === "Corbeille"; })[0];
+    var ranges = t.total - (jetes ? jetes.n : 0);
+    var nb = function (n, mot) { return n.toLocaleString("fr-FR") + " " + mot + (n > 1 ? "s" : ""); };
+    return el("div", { class: "victor-tri" }, [
+      el("h3", { text: "Tri des boîtes" }),
+      el("p", { class: "tri-bilan", text: "Victor a lu et rangé " + nb(ranges, "mail") + (jetes ? " et jeté " + nb(jetes.n, "publicité") : "") +
+        " aujourd'hui. Les mails importants sont étoilés (drapeau dans Outlook)." }),
+      el("ul", { class: "tri-dossiers" }, (t.par_dossier || []).filter(function (x) { return x.dossier !== "Corbeille"; }).map(function (x) {
+        return el("li", {}, [el("span", { text: x.dossier }), el("b", { text: x.n.toLocaleString("fr-FR") })]);
+      })),
+      (t.importants || []).length ? el("div", { class: "tri-importants" }, [
+        el("h4", { text: "Importants, reçus ces deux dernières semaines" + (t.importants_total > t.importants.length ? " (" + t.importants.length + " sur " + t.importants_total + " étoilés)" : "") }),
+        el("ul", { class: "victor-mails" }, t.importants.map(function (m) {
+          return el("li", {}, [el("small", { text: [m.boite, m.de, "rangé dans " + m.dossier].filter(Boolean).join(" · ") }),
+            el("b", { text: m.objet || "(sans objet)" }), m.resume ? el("span", { text: m.resume }) : null]);
+        }))]) : null,
+      (t.corbeille || []).length ? el("details", { class: "tri-corbeille" }, [
+        el("summary", { text: "Voir les dernières publicités jetées (récupérables 30 jours dans la corbeille de chaque boîte)" }),
+        el("ul", {}, t.corbeille.map(function (m) { return el("li", {}, [el("small", { text: [m.boite, m.de].filter(Boolean).join(" · ") }), el("span", { text: m.objet || "(sans objet)" })]); }))
+      ]) : null
+    ]);
+  }
   function blocVictor() {
     var b = S.briefing, props = S.propositions || [];
     var tete = el("header", { class: "victor-tete" }, [
@@ -915,6 +943,8 @@
         }))]));
       if (colonnes.length) parties.push(el("div", { class: "victor-grille" }, colonnes));
     }
+    var tri = blocTri();
+    if (tri) parties.push(tri);
     if (props.length) parties.push(el("div", { class: "victor-propositions" }, [
       el("h3", { text: "Victor propose " + props.length + " tâche" + (props.length > 1 ? "s" : "") + " d'après vos mails" }),
       el("ul", {}, props.map(carteProposition))
@@ -2137,15 +2167,17 @@
     var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
     f.appendChild(el("section", { class: "section" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Boîtes mail de Victor" }),
-        el("p", { class: "aside", text: "Lecture seule : Victor lit chaque matin, depuis le serveur, les boîtes connectées ici (et Harnes, IONOS). Rien n'est envoyé, déplacé ni marqué comme lu." })]),
+        el("p", { class: "aside", text: "Chaque matin, Victor lit les boîtes connectées ici (et Harnes, IONOS), puis les range : un dossier par thème, mails marqués comme lus, importants étoilés, publicités à la corbeille (récupérables 30 jours). Il n'envoie jamais rien et n'efface rien définitivement." })]),
       el("div", { class: "liens-boutons rangee" }, [
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Gmail", onclick: function () { connecter("google", "mail"); } }),
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Outlook", onclick: function () { connecter("microsoft", "mail"); } })
       ]),
       el("ul", { class: "agenda" }, boites.length ? boites.map(function (c) {
+        var trie = function (x) { return /gmail\.modify|Mail\.ReadWrite/i.test(x.droits || ""); };
         return el("li", { class: "compte" }, [
           el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
-          el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : "Mails · lecture seule pour Victor" })]),
+          el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur || !trie(c) ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : trie(c) ? "Mails · lus et rangés par Victor" : "Lecture seule : reconnectez la boîte pour autoriser le tri" })]),
+          trie(c) ? null : el("button", { type: "button", class: "btn-contour petit", text: "Autoriser le tri", onclick: function () { connecter(c.fournisseur, "mail"); } }),
           el("button", { type: "button", class: "btn-texte danger", text: "Déconnecter", onclick: function () {
             if (!confirm("Ne plus faire lire " + c.email + " par Victor ?")) return;
             db.from("comptes_agenda").delete().eq("id", c.id).then(verifier).then(function () { chargerTout().then(dessiner); });

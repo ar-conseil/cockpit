@@ -445,7 +445,7 @@ main { margin-left: var(--l-cote); padding: 0 var(--marge) 96px; --marge: max(cl
 .espace { flex: 1; }
 .liens-boutons { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
 .bandeau { margin: 24px 0 0; padding: 12px 16px; background: var(--encre); color: var(--papier); border-radius: 2px; font-size: 14px; }
-.agenda li.compte { grid-template-columns: 40px 1fr auto; }
+.agenda li.compte { grid-template-columns: 40px 1fr auto auto; }
 .agenda li.compte div { display: grid; gap: 2px; }
 .agenda li.compte div span { font-size: 13px; color: var(--encre-3); }
 .fournisseur { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--encre); color: var(--papier); font-weight: 700; }
@@ -1035,3 +1035,16 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .fiche .champ-nom span { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--encre-3); }
 .fiche .nom-fiche { font: 600 17px var(--sans); }
 .fiche .nom-fiche[readonly] { color: var(--encre-2); cursor: default; }
+
+/* Tri des boîtes par Victor (dans le point du matin) */
+.victor-tri { display: grid; gap: 12px; padding: 14px 16px; border-radius: 14px; background: color-mix(in srgb, var(--papier-2) 55%, transparent); }
+.tri-bilan { margin: 0; font-size: 14px; color: var(--encre-2); max-width: 78ch; }
+.victor .tri-dossiers { display: flex; flex-wrap: wrap; gap: 6px; }
+.tri-dossiers li { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--blanc); font-size: 12.5px; color: var(--encre-2); }
+.tri-dossiers b { font: 600 12px var(--mono); color: var(--encre); }
+.victor h4 { margin: 4px 0 0; font: 600 13px var(--sans); color: var(--encre-2); }
+.tri-importants { display: grid; gap: 10px; }
+.tri-corbeille summary { cursor: pointer; font-size: 13px; color: var(--encre-3); }
+.tri-corbeille ul { margin-top: 10px; gap: 6px; }
+.tri-corbeille li { display: grid; gap: 1px; font-size: 13px; }
+.tri-corbeille small { font-size: 12px; color: var(--encre-3); }

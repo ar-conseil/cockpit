@@ -36,7 +36,7 @@ printf 'CLE_SYNCHRO=%s\nSITE_URL=https://ar-conseil.github.io/cockpit/\n' "$CLE"
 [ -f ~/.cockpit/hubspot-token ] && printf 'HUBSPOT_TOKEN=%s\n' "$(cat ~/.cockpit/hubspot-token)" >> "$PRIVE/secrets.env"
 [ -f ~/.cockpit/camp-cle ] && printf 'CAMP_CLE=%s\n' "$(cat ~/.cockpit/camp-cle)" >> "$PRIVE/secrets.env"
 "${SB[@]}" secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$PRIVE/secrets.env" >/dev/null
-for f in sync-agendas agenda-connexion agenda-ecrire sync-harnes sync-camp lire-mails sync-tiime victor; do
+for f in sync-agendas agenda-connexion agenda-ecrire sync-harnes sync-camp lire-mails sync-tiime victor trier-mails; do
   "${SB[@]}" functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt --use-api >/dev/null && echo "   $f déployée"
 done
 
@@ -94,6 +94,12 @@ select cron.schedule('sync-tiime', '7 * * * *', \$\$ select net.http_post(url :=
 -- Victor (point du matin) : toutes les demi-heures de 4 h à 7 h 30 UTC ; la fonction attend 6 h 25 (Paris) et s'arrête si le point est publié
 select cron.unschedule('victor') where exists (select 1 from cron.job where jobname = 'victor');
 select cron.schedule('victor', '*/30 4-7 * * *', \$\$ select net.http_post(url := 'https://$SUPABASE_PROJECT_REF.supabase.co/functions/v1/victor',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cle-synchro', (select decrypted_secret from vault.decrypted_secrets where name = 'cle_synchro')),
+    body := '{}'::jsonb, timeout_milliseconds := 60000) \$\$);
+-- Tri des boîtes mail : toutes les 10 minutes de 5 h à 8 h 50 UTC ; la fonction attend le point de Victor du jour
+select cron.unschedule('tri-mails') where exists (select 1 from cron.job where jobname = 'tri-mails');
+select cron.schedule('tri-mails', '*/10 5-8 * * *', \$\$ select net.http_post(url := 'https://$SUPABASE_PROJECT_REF.supabase.co/functions/v1/trier-mails',
     headers := jsonb_build_object('Content-Type', 'application/json',
       'x-cle-synchro', (select decrypted_secret from vault.decrypted_secrets where name = 'cle_synchro')),
     body := '{}'::jsonb, timeout_milliseconds := 60000) \$\$);

@@ -9,7 +9,7 @@ const SITE = Deno.env.get("SITE_URL") ?? "https://ar-conseil.github.io/cockpit/"
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cle-synchro",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { ...cors, "Content-Type": "application/json" } });
-const retour = (message: string) => Response.redirect(`${SITE}#agendas?message=${encodeURIComponent(message)}`, 302);
+const retour = (message: string, page = "agendas") => Response.redirect(`${SITE}#${page}?message=${encodeURIComponent(message)}`, 302);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     // Boîte mail pour Victor : pas d'agenda à lister.
     if (u === "mail") return retour(/gmail\.modify|Mail\.ReadWrite/i.test(j.droits ?? "")
       ? `Boîte mail ${j.email} connectée : Victor la lira et la rangera chaque matin.`
-      : `Boîte mail ${j.email} connectée en lecture seule : Victor la lira, sans pouvoir la ranger.`);
+      : `Boîte mail ${j.email} connectée en lecture seule : Victor la lira, sans pouvoir la ranger.`, "mails");
     const agendas = await listerAgendas(c, await jetonAcces(db, c));
     for (const a of agendas) {
       const { data: deja } = await db.from("agendas").select("id").eq("compte_id", c.id).eq("externe_id", a.externe_id).maybeSingle();

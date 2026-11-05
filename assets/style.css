@@ -1036,15 +1036,16 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .fiche .nom-fiche { font: 600 17px var(--sans); }
 .fiche .nom-fiche[readonly] { color: var(--encre-2); cursor: default; }
 
-/* Tri des boîtes par Victor (dans le point du matin) */
-.victor-tri { display: grid; gap: 12px; padding: 14px 16px; border-radius: 14px; background: color-mix(in srgb, var(--papier-2) 55%, transparent); }
-.tri-bilan { margin: 0; font-size: 14px; color: var(--encre-2); max-width: 78ch; }
-.victor .tri-dossiers { display: flex; flex-wrap: wrap; gap: 6px; }
-.tri-dossiers li { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--blanc); font-size: 12.5px; color: var(--encre-2); }
-.tri-dossiers b { font: 600 12px var(--mono); color: var(--encre); }
-.victor h4 { margin: 4px 0 0; font: 600 13px var(--sans); color: var(--encre-2); }
-.tri-importants { display: grid; gap: 10px; }
-.tri-corbeille summary { cursor: pointer; font-size: 13px; color: var(--encre-3); }
-.tri-corbeille ul { margin-top: 10px; gap: 6px; }
-.tri-corbeille li { display: grid; gap: 1px; font-size: 13px; }
-.tri-corbeille small { font-size: 12px; color: var(--encre-3); }
+/* Page Tri des boîtes */
+.tri-dossiers { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.tri-dossiers li { display: inline-flex; align-items: baseline; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--blanc); border: 1px solid var(--filet); font-size: 13.5px; color: var(--encre-2); }
+.tri-dossiers b { font: 600 12.5px var(--mono); color: var(--encre); }
+.tri-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; max-width: 90ch; }
+.tri-liste li { display: grid; gap: 2px; padding: 12px 0; border-bottom: 1px solid var(--filet); }
+.tri-liste li:last-child { border-bottom: 0; }
+.tri-liste small { font-size: 12px; color: var(--encre-3); }
+.tri-liste b { font-weight: 600; font-size: 14.5px; line-height: 1.35; }
+.tri-liste span { font-size: 13.5px; color: var(--encre-2); }
+.tri-boites td { font-variant-numeric: tabular-nums; }
+.tri-corbeille summary { cursor: pointer; font-size: 13.5px; color: var(--encre-2); }
+.tri-corbeille[open] summary { margin-bottom: 6px; }

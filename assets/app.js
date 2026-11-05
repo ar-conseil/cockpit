@@ -148,8 +148,7 @@
       db.from("briefings").select("*").eq("jour", isoJour(new Date())).maybeSingle(),
       db.from("propositions").select("*").eq("statut", "proposee").order("cree_le"),
       db.from("recommandations").select("*").order("recue_le", { ascending: false }),
-      db.from("production").select("*").order("annee").order("mois").order("cree_le"),
-      db.rpc("tri_resume", { depuis: debutJour(new Date()).toISOString() })
+      db.from("production").select("*").order("annee").order("mois").order("cree_le")
     ]).then(function (r) {
       r.forEach(verifier);
       S.activites = r[0].data; S.agendas = r[1].data;
@@ -167,7 +166,6 @@
         .sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
       S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || []; S.production = r[12].data || [];
-      S.tri = r[13].data || null;
     });
   }
   var redessinPrevu = null;
@@ -250,6 +248,7 @@
     aujourdhui: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>',
     taches: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg>',
     agendas: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>',
+    mails: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 9.5V12a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 14 12V9.5"/><path d="M2 9.5h3.2l.8 1.5h4l.8-1.5H14L12.3 3.7a1.5 1.5 0 0 0-1.4-1.2H5.1a1.5 1.5 0 0 0-1.4 1.2z"/></svg>',
     clients: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.8 13.5c.6-2.4 2.2-3.6 4.2-3.6s3.6 1.2 4.2 3.6"/><circle cx="11.5" cy="6" r="2"/><path d="M11 9.9c1.6 0 2.8 1 3.3 3"/></svg>',
     recos: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.9l-3.4 1.8.7-3.8-2.8-2.7 3.8-.5z"/></svg>',
     factures: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.8h9v12.4l-1.8-1.1-1.8 1.1L7.1 13l-1.8 1.2-1.8-1.1z"/><path d="M5.8 5.5h4.4M5.8 8h4.4M5.8 10.5h2.6"/></svg>',
@@ -288,7 +287,8 @@
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [
       lienCote("#", !S.route, [icone("aujourdhui"), el("span", { text: "Aujourd'hui" })], tachesDuJour(iso).filter(function (t) { return t.statut !== "fait"; }).length, "0"),
       lienCote("#taches", S.route === "taches", [icone("taches"), el("span", { text: "Tâches" })], nbT, "B"),
-      lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })])
+      lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })]),
+      lienCote("#mails", S.route === "mails", [icone("mails"), el("span", { text: "Tri des boîtes" })])
     ]));
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [el("p", { class: "cote-titre", text: "Projets" })].concat(S.activites.map(function (a, i) {
       var n = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }).length;
@@ -305,7 +305,7 @@
     fil.textContent = "";
     fil.append(el("a", { href: "#", text: "Cockpit" }), el("span", { class: "fil-sep", text: "/" }),
       a ? (S.rubrique ? el("a", { class: "fil-page", href: "#" + a.id }, [iconeProjet(a), a.nom]) : el("span", { class: "fil-page" }, [iconeProjet(a), a.nom]))
-        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : "Aujourd'hui" }));
+        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : "Aujourd'hui" }));
     var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
     if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
   }
@@ -889,32 +889,6 @@
         type: /orias/i.test(e.titre || "") ? "orias" : "rdv", passe: new Date(e.fin) < maintenant };
     });
   }
-  // Tri des boîtes du jour : ce que Victor a rangé, les mails importants (étoilés) et les publicités jetées
-  function blocTri() {
-    var t = S.tri;
-    if (!t || !t.total) return null;
-    var jetes = (t.par_dossier || []).filter(function (x) { return x.dossier === "Corbeille"; })[0];
-    var ranges = t.total - (jetes ? jetes.n : 0);
-    var nb = function (n, mot) { return n.toLocaleString("fr-FR") + " " + mot + (n > 1 ? "s" : ""); };
-    return el("div", { class: "victor-tri" }, [
-      el("h3", { text: "Tri des boîtes" }),
-      el("p", { class: "tri-bilan", text: "Victor a lu et rangé " + nb(ranges, "mail") + (jetes ? " et jeté " + nb(jetes.n, "publicité") : "") +
-        " aujourd'hui. Les mails importants sont étoilés (drapeau dans Outlook)." }),
-      el("ul", { class: "tri-dossiers" }, (t.par_dossier || []).filter(function (x) { return x.dossier !== "Corbeille"; }).map(function (x) {
-        return el("li", {}, [el("span", { text: x.dossier }), el("b", { text: x.n.toLocaleString("fr-FR") })]);
-      })),
-      (t.importants || []).length ? el("div", { class: "tri-importants" }, [
-        el("h4", { text: "Importants, reçus ces deux dernières semaines" + (t.importants_total > t.importants.length ? " (" + t.importants.length + " sur " + t.importants_total + " étoilés)" : "") }),
-        el("ul", { class: "victor-mails" }, t.importants.map(function (m) {
-          return el("li", {}, [el("small", { text: [m.boite, m.de, "rangé dans " + m.dossier].filter(Boolean).join(" · ") }),
-            el("b", { text: m.objet || "(sans objet)" }), m.resume ? el("span", { text: m.resume }) : null]);
-        }))]) : null,
-      (t.corbeille || []).length ? el("details", { class: "tri-corbeille" }, [
-        el("summary", { text: "Voir les dernières publicités jetées (récupérables 30 jours dans la corbeille de chaque boîte)" }),
-        el("ul", {}, t.corbeille.map(function (m) { return el("li", {}, [el("small", { text: [m.boite, m.de].filter(Boolean).join(" · ") }), el("span", { text: m.objet || "(sans objet)" })]); }))
-      ]) : null
-    ]);
-  }
   function blocVictor() {
     var b = S.briefing, props = S.propositions || [];
     var tete = el("header", { class: "victor-tete" }, [
@@ -943,8 +917,6 @@
         }))]));
       if (colonnes.length) parties.push(el("div", { class: "victor-grille" }, colonnes));
     }
-    var tri = blocTri();
-    if (tri) parties.push(tri);
     if (props.length) parties.push(el("div", { class: "victor-propositions" }, [
       el("h3", { text: "Victor propose " + props.length + " tâche" + (props.length > 1 ? "s" : "") + " d'après vos mails" }),
       el("ul", {}, props.map(carteProposition))
@@ -2139,6 +2111,95 @@
     ]));
     return f;
   }
+  // ---------- Page Tri des boîtes : ce que Victor range chaque matin, et les boîtes qu'il lit ----------
+  var PERIODES_TRI = [{ id: "1", nom: "Aujourd'hui" }, { id: "7", nom: "7 jours" }, { id: "30", nom: "30 jours" }];
+  function chargerTri() {
+    var p = S.triPeriode || "1", cle = p + "|" + Math.floor(Date.now() / 60000);
+    if (S.triCle === cle || S.triEnCours) return;
+    S.triEnCours = true;
+    var depuis = p === "1" ? debutJour(new Date()) : ajouterJours(debutJour(new Date()), -(+p - 1));
+    db.rpc("tri_resume", { depuis: depuis.toISOString() }).then(function (r) {
+      S.triEnCours = false; verifier(r); S.tri = r.data; S.triCle = cle;
+      if (S.route === "mails" && !enSaisie()) dessiner();
+    });
+  }
+  function sectionBoitesMail() {
+    var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
+    return el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Boîtes connectées" }),
+        el("p", { class: "aside", text: "Chaque matin, Victor lit les boîtes connectées ici (et Harnes, IONOS), puis les range : un dossier par thème, mails marqués comme lus, importants étoilés, publicités à la corbeille (récupérables 30 jours). Il n'envoie jamais rien et n'efface rien définitivement." })]),
+      el("div", { class: "liens-boutons rangee" }, [
+        el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Gmail", onclick: function () { connecter("google", "mail"); } }),
+        el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Outlook", onclick: function () { connecter("microsoft", "mail"); } })
+      ]),
+      el("ul", { class: "agenda" }, boites.length ? boites.map(function (c) {
+        var trie = function (x) { return /gmail\.modify|Mail\.ReadWrite/i.test(x.droits || ""); };
+        return el("li", { class: "compte" }, [
+          el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
+          el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur || !trie(c) ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : trie(c) ? "Mails · lus et rangés par Victor" : "Lecture seule : reconnectez la boîte pour autoriser le tri" })]),
+          trie(c) ? null : el("button", { type: "button", class: "btn-contour petit", text: "Autoriser le tri", onclick: function () { connecter(c.fournisseur, "mail"); } }),
+          el("button", { type: "button", class: "btn-texte danger", text: "Déconnecter", onclick: function () {
+            if (!confirm("Ne plus faire lire " + c.email + " par Victor ?")) return;
+            db.from("comptes_agenda").delete().eq("id", c.id).then(verifier).then(function () { chargerTout().then(dessiner); });
+          } })
+        ]);
+      }) : [el("li", { class: "vide", text: "Aucune boîte connectée : Camp (Gmail) et Evoa (Outlook) à connecter ici." })])
+    ]);
+  }
+  function vueMails() {
+    chargerTri();
+    var f = document.createDocumentFragment(), t = S.tri, p = S.triPeriode || "1";
+    var nb = function (n) { return (n || 0).toLocaleString("fr-FR"); };
+    var jetes = t ? ((t.par_dossier || []).filter(function (x) { return x.dossier === "Corbeille"; })[0] || { n: 0 }).n : 0;
+    f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
+      el("div", {}, [icone("mails", "grande"), el("p", { class: "surtitre", text: "Victor" }), el("h1", { text: "Tri des boîtes" }),
+        el("p", { class: "chapo", text: "Chaque matin, après son point, Victor lit les mails arrivés dans vos boîtes et les range : un dossier par activité ou par thème, marqués comme lus. Il étoile les importants (drapeau dans Outlook) et met les publicités à la corbeille, où elles restent récupérables 30 jours." })]),
+      t ? el("dl", { class: "hero-chiffres" }, [
+        el("div", {}, [el("dt", { text: "Rangés" }), el("dd", { text: nb(t.total - jetes) }), el("small", { text: "dans un dossier" })]),
+        el("div", {}, [el("dt", { text: "Importants" }), el("dd", { text: nb(t.importants_total) }), el("small", { text: "étoilés" })]),
+        el("div", {}, [el("dt", { text: "Publicités" }), el("dd", { text: nb(jetes) }), el("small", { text: "à la corbeille" })])
+      ]) : null
+    ]));
+    f.appendChild(el("nav", { class: "barre-rubriques barre-vues", "aria-label": "Période" }, [el("div", { class: "rubriques" }, PERIODES_TRI.map(function (x) {
+      return el("button", { type: "button", class: "filtre", "aria-pressed": x.id === p ? "true" : "false", onclick: function () {
+        if (x.id === p) return; S.triPeriode = x.id; S.triCle = null; chargerTri(); dessiner();
+      } }, [x.nom]);
+    }))]));
+    if (!t) f.appendChild(el("section", { class: "section" }, [el("p", { class: "vide", text: "Chargement du bilan…" })]));
+    else if (!t.total) f.appendChild(el("section", { class: "section" }, [el("p", { class: "vide", text: "Rien de rangé sur cette période. Victor passe chaque matin, juste après son point de 6 h 30." })]));
+    else {
+      f.appendChild(el("section", { class: "section" }, [
+        el("div", { class: "entete" }, [el("h2", { text: "Par boîte" })]),
+        el("div", { class: "tableau-defile", style: "--c:var(--encre)" }, [el("table", { class: "affaires tri-boites" }, [
+          el("thead", {}, [el("tr", {}, ["Boîte", "Lus et rangés", "Importants", "Publicités jetées", "Dernier passage"].map(function (x) { return el("th", { scope: "col", text: x }); }))]),
+          el("tbody", {}, (t.par_boite || []).map(function (b) {
+            return el("tr", {}, [el("th", { scope: "row", text: b.boite }), el("td", { text: nb(b.n - b.jetes) }), el("td", { text: nb(b.importants) }),
+              el("td", { text: nb(b.jetes) }), el("td", { class: "suite", text: fmt(new Date(b.dernier), { day: "numeric", month: "short" }) + " · " + hm(new Date(b.dernier)) })]);
+          }))])])
+      ]));
+      f.appendChild(el("section", { class: "section" }, [
+        el("div", { class: "entete" }, [el("h2", { text: "Par dossier" })]),
+        el("ul", { class: "tri-dossiers" }, (t.par_dossier || []).filter(function (x) { return x.dossier !== "Corbeille"; }).map(function (x) {
+          return el("li", {}, [el("span", { text: x.dossier }), el("b", { text: nb(x.n) })]);
+        }))
+      ]));
+      f.appendChild(el("section", { class: "section" }, [
+        el("div", { class: "entete" }, [el("h2", { text: "Importants" }), el("p", { class: "aside", text: "reçus ces deux dernières semaines ; ils sont étoilés dans leur dossier" })]),
+        (t.importants || []).length ? el("ul", { class: "tri-liste" }, t.importants.map(function (m) {
+          return el("li", {}, [el("small", { text: [m.boite, m.de, "rangé dans " + m.dossier, fmt(new Date(m.recu_le), { day: "numeric", month: "short" })].filter(Boolean).join(" · ") }),
+            el("b", { text: m.objet || "(sans objet)" }), m.resume ? el("span", { text: m.resume }) : null]);
+        })) : el("p", { class: "vide", text: "Aucun mail important récent sur cette période." })
+      ]));
+      if ((t.corbeille || []).length) f.appendChild(el("section", { class: "section" }, [
+        el("div", { class: "entete" }, [el("h2", { text: "Publicités jetées" }), el("p", { class: "aside", text: "les plus récentes ; récupérables 30 jours dans la corbeille de chaque boîte" })]),
+        el("details", { class: "tri-corbeille" }, [el("summary", { text: "Voir la liste (" + t.corbeille.length + ")" }),
+          el("ul", { class: "tri-liste" }, t.corbeille.map(function (m) { return el("li", {}, [el("small", { text: [m.boite, m.de].filter(Boolean).join(" · ") }), el("span", { text: m.objet || "(sans objet)" })]); }))])
+      ]));
+    }
+    if (S.message) f.appendChild(el("p", { class: "bandeau", role: "status", text: S.message }));
+    f.appendChild(sectionBoitesMail());
+    return f;
+  }
   function vueAgendas() {
     var f = document.createDocumentFragment();
     f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
@@ -2162,28 +2223,6 @@
           } })
         ]);
       }) : [el("li", { class: "vide", text: "Aucun compte connecté pour l'instant." })])
-    ]));
-    // Boîtes mail lues chaque matin par Victor (lecture seule : rien n'est envoyé, déplacé ni marqué lu)
-    var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
-    f.appendChild(el("section", { class: "section" }, [
-      el("div", { class: "entete" }, [el("h2", { text: "Boîtes mail de Victor" }),
-        el("p", { class: "aside", text: "Chaque matin, Victor lit les boîtes connectées ici (et Harnes, IONOS), puis les range : un dossier par thème, mails marqués comme lus, importants étoilés, publicités à la corbeille (récupérables 30 jours). Il n'envoie jamais rien et n'efface rien définitivement." })]),
-      el("div", { class: "liens-boutons rangee" }, [
-        el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Gmail", onclick: function () { connecter("google", "mail"); } }),
-        el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Outlook", onclick: function () { connecter("microsoft", "mail"); } })
-      ]),
-      el("ul", { class: "agenda" }, boites.length ? boites.map(function (c) {
-        var trie = function (x) { return /gmail\.modify|Mail\.ReadWrite/i.test(x.droits || ""); };
-        return el("li", { class: "compte" }, [
-          el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
-          el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur || !trie(c) ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : trie(c) ? "Mails · lus et rangés par Victor" : "Lecture seule : reconnectez la boîte pour autoriser le tri" })]),
-          trie(c) ? null : el("button", { type: "button", class: "btn-contour petit", text: "Autoriser le tri", onclick: function () { connecter(c.fournisseur, "mail"); } }),
-          el("button", { type: "button", class: "btn-texte danger", text: "Déconnecter", onclick: function () {
-            if (!confirm("Ne plus faire lire " + c.email + " par Victor ?")) return;
-            db.from("comptes_agenda").delete().eq("id", c.id).then(verifier).then(function () { chargerTout().then(dessiner); });
-          } })
-        ]);
-      }) : [el("li", { class: "vide", text: "Aucune boîte connectée : Camp (Gmail) et Evoa (Outlook) à connecter ici." })])
     ]));
     var lignes = S.agendas.map(function (g) {
       var compte = S.comptes.filter(function (c) { return c.id === g.compte_id; })[0];
@@ -2255,14 +2294,14 @@
   function dessiner() {
     if (!db) return;
     var a = activite(S.route);
-    if (S.route && !a && S.route !== "agendas" && S.route !== "taches") S.route = "";
+    if (S.route && !a && S.route !== "agendas" && S.route !== "taches" && S.route !== "mails") S.route = "";
     dessinerNav();
     dessinerSynchro();
     var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
     S.calScroll = defileAvant ? defileAvant.scrollTop : null;
     var tabAvant = app.querySelector(".tableau-taches"), tabScroll = tabAvant ? tabAvant.scrollLeft : 0;
     app.textContent = "";
-    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "taches" ? vueTaches() : vueAccueil());
+    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
     var chA = a && CHARTES[a.id];
     app.dataset.projet = a ? a.id : "";
@@ -2281,7 +2320,7 @@
       if (c && d.scrollWidth > d.clientWidth) d.scrollLeft = Math.max(0, c.offsetLeft - d.clientWidth / 3);
     });
     var rubT = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
-    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
+    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
     var hh = document.getElementById("horloge-haut"), mt = new Date(); hh.textContent = fmt(mt, { weekday: "long", day: "numeric", month: "long" }) + " · " + hm(mt);
     mesurerNav(); suivreRubriques();
   }

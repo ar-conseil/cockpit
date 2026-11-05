@@ -46,6 +46,8 @@ type Boite = {
   ranger(m: Mail, dossier: string, important: boolean): Promise<void>;
   jeter(m: Mail): Promise<void>;
   compter(): Promise<{ total: number; non_lus: number }>;
+  // Rangement groupé (Gmail : une demande par dossier au lieu d'une par mail)
+  rangerLot?(groupes: { dossier: string; important: boolean; mails: Mail[] }[]): Promise<void>;
   fermer(): Promise<void>;
 };
 
@@ -91,7 +93,7 @@ function gmail(email: string, jeton: string): Boite {
     async lister(limite, n) {
       const q = `in:inbox before:${Math.floor(limite.getTime() / 1000)}`;
       const liste = await appel(`/messages?maxResults=${n}&q=${encodeURIComponent(q)}`);
-      return await paquets((liste.messages ?? []) as { id: string }[], 3, async ({ id }) => {
+      return await paquets((liste.messages ?? []) as { id: string }[], 8, async ({ id }) => {
         const d = await appel(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe&metadataHeaders=Precedence`);
         const h = (k: string) => (d.payload?.headers ?? []).find((x: { name: string }) => x.name.toLowerCase() === k)?.value ?? "";
         return { ref: `gmail:${id}`, id, de: h("from"), objet: h("subject"), recu_le: new Date(+d.internalDate).toISOString(),
@@ -107,6 +109,13 @@ function gmail(email: string, jeton: string): Boite {
       await appel(`/messages/${m.id}/trash`, { method: "POST" });
     },
     async compter() { const l = await appel("/labels/INBOX"); return { total: l.messagesTotal ?? 0, non_lus: l.messagesUnread ?? 0 }; },
+    async rangerLot(groupes) {
+      for (const g of groupes) {
+        const ajout = g.dossier === PUB ? ["TRASH"] : [await etiquette(g.dossier), ...(g.important ? ["STARRED"] : [])];
+        await appel("/messages/batchModify", { method: "POST", body: JSON.stringify({
+          ids: g.mails.map((m) => m.id), addLabelIds: ajout, removeLabelIds: ["INBOX", "UNREAD"] }) });
+      }
+    },
     async fermer() {},
   };
 }
@@ -267,6 +276,7 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
   const r = await client.messages.parse({
     model: "claude-haiku-5-5",
     max_tokens: 8000,
+    thinking: { type: "disabled" }, // simple classement : pas de réflexion préalable, bien plus rapide
     output_config: { effort: "low", format: zodOutputFormat(Tri) },
     system: ctx.consignes,
     messages: [{ role: "user", content:
@@ -325,25 +335,46 @@ async function travail(corps: { compter?: boolean; apercu?: boolean; forcer?: bo
     bilan.push(r);
     travaux.push((async () => { try {
       if (corps.compter) { Object.assign(r, await b.compter()); return; }
-      r.ranges = 0; r.jetes = 0; r.importants = 0; r.restant = false;
+      r.ranges = 0; r.jetes = 0; r.importants = 0; r.restant = false; r.temps = { lister: 0, classer: 0, ranger: 0 };
       let tour = 0; // durée du dernier tour : on n'en commence pas un qui dépasserait le temps imparti
       for (;;) {
         if (Date.now() - t0 + tour * 1.2 > BUDGET) { r.restant = true; break; }
         const debutTour = Date.now();
         const mails = await b.lister(limite, corps.apercu ? Math.min(corps.n ?? 15, LOT) : b.parallele > 1 ? LOT : 40);
+        r.temps.lister += Date.now() - debutTour;
         if (!mails.length) break;
+        const t1 = Date.now();
         const decisions = await classer(client, ctx!, b, mails);
+        r.temps.classer += Date.now() - t1;
+        const t2 = Date.now();
         if (corps.apercu) { r.apercu = decisions.map((d) => ({ de: d.mail.de, objet: d.sensible ? "Mail personnel" : d.mail.objet, diffusion: d.mail.masse, dossier: d.dossier, important: d.important, sensible: d.sensible, resume: d.resume })); break; }
-        const journal = (await paquets(decisions, b.parallele, async (d) => {
+        const ligne = (d: (typeof decisions)[number]) => ({ boite: b.nom, message_id: d.mail.ref, de: court(d.mail.de, 200),
+          // Mail de santé ou très personnel : ni l'objet ni le résumé détaillé ne sont gardés dans le cockpit
+          objet: d.sensible ? "Mail personnel" : court(d.mail.objet, 300), recu_le: d.mail.recu_le,
+          dossier: d.dossier === PUB ? CORBEILLE : d.dossier, important: d.important, resume: d.resume });
+        let groupe = false;
+        if (b.rangerLot) {
+          const groupes = new Map<string, { dossier: string; important: boolean; mails: Mail[] }>();
+          for (const d of decisions) {
+            const cle = d.dossier + "|" + d.important;
+            if (!groupes.has(cle)) groupes.set(cle, { dossier: d.dossier, important: d.important, mails: [] });
+            groupes.get(cle)!.mails.push(d.mail);
+          }
+          try { await b.rangerLot([...groupes.values()]); groupe = true; } catch (e) { r.erreur = `rangement groupé : ${message(e)}`; }
+        }
+        const journal = groupe ? decisions.map((d) => {
+          if (d.dossier === PUB) r.jetes++; else r.ranges++;
+          if (d.important) r.importants++;
+          return ligne(d);
+        }) : (await paquets(decisions, b.parallele, async (d) => {
           try {
             if (d.dossier === PUB) { await b.jeter(d.mail); r.jetes++; } else { await b.ranger(d.mail, d.dossier, d.important); r.ranges++; }
             if (d.important) r.importants++;
-            // Mail de santé ou très personnel : ni l'objet ni le résumé détaillé ne sont gardés dans le cockpit
-            return { boite: b.nom, message_id: d.mail.ref, de: court(d.mail.de, 200), objet: d.sensible ? "Mail personnel" : court(d.mail.objet, 300), recu_le: d.mail.recu_le,
-              dossier: d.dossier === PUB ? CORBEILLE : d.dossier, important: d.important, resume: d.resume };
+            return ligne(d);
           } catch (e) { r.erreur = `${d.mail.objet.slice(0, 60)} : ${message(e)}`; return null; }
         })).filter((x) => x !== null);
         const faits = journal.length;
+        r.temps.ranger += Date.now() - t2;
         if (journal.length) await db.from("tri_mails").upsert(journal, { onConflict: "boite,message_id", ignoreDuplicates: true });
         if (!faits) throw new Error(r.erreur ?? "aucun mail n'a pu être rangé");
         tour = Date.now() - debutTour;

@@ -53,6 +53,12 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   Libellés Gmail (validés par Antonin le 5 novembre 2026, plus d'émoticônes) : « 1. À faire » en tête, Projets/<activité>
   (Palomano, Evoa, Harnes Volley, Camp, Berkay, Wealthy), Perso, Classement/(Factures & compta, Banque & administratif,
   Newsletters, Notifications). Outlook et IONOS gardent des dossiers à plat. Le journal garde les noms courts.
+  Outlook : les dossiers créés à la main par Antonin sont gardés et proposés à Claude avec 4 exemples chacun (Palomano :
+  Encaissement, PANSARD / SALAIRES / TVA, Factures › <fournisseur>) ; une facture d'un nouveau fournisseur crée son
+  sous-dossier Factures › <fournisseur> (noms rapprochés : « Phanine BV » = « Phanine »). Jamais SAUVEGARDE ni Archive.
+  Chemins avec « › » (des noms contiennent « / »). `{ reclasser: "<dossier du tri>", boite, apercu?, depuis? }` déplace
+  vers ces dossiers personnels les mails déjà rangés par le tri qui leur correspondent.
+  Boîte Palomano autorisée au tri le 5 novembre 2026 (accord de l'administrateur Microsoft, droit enregistré à la main).
   Mail qui demande une action d'Antonin : libellé « 1. À faire » dans Gmail (plus d'étoile), drapeau dans Outlook et IONOS.
   Boîte arouzier (`BOITES_TACHES`) : chaque fil « À faire » devient une tâche (`taches.mail_boite`, `mail_fil`, `mail_a_faire`) ;
   tâche terminée -> libellé retiré du fil ; libellé retiré dans Gmail (ou fil à la corbeille) -> tâche terminée. Accord fait

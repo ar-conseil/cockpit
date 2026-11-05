@@ -15,6 +15,8 @@
 //  POST { libelles: true, apercu?, boite? } -> remet en ordre les libellés Gmail : anciens libellés fusionnés dans les
 //                                    nouveaux puis supprimés une fois vides, « Travail & Pro » reclassé par Claude ; à relancer
 //                                    tant que restant ; avec apercu, dit seulement ce qui serait fait
+//  POST { reclasser: "<dossier du tri>", boite, apercu?, depuis? } -> Outlook : déplace vers les dossiers personnels d'Antonin
+//                                    les mails déjà rangés dans ce dossier du tri qui leur correspondent
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.4.0/helpers/zod";
@@ -58,6 +60,12 @@ const ANCIENS: Record<string, string> = {
 const A_RECLASSER = new Set(["Travail & Pro"]); // sans équivalent : chaque mail est reclassé par Claude
 const sansEmoticone = (nom: string) => nom.replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
+// Dossiers créés à la main par Antonin dans Outlook (Palomano : Encaissement, Factures › <fournisseur>…) : le tri les garde et
+// y range les mails qui leur correspondent. Chemin avec « › » (des noms contiennent déjà « / »). Jamais SAUVEGARDE ni Archive.
+const SEP = " › ";
+const PERSO_EXCLUS = new Set(["sauvegarde", "archive"]);
+type Perso = { chemin: string; exemples: string[] };
+
 type Mail = { ref: string; id: string; fil?: string; de: string; objet: string; recu_le: string; extrait: string; masse: boolean };
 type Boite = {
   email: string; nom: string; parallele: number; // opérations menées en même temps sur la boîte
@@ -73,6 +81,9 @@ type Boite = {
   // Gmail : libellés « À faire » et tâches du cockpit accordés ; remise en ordre des anciens libellés
   aFaire?(): Promise<{ retires: number; terminees: number }>;
   libelles?(ctx: Contexte, client: Anthropic, apercu: boolean, finAvant: number): Promise<Record<string, unknown>>;
+  // Outlook : dossiers personnels (hors dossiers du tri) avec quelques exemples, et lecture d'un dossier
+  personnels?(dossiersTri: string[]): Promise<Perso[]>;
+  listerDossier?(chemin: string, saut: number, n: number): Promise<Mail[]>;
   fermer(): Promise<void>;
 };
 
@@ -284,32 +295,72 @@ function gmail(email: string, jeton: string): Boite {
 function outlook(email: string, jeton: string): Boite {
   const api = "https://graph.microsoft.com/v1.0/me";
   const appel = (chemin: string, options: RequestInit = {}) => appelPatient(api + chemin, jeton, options);
-  let dossiers: Map<string, string> | null = null;
+  // Arbre des dossiers : chemin (« Factures › Pansard ») -> dossier ; les dossiers système ne sont pas parcourus
+  type Noeud = { id: string; chemin: string; total: number; enfants: number; systeme: boolean };
+  let arbre: Promise<Map<string, Noeud>> | null = null;
+  const charger = () => arbre ??= (async () => {
+    const carte = new Map<string, Noeud>(), systeme = new Set<string>();
+    for (const n of ["inbox", "sentitems", "drafts", "deleteditems", "junkemail", "outbox", "archive", "conversationhistory"]) {
+      try { systeme.add((await appel(`/mailFolders/${n}?$select=id`)).id); } catch { /* dossier absent */ }
+    }
+    const champs = "$top=250&$select=id,displayName,totalItemCount,childFolderCount";
+    const parcourir = async (url: string, parent: string) => {
+      for (const f of (await appel(url)).value ?? []) {
+        const chemin = (parent ? parent + SEP : "") + String(f.displayName).trim();
+        const n = { id: f.id, chemin, total: f.totalItemCount ?? 0, enfants: f.childFolderCount ?? 0, systeme: systeme.has(f.id) };
+        carte.set(chemin.toLowerCase(), n);
+        if (n.enfants && !n.systeme) await parcourir(`/mailFolders/${f.id}/childFolders?${champs}`, chemin);
+      }
+    };
+    await parcourir(`/mailFolders?${champs}`, "");
+    return carte;
+  })();
   const enCours = new Map<string, Promise<string>>();
-  const dossierId = (nom: string) => {
-    const cle = nom.toLowerCase();
+  // Identifiant d'un dossier par son chemin, créé au besoin (avec son parent)
+  const dossierId = (chemin: string): Promise<string> => {
+    const cle = chemin.toLowerCase();
     if (!enCours.has(cle)) enCours.set(cle, (async () => {
-      if (!dossiers) dossiers = new Map(((await appel("/mailFolders?$top=250&$select=id,displayName")).value ?? [])
-        .map((f: { displayName: string; id: string }) => [f.displayName.toLowerCase(), f.id]));
-      return dossiers.get(cle) ?? (await appel("/mailFolders", { method: "POST", body: JSON.stringify({ displayName: nom }) })).id as string;
+      const carte = await charger();
+      const deja = carte.get(cle);
+      if (deja) return deja.id;
+      const i = chemin.lastIndexOf(SEP);
+      const url = i < 0 ? "/mailFolders" : `/mailFolders/${await dossierId(chemin.slice(0, i))}/childFolders`;
+      const id = (await appel(url, { method: "POST", body: JSON.stringify({ displayName: i < 0 ? chemin : chemin.slice(i + SEP.length) }) })).id as string;
+      carte.set(cle, { id, chemin, total: 0, enfants: 0, systeme: false });
+      return id;
     })());
     return enCours.get(cle)!;
   };
   let avecEntetes = true;
+  const lire = async (dossier: string, requete: string) => {
+    const champs = "id,subject,from,receivedDateTime,bodyPreview" + (avecEntetes ? ",internetMessageHeaders" : "");
+    const url = (c: string) => `/mailFolders/${dossier}/messages?${requete}&$orderby=receivedDateTime desc&$select=${c}`;
+    let r;
+    try { r = await appel(url(champs)); } catch { avecEntetes = false; r = await appel(url("id,subject,from,receivedDateTime,bodyPreview")); }
+    // deno-lint-ignore no-explicit-any
+    return (r.value ?? []).map((m: any) => ({
+      ref: `outlook:${m.id}`, id: m.id, objet: m.subject ?? "", recu_le: m.receivedDateTime, extrait: court(m.bodyPreview ?? ""),
+      de: m.from?.emailAddress ? `${m.from.emailAddress.name ?? ""} <${m.from.emailAddress.address ?? ""}>` : "",
+      masse: (m.internetMessageHeaders ?? []).some((h: { name: string; value: string }) =>
+        /^list-unsubscribe$/i.test(h.name) || (/^precedence$/i.test(h.name) && /bulk|list/i.test(h.value))),
+    })) as Mail[];
+  };
   return {
     email, nom: PAR_BOITE[email]?.[0] ?? email, parallele: 4,
-    async lister(limite, n) {
-      const champs = "id,subject,from,receivedDateTime,bodyPreview" + (avecEntetes ? ",internetMessageHeaders" : "");
-      const url = (c: string) => `/mailFolders/inbox/messages?$top=${n}&$filter=receivedDateTime lt ${limite.toISOString()}&$orderby=receivedDateTime desc&$select=${c}`;
-      let r;
-      try { r = await appel(url(champs)); } catch { avecEntetes = false; r = await appel(url("id,subject,from,receivedDateTime,bodyPreview")); }
-      // deno-lint-ignore no-explicit-any
-      return (r.value ?? []).map((m: any) => ({
-        ref: `outlook:${m.id}`, id: m.id, objet: m.subject ?? "", recu_le: m.receivedDateTime, extrait: court(m.bodyPreview ?? ""),
-        de: m.from?.emailAddress ? `${m.from.emailAddress.name ?? ""} <${m.from.emailAddress.address ?? ""}>` : "",
-        masse: (m.internetMessageHeaders ?? []).some((h: { name: string; value: string }) =>
-          /^list-unsubscribe$/i.test(h.name) || (/^precedence$/i.test(h.name) && /bulk|list/i.test(h.value))),
-      }));
+    lister: (limite, n) => lire("inbox", `$top=${n}&$filter=receivedDateTime lt ${limite.toISOString()}`),
+    async listerDossier(chemin, saut, n) {
+      const d = (await charger()).get(chemin.toLowerCase());
+      return d ? await lire(d.id, `$top=${n}&$skip=${saut}`) : [];
+    },
+    // Dossiers personnels : feuilles non vides à la racine, et tous les sous-dossiers (Factures › Staffeur, même vide)
+    async personnels(dossiersTri) {
+      const tri = new Set([...dossiersTri, PUB].map((x) => x.toLowerCase()));
+      const choisis = [...(await charger()).values()].filter((n) => !n.systeme && !n.enfants && !tri.has(n.chemin.toLowerCase())
+        && !PERSO_EXCLUS.has(n.chemin.split(SEP)[0].toLowerCase()) && (n.total > 0 || n.chemin.includes(SEP)));
+      return await paquets(choisis, 4, async (n) => ({ chemin: n.chemin, exemples: n.total === 0 ? [] :
+        // deno-lint-ignore no-explicit-any
+        ((await appel(`/mailFolders/${n.id}/messages?$top=4&$orderby=receivedDateTime desc&$select=from,subject`)).value ?? []).map((m: any) =>
+          `${m.from?.emailAddress?.name ?? ""} <${m.from?.emailAddress?.address ?? ""}> « ${court(m.subject ?? "", 60)} »`) }));
     },
     async ranger(m, dossier, important) {
       await appel(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ isRead: true, ...(important ? { flag: { flagStatus: "flagged" } } : {}) }) });
@@ -418,6 +469,7 @@ ${Object.entries(THEMES).map(([n, d]) => `- ${n} : ${d}`).join("\n")}
 - important = true seulement si le mail demande une action ou une réponse d'Antonin, ou s'il ne doit pas le manquer : client ou prospect qui écrit, échéance, rendez-vous, document à signer, paiement à faire, problème. Jamais pour une newsletter, une notification banale ou une publicité.
 - resume : une phrase de 15 mots au plus ; pour un mail important, elle dit l'action attendue d'Antonin (« Répondre à … sur … », « Payer la facture … avant le … »), car elle devient une tâche. Les particuliers (clients d'Evoa Courtage, enfants inscrits au Camp et leurs familles) sont désignés par leurs initiales. Jamais d'IBAN, de code, de mot de passe ni de détail de santé.
 - sensible = true pour un mail de santé (médecin, soin, Assurance Maladie, mutuelle santé) ou très personnel : son résumé reste neutre (« Document de santé à consulter »), sans nom de soignant ni de soin.
+- fournisseur : laisse-le vide, sauf consigne contraire donnée avec les mails de la boîte.
 - Rends une entrée par mail, avec son id exact.`;
   const parNom = new Map((acts ?? []).map((a) => [a.id, nomDossier(a)]));
   const parDossier = new Map((acts ?? []).map((a) => [nomDossier(a), a.id as string]));
@@ -426,15 +478,43 @@ ${Object.entries(THEMES).map(([n, d]) => `- ${n} : ${d}`).join("\n")}
 }
 
 // Classe un lot par paquets de 25 mails envoyés en parallèle à Claude
-async function classer(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[]) {
+async function classer(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[], perso: Perso[] = []) {
   const paquets_: Mail[][] = [];
   for (let i = 0; i < mails.length; i += PAQUET) paquets_.push(mails.slice(i, i + PAQUET));
-  return (await Promise.all(paquets_.map((p) => classerPaquet(client, ctx, boite, p)))).flat();
+  return (await Promise.all(paquets_.map((p) => classerPaquet(client, ctx, boite, p, perso)))).flat();
 }
 
-async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[]) {
+// Consignes propres à une boîte qui a ses dossiers personnels (Outlook Palomano)
+function consignesPerso(perso: Perso[]) {
+  if (!perso.length) return "";
+  const factures = perso.some((p) => p.chemin.startsWith("Factures" + SEP));
+  return `\nDossiers personnels de cette boîte, créés par Antonin : choisis-les en priorité quand le mail leur correspond ` +
+    `(même expéditeur, même fournisseur ou même sujet que les exemples), plutôt qu'un dossier par thème :\n` +
+    perso.map((p) => `- ${p.chemin}${p.exemples.length ? ` (exemples : ${p.exemples.join(" ; ")})` : ""}`).join("\n") +
+    (factures ? `\nUne facture, un avoir ou un devis d'un fournisseur qui n'a pas encore de sous-dossier dans Factures : dossier « Factures & compta » ` +
+      `et fournisseur = nom court de l'entreprise qui facture (« Orange », « Metro ») ; il aura son sous-dossier. Jamais la plateforme ` +
+      `qui envoie la facture (Exact, Tiime, Evoliz, Shine, Stripe, Sunday…), ni Palomano, ni un produit acheté. Sinon fournisseur reste vide.` : "") + "\n";
+}
+
+// « Phanine BV » et « Phanine », « Courchelle » et « Matheo Courchelle » : même fournisseur
+const cleFournisseur = (n: string) => n.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "")
+  .replace(/\b(sas|sarl|sa|bv|gmbh|ltd|inc|pbc|france)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim()
+  .split(" ").map((m) => m.length > 3 ? m.replace(/s$/, "") : m).join(" "); // « Cafés Richard » = « Café richard »
+function memeFournisseur(a: string, b: string) {
+  const x = cleFournisseur(a), y = cleFournisseur(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [court_, long_] = x.length <= y.length ? [x, y] : [y, x];
+  return court_.length >= 4 && ` ${long_} `.includes(` ${court_} `);
+}
+
+async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mails: Mail[], perso: Perso[] = []) {
+  const choix = [...ctx.dossiers, ...perso.map((p) => p.chemin)];
   const Tri = z.object({ mails: z.array(z.object({
-    id: z.string(), dossier: z.enum(ctx.dossiers as [string, ...string[]]), important: z.boolean(), sensible: z.boolean(), resume: z.string() })) });
+    // Nom libre puis contrôlé ici : une longue liste en énumération fait parfois échouer la sortie structurée
+    id: z.string(), dossier: z.string(), important: z.boolean(), sensible: z.boolean(), resume: z.string(),
+    fournisseur: z.string() })) });
+  const factures = perso.some((p) => p.chemin.startsWith("Factures" + SEP));
   const r = await client.messages.parse({
     model: "claude-haiku-5-5",
     max_tokens: 8000,
@@ -442,18 +522,29 @@ async function classerPaquet(client: Anthropic, ctx: Contexte, boite: Boite, mai
     output_config: { effort: "low", format: zodOutputFormat(Tri) },
     system: ctx.consignes,
     messages: [{ role: "user", content:
-      `Boîte « ${boite.nom} » (${boite.email}) ; dossier par défaut : ${ctx.defaut(boite.email)}.\nMails (JSON) :\n` +
+      `Boîte « ${boite.nom} » (${boite.email}) ; dossier par défaut : ${ctx.defaut(boite.email)}.\n${consignesPerso(perso)}Mails (JSON) :\n` +
       JSON.stringify(mails.map((m, i) => ({ id: "m" + (i + 1), de: m.de, objet: m.objet, recu_le: m.recu_le.slice(0, 10), diffusion: m.masse, extrait: m.extrait }))) }],
   });
   if (!r.parsed_output) throw new Error(`classement illisible (${r.stop_reason})`);
   const parId = new Map(r.parsed_output.mails.map((d) => [d.id, d]));
   return mails.map((m, i) => {
     const d = parId.get("m" + (i + 1));
-    let dossier = d?.dossier ?? ctx.defaut(boite.email);
+    const propose = (d?.dossier ?? "").trim();
+    let dossier = choix.find((c) => c === propose) ?? choix.find((c) => c.toLowerCase() === propose.toLowerCase()) ?? "";
+    let fournisseurPropose = d?.fournisseur ?? "";
+    if (!dossier && factures && propose.startsWith("Factures" + SEP)) { dossier = "Factures & compta"; fournisseurPropose ||= propose.slice(8 + SEP.length); }
+    dossier ||= ctx.defaut(boite.email);
     // Étoile seulement pour un mail récent : un vieux mail du stock n'appelle plus d'action
     const important = !!d?.important && Date.now() - Date.parse(m.recu_le) < RECENT;
     // Garde-fou : ne part à la corbeille qu'un envoi de masse non important ; sinon, rangé dans Newsletters.
     if (dossier === PUB && (!m.masse || important)) dossier = "Newsletters";
+    // Facture d'un nouveau fournisseur : sous-dossier Factures › <fournisseur> (repris s'il existe déjà, sans tenir compte de la casse)
+    const fournisseur = fournisseurPropose.replace(/[\/\\›]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (factures && dossier === "Factures & compta" && fournisseur && !/palomano/i.test(fournisseur)) {
+      const deja = perso.find((p) => p.chemin.startsWith("Factures" + SEP) && memeFournisseur(p.chemin.slice(8 + SEP.length), fournisseur));
+      dossier = deja?.chemin ?? "Factures" + SEP + fournisseur;
+      if (!deja) perso.push({ chemin: dossier, exemples: [] }); // les paquets suivants le reprennent au lieu d'en créer un autre
+    }
     return { mail: m, dossier, important, sensible: !!d?.sensible, resume: court(d?.resume ?? "", 200) };
   });
 }
@@ -499,10 +590,32 @@ async function ouvrir(lecture: boolean, imap = true): Promise<(Boite | { email: 
   return boites;
 }
 
-type Corps = { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean; a_faire?: boolean; libelles?: boolean; boite?: string };
+// Mails déjà rangés dans un dossier du tri (« Factures & compta »…) : ceux qui vont dans un dossier personnel d'Antonin y sont
+// déplacés ; les autres restent où ils sont. Reprise avec { depuis } tant que restant.
+async function reclasser(client: Anthropic, ctx: Contexte, b: Boite, perso: Perso[], corps: Corps, t0: number) {
+  if (!b.listerDossier || !perso.length) return { erreur: "boîte sans dossiers personnels" };
+  const tri = new Set(ctx.dossiers);
+  // deno-lint-ignore no-explicit-any
+  const bilan: Record<string, any> = { dossier: corps.reclasser, vus: 0, deplaces: {}, restant: false };
+  let saut = corps.depuis ?? 0;
+  for (;;) {
+    if (Date.now() - t0 > BUDGET) { bilan.restant = true; bilan.reprendre_depuis = saut; break; }
+    const mails = await b.listerDossier(corps.reclasser!, saut, 50);
+    if (!mails.length) break;
+    const vers = (await classer(client, ctx, b, mails, perso)).filter((d) => !tri.has(d.dossier));
+    if (corps.apercu) { bilan.apercu = vers.map((d) => ({ de: d.mail.de, objet: d.mail.objet, vers: d.dossier })); bilan.vus = mails.length; break; }
+    await paquets(vers, b.parallele, (d) => b.ranger(d.mail, d.dossier, false));
+    for (const d of vers) bilan.deplaces[d.dossier] = (bilan.deplaces[d.dossier] ?? 0) + 1;
+    bilan.vus += mails.length;
+    saut += mails.length - vers.length; // les mails déplacés quittent le dossier
+  }
+  return bilan;
+}
+
+type Corps = { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean; a_faire?: boolean; libelles?: boolean; boite?: string; reclasser?: string; depuis?: number };
 async function travail(corps: Corps) {
   const t0 = Date.now();
-  const special = corps.compter || corps.apercu || corps.a_faire || corps.libelles;
+  const special = corps.compter || corps.apercu || corps.a_faire || corps.libelles || corps.reclasser;
   let limite = new Date();
   if (!corps.forcer && !special) {
     const { data: b } = await db.from("briefings").select("jour, mise_a_jour").eq("jour", aujourdhuiParis()).maybeSingle();
@@ -527,6 +640,9 @@ async function travail(corps: Corps) {
       if (corps.compter) { Object.assign(r, await b.compter()); return; }
       if (corps.a_faire) { if (b.aFaire) Object.assign(r, await b.aFaire()); return; }
       if (corps.libelles) { Object.assign(r, await b.libelles!(ctx!, client, !!corps.apercu, t0 + BUDGET)); return; }
+      const perso = b.personnels ? await b.personnels(ctx!.dossiers) : [];
+      if (perso.length) r.dossiers_personnels = perso.length;
+      if (corps.reclasser) { Object.assign(r, await reclasser(client, ctx!, b, perso, corps, t0)); return; }
       const avecTaches = !corps.apercu && BOITES_TACHES.has(b.email) && !!b.aFaire;
       if (avecTaches) r.a_faire = await b.aFaire!(); // d'abord accorder les tâches terminées et les libellés retirés
       r.ranges = 0; r.jetes = 0; r.importants = 0; r.restant = false; r.temps = { lister: 0, classer: 0, ranger: 0 };
@@ -543,7 +659,7 @@ async function travail(corps: Corps) {
         r.temps.lister += Date.now() - debutTour;
         if (!mails.length) break;
         const t1 = Date.now();
-        const decisions = await classer(client, ctx!, b, mails);
+        const decisions = await classer(client, ctx!, b, mails, perso);
         r.temps.classer += Date.now() - t1;
         const t2 = Date.now();
         if (corps.apercu) { r.apercu = decisions.map((d) => ({ de: d.mail.de, objet: d.sensible ? "Mail personnel" : d.mail.objet, diffusion: d.mail.masse, dossier: d.dossier, important: d.important, sensible: d.sensible, resume: d.resume })); break; }
@@ -595,7 +711,7 @@ Deno.serve(async (req) => {
   const corps = await req.json().catch(() => ({}));
   if (!corps.compter && !corps.a_faire && !Deno.env.get("ANTHROPIC_API_KEY")) return json({ erreur: "clé ANTHROPIC_API_KEY manquante (outils/claude-cle.sh)" }, 400);
   const tache = travail(corps).catch((e) => { console.error("Tri :", message(e)); return { erreur: message(e) }; });
-  if (corps.attendre || corps.apercu || corps.compter || corps.libelles) return json(await tache);
+  if (corps.attendre || corps.apercu || corps.compter || corps.libelles || corps.reclasser) return json(await tache);
   EdgeRuntime.waitUntil(tache.then((r) => console.log("Tri :", JSON.stringify(r))));
   return json({ lance: true }, 202);
 });

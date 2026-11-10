@@ -2363,15 +2363,38 @@
   window.addEventListener("resize", mesurerNav);
 
   // ---------- Rendu ----------
+  // Position des zones qui défilent dans la page (colonne « À faire », tableau des tâches…), retrouvées après redessin
+  // par leur première classe et leur rang parmi les zones de même classe.
+  function cleDefilement(e) {
+    if (e.id) return "#" + e.id;
+    var c = e.classList[0]; if (!c) return null;
+    return "." + c + "|" + Array.prototype.indexOf.call(app.getElementsByClassName(c), e);
+  }
+  function memoriserDefilements() {
+    var m = [];
+    app.querySelectorAll("*").forEach(function (e) {
+      if (e.scrollTop > 0 || e.scrollLeft > 0) { var k = cleDefilement(e); if (k) m.push([k, e.scrollTop, e.scrollLeft]); }
+    });
+    return m;
+  }
+  function restaurerDefilements(m) {
+    m.forEach(function (x) {
+      var k = x[0], e;
+      if (k[0] === "#") e = document.getElementById(k.slice(1));
+      else { var p = k.slice(1).split("|"); e = app.getElementsByClassName(p[0])[+p[1]]; }
+      if (e && app.contains(e)) { e.scrollTop = x[1]; e.scrollLeft = x[2]; }
+    });
+  }
   function dessiner() {
     if (!db) return;
     var a = activite(S.route);
     if (S.route && !a && S.route !== "agendas" && S.route !== "taches" && S.route !== "mails" && S.route !== "reponses") S.route = "";
+    // Un redessin (temps réel, relecture toutes les 5 min) ne doit pas faire remonter les listes qui défilent.
+    var cote = document.querySelector(".cote"), coteScroll = cote ? cote.scrollTop : 0, defilements = memoriserDefilements();
     dessinerNav();
     dessinerSynchro();
     var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
     S.calScroll = defileAvant ? defileAvant.scrollTop : null;
-    var tabAvant = app.querySelector(".tableau-taches"), tabScroll = tabAvant ? tabAvant.scrollLeft : 0;
     app.textContent = "";
     app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
@@ -2380,7 +2403,8 @@
     app.style.setProperty("--marque", a ? a.couleur : "var(--encre)");
     app.style.setProperty("--bouton-marque", chA && chA.bouton || (a ? a.couleur : "var(--encre)"));
     window.scrollTo({ top: y, behavior: "instant" });
-    var tabApres = app.querySelector(".tableau-taches"); if (tabApres && tabScroll) tabApres.scrollLeft = tabScroll;
+    restaurerDefilements(defilements);
+    if (cote) cote.scrollTop = coteScroll;
     var defile = document.getElementById("cal-defile"), ligne = document.getElementById("cal-maintenant");
     if (defile && S.calCale !== isoJour(S.jour) + S.route) {
       S.calCale = isoJour(S.jour) + S.route;

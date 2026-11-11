@@ -29,7 +29,8 @@ function texteGmail(partie: any): string {
 }
 
 async function gmail(jeton: string, depuis: Date) {
-  const q = `in:inbox after:${Math.floor(depuis.getTime() / 1000)} -category:promotions -category:social`;
+  // Tous les dossiers (trier-mails a pu ranger les mails du matin avant le passage de Victor), sauf envoyés, corbeille, indésirables et publicités
+  const q = `after:${Math.floor(depuis.getTime() / 1000)} -in:sent -in:drafts -in:trash -in:spam -category:promotions -category:social -label:notifications`;
   const liste = await appel(jeton, `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${MAX}&q=${encodeURIComponent(q)}`);
   const mails = [];
   for (const m of liste.messages ?? []) {
@@ -41,13 +42,21 @@ async function gmail(jeton: string, depuis: Date) {
   return mails;
 }
 
-async function outlook(jeton: string, depuis: Date) {
-  const url = `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=${MAX}&$orderby=receivedDateTime desc` +
-    `&$filter=receivedDateTime ge ${depuis.toISOString()}&$select=id,subject,from,toRecipients,receivedDateTime,body`;
+async function outlook(jeton: string, depuis: Date, email: string) {
+  // Tous les dossiers (le tri a pu ranger les mails), sauf éléments supprimés, envoyés, brouillons et courrier indésirable
+  const exclus = new Set<string>();
+  for (const d of ["deleteditems", "sentitems", "drafts", "junkemail"]) {
+    const f = await appel(jeton, `https://graph.microsoft.com/v1.0/me/mailFolders/${d}?$select=id`, { Prefer: 'IdType="ImmutableId"' }).catch(() => null);
+    if (f?.id) exclus.add(f.id);
+  }
+  const url = `https://graph.microsoft.com/v1.0/me/messages?$top=${MAX}&$orderby=receivedDateTime desc` +
+    `&$filter=receivedDateTime ge ${depuis.toISOString()}&$select=id,subject,from,toRecipients,receivedDateTime,body,parentFolderId,isDraft`;
   // Identifiants immuables : ils restent valables quand trier-mails range le mail dans un dossier (le cockpit l'ouvre par cet id).
   const r = await appel(jeton, url, { Prefer: 'outlook.body-content-type="text", IdType="ImmutableId"' });
   // deno-lint-ignore no-explicit-any
-  return (r.value ?? []).map((m: any) => ({
+  return (r.value ?? []).filter((m: any) => !m.isDraft && !exclus.has(m.parentFolderId) && (m.from?.emailAddress?.address ?? "").toLowerCase() !== email.toLowerCase())
+    // deno-lint-ignore no-explicit-any
+    .map((m: any) => ({
     id: `outlook:${m.id}`, de: m.from?.emailAddress ? `${m.from.emailAddress.name ?? ""} <${m.from.emailAddress.address ?? ""}>` : "",
     // deno-lint-ignore no-explicit-any
     a: (m.toRecipients ?? []).map((x: any) => x.emailAddress?.address).join(", "), objet: m.subject ?? "", recu_le: m.receivedDateTime,
@@ -57,13 +66,18 @@ async function outlook(jeton: string, depuis: Date) {
 
 // IONOS : EXAMINE (lecture seule) et BODY.PEEK, rien n'est marqué lu.
 async function imap(hote: string, utilisateur: string, motDePasse: string, depuis: Date) {
-  const { cmd, fermer } = await connexionImap(hote, utilisateur, motDePasse);
+  const { cmd, cite, fermer } = await connexionImap(hote, utilisateur, motDePasse);
   try {
-    await cmd("EXAMINE INBOX");
     const mois = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][depuis.getUTCMonth()];
+    // Tous les dossiers (le tri a pu ranger les mails), sauf corbeille, envoyés, brouillons et indésirables
+    const dossiers = [...(await cmd('LIST "" "*"')).matchAll(/^\* LIST \(([^)]*)\) (?:"[^"]*"|NIL) (?:"((?:[^"\\]|\\.)*)"|(\S+))\r?$/gm)]
+      .filter((x) => !/\\(Noselect|Trash|Sent|Drafts|Junk|All)/i.test(x[1])).map((x) => (x[2] ?? x[3]).replace(/\\(.)/g, "$1"))
+      .filter((d) => !/^(INBOX[./])?(trash|corbeille|sent|envoy|draft|brouillon|spam|junk|ind[eé]sirable)/i.test(d));
+    const mails = [];
+    for (const dossier of dossiers) {
+    await cmd(`EXAMINE ${cite(dossier)}`);
     const uids = (/\* SEARCH([\d ]*)/.exec(await cmd(`UID SEARCH SINCE ${depuis.getUTCDate()}-${mois}-${depuis.getUTCFullYear()}`))?.[1] ?? "")
       .trim().split(/\s+/).filter(Boolean).slice(-MAX);
-    const mails = [];
     for (const uid of uids) {
       const { recu, h, texte } = lireFetch(await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT MESSAGE-ID CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] BODY.PEEK[TEXT]<0.12000>)`));
       if (recu < depuis) continue;
@@ -72,7 +86,8 @@ async function imap(hote: string, utilisateur: string, motDePasse: string, depui
       mails.push({ id: mid ? `ionos:${mid}` : `ionos:${uid}`, de: enTete(h["from"] ?? ""), a: enTete(h["to"] ?? ""), objet: enTete(h["subject"] ?? ""), recu_le: recu.toISOString(),
         texte: court(texte) });
     }
-    return mails.reverse();
+    }
+    return mails.sort((a, b) => b.recu_le.localeCompare(a.recu_le)).slice(0, MAX);
   } finally { await fermer(); }
 }
 
@@ -86,7 +101,7 @@ Deno.serve(async (req) => {
   for (const c of (comptes ?? []) as Compte[]) {
     try {
       const jeton = await jetonAcces(db, c);
-      boites.push({ email: c.email, fournisseur: c.fournisseur, mails: c.fournisseur === "google" ? await gmail(jeton, depuis) : await outlook(jeton, depuis) });
+      boites.push({ email: c.email, fournisseur: c.fournisseur, mails: c.fournisseur === "google" ? await gmail(jeton, depuis) : await outlook(jeton, depuis, c.email) });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       await db.from("comptes_agenda").update({ derniere_erreur: message.slice(0, 300) }).eq("id", c.id);

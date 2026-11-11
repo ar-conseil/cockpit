@@ -109,9 +109,11 @@ async function poserOrias(jour: string, blocs: [number, number][]) {
 }
 
 async function rediger(ctx: Record<string, unknown>) {
+  // Mails reçus depuis le point de la veille (un point refait dans la journée relit donc toute la journée, pas seulement depuis le matin)
+  const { data: veille } = await db.from("briefings").select("mise_a_jour").lt("jour", String(ctx.aujourdhui)).order("jour", { ascending: false }).limit(1).maybeSingle();
   const r = await fetch(`${URL_SB}/functions/v1/lire-mails`, {
     method: "POST", headers: { "x-cle-synchro": CLE_SYNCHRO, "Content-Type": "application/json" },
-    body: JSON.stringify({ depuis: ctx.derniere_lecture ?? null }) });
+    body: JSON.stringify({ depuis: veille?.mise_a_jour ?? ctx.derniere_lecture ?? null }) });
   if (!r.ok) throw new Error(`lecture des mails : HTTP ${r.status}`);
   // deno-lint-ignore no-explicit-any
   const { depuis, boites } = await r.json() as { depuis: string; boites: any[] };

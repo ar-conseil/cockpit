@@ -92,3 +92,9 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   ouverte dans l'app installée (connexion par mot de passe, une fois).
 
 - Cache du navigateur (GitHub Pages : 10 min) : à chaque changement de `assets/app.js` ou `assets/style.css`, changer le `?v=AAAAMMJJx` des deux liens dans `index.html`, sinon l'ancienne version reste affichée.
+
+## Victor au téléphone (Wispr Flow)
+`victor/` : appli web à part (icône « V » sur l'écran d'accueil, https://ar-conseil.github.io/cockpit/victor/). On y dicte avec le clavier Wispr Flow ;
+la phrase part seule 2 s après la dictée vers `ajouter-tache` (session de l'utilisateur, pas de clé). Historique local au téléphone.
+Dans le cockpit, même chose avec la barre « Dis-le à Victor » (touche /, ou une dictée collée sans champ actif).
+Wispr Flow n'a pas d'API : il écrit là où est le curseur, d'où ces champs dédiés.

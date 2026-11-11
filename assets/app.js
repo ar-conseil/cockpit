@@ -1128,36 +1128,79 @@
     void victorForm.offsetWidth; victorForm.classList.add("compte");
     victorMinuterie = setTimeout(envoyerAVictor, 1800);
   }
+  // Échanges récents avec Victor (pour « oui, supprime-le », « et demain ? »), gardés sur cet appareil
+  var victorHisto = (function () { try { return JSON.parse(sessionStorage.getItem("victor-histo") || "[]"); } catch (e) { return []; } })();
+  function noterVictor(qui, texte) {
+    victorHisto = victorHisto.concat([{ qui: qui, texte: texte }]).slice(-8);
+    try { sessionStorage.setItem("victor-histo", JSON.stringify(victorHisto)); } catch (e) { /* stockage indisponible */ }
+  }
+  function bulleVictor(contenu, classe, duree) {
+    var bulle = document.getElementById("victor-reponse");
+    bulle.textContent = ""; bulle.className = "victor-reponse " + (classe || "");
+    bulle.appendChild(el("span", { class: "victor-avatar mini", "aria-hidden": "true", text: "V" }));
+    bulle.appendChild(el("div", { class: "victor-reponse-corps" }, contenu));
+    bulle.appendChild(el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { bulle.hidden = true; } }));
+    bulle.hidden = false;
+    clearTimeout(bulle.minuterie);
+    if (duree) bulle.minuterie = setTimeout(function () { bulle.hidden = true; }, duree);
+  }
   function envoyerAVictor() {
     annulerEnvoi();
     var phrase = victorChamp.value.trim();
     if (!phrase || victorForm.classList.contains("envoi")) return;
-    // « Retrouve le mail de… » : recherche dans toutes les boîtes plutôt qu'une tâche
-    if (/^(cherche|recherche|trouve|retrouve|montre)[- ]?(moi)?\b.*\b(e-?mails?|mails?|courriels?|message)\b/i.test(phrase)) {
-      victorChamp.value = ""; victorChamp.blur(); lancerRecherche(phrase); return;
-    }
     victorForm.classList.add("envoi"); victorChamp.readOnly = true;
-    var rendu = function (texte, ok, ouvrir) {
+    bulleVictor([el("p", { class: "victor-cite", text: "« " + phrase + " »" }), el("p", { class: "victor-attente", text: "Je m'en occupe…" })], "attente");
+    var rendu = function (texte, ok, ouvrir, mails) {
       victorForm.classList.remove("envoi"); victorChamp.readOnly = false;
-      if (ok) { victorChamp.value = ""; victorChamp.blur(); }
-      var bulle = document.getElementById("victor-reponse");
-      bulle.textContent = "";
-      bulle.className = "victor-reponse " + (ok ? "ok" : "erreur");
-      bulle.appendChild(el("span", { class: "victor-avatar mini", "aria-hidden": "true", text: "V" }));
-      bulle.appendChild(el("p", { text: texte }));
-      if (ouvrir && ouvrir.indexOf(location.origin) === 0) bulle.appendChild(el("a", { href: ouvrir.replace(/^[^#]*/, ""), class: "btn-texte", text: "Voir" }));
-      bulle.appendChild(el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { bulle.hidden = true; } }));
-      bulle.hidden = false;
-      clearTimeout(bulle.minuterie); bulle.minuterie = setTimeout(function () { bulle.hidden = true; }, ok ? 9000 : 16000);
+      if (ok) { victorChamp.value = ""; victorChamp.blur(); noterVictor("moi", phrase); noterVictor("victor", texte); }
+      var liste = (mails || []).map(function (x) { return { boite: x.nom, de: x.de, objet: x.objet, date: x.date, resume: x.raison || "", ref: { boite: x.boite, id: x.id } }; });
+      bulleVictor([
+        el("p", { class: "victor-cite", text: "« " + phrase + " »" }),
+        el("p", { class: "victor-texte", text: texte }),
+        liste.length ? el("ul", { class: "victor-reponse-mails" }, liste.slice(0, 4).map(function (m, i) {
+          return el("li", {}, [el("button", { type: "button", onclick: function () { ouvrirMail(i, liste); } }, [el("b", { text: m.objet || "(sans objet)" }), el("span", { text: m.boite + " · " + nomSeul(m.de) })])]);
+        })) : null,
+        ouvrir && ouvrir.indexOf(location.origin) === 0 ? el("a", { href: ouvrir.replace(/^[^#]*/, ""), class: "btn-texte", text: "Voir dans le cockpit →" }) : null
+      ], ok ? "ok" : "erreur", liste.length ? 0 : ok ? 14000 : 20000);
       if (ok) chargerTout().then(dessiner);
     };
-    db.functions.invoke("ajouter-tache", { body: { texte: phrase, format: "json" } }).then(function (r) {
+    db.functions.invoke("assistant", { body: { texte: phrase, historique: victorHisto } }).then(function (r) {
       if (r.error && r.error.context && typeof r.error.context.json === "function")
-        return r.error.context.json().then(function (j) { rendu(j.texte || r.error.message, false); });
+        return r.error.context.json().then(function (j) { rendu(j.texte || j.erreur || r.error.message, false); });
       if (r.error) throw r.error;
-      rendu(r.data.texte, true, r.data.ouvrir);
+      rendu(r.data.texte, true, r.data.ouvrir, r.data.mails);
     }).catch(function (e) { rendu("Victor n'a pas pu traiter la demande : " + e.message, false); });
   }
+  // Micro : reconnaissance vocale du navigateur (Chrome, Safari), en français ; la phrase part à la fin de la dictée.
+  var Reconnaissance = window.SpeechRecognition || window.webkitSpeechRecognition, ecoute = null;
+  var boutonMicro = document.getElementById("dis-victor-micro");
+  boutonMicro.addEventListener("click", function () {
+    if (ecoute) { ecoute.stop(); return; }
+    if (!Reconnaissance) { signaler("Ce navigateur n'a pas de dictée intégrée : utilise Wispr Flow ou Chrome / Safari."); victorChamp.focus(); return; }
+    annulerEnvoi();
+    var rec = new Reconnaissance(), avant = victorChamp.value.trim(), final = "";
+    rec.lang = "fr-FR"; rec.interimResults = true; rec.continuous = false;
+    rec.onresult = function (ev) {
+      var provisoire = "";
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) final += ev.results[i][0].transcript; else provisoire += ev.results[i][0].transcript;
+      }
+      victorChamp.value = [avant, (final + provisoire).trim()].filter(Boolean).join(" ");
+    };
+    rec.onerror = function (ev) {
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") signaler("Le micro est bloqué : autorise-le pour ce site dans le navigateur (icône à gauche de l'adresse).");
+      else if (ev.error === "no-speech") signaler("Je n'ai rien entendu : réessaie.");
+      else if (ev.error !== "aborted") signaler("Micro indisponible (" + ev.error + ").");
+    };
+    rec.onend = function () {
+      ecoute = null; victorForm.classList.remove("ecoute"); boutonMicro.setAttribute("aria-pressed", "false");
+      victorChamp.placeholder = "Demande à Victor : une tâche, un rendez-vous, un mail…";
+      if (final.trim()) programmerEnvoi();
+    };
+    try { rec.start(); } catch (e) { signaler("Micro indisponible : " + e.message); return; }
+    ecoute = rec; victorForm.classList.add("ecoute"); boutonMicro.setAttribute("aria-pressed", "true");
+    victorChamp.placeholder = "Je t'écoute…";
+  });
   victorForm.addEventListener("submit", function (ev) { ev.preventDefault(); envoyerAVictor(); });
   victorChamp.addEventListener("input", function (ev) {
     var dicte = ev.inputType === "insertFromPaste" || ev.inputType === "insertReplacementText" || ev.inputType === "insertFromDrop" ||

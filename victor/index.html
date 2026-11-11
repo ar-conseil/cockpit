@@ -48,6 +48,14 @@
     .bulle.victor { align-self: flex-start; background: var(--papier-2); border-bottom-left-radius: 6px; }
     .bulle.victor.erreur { background: color-mix(in srgb, var(--rouge) 10%, var(--papier)); }
     .bulle.victor a { display: inline-block; margin-top: 6px; color: var(--b); font-weight: 600; text-decoration: none; }
+    .bulle { white-space: pre-line; }
+    .bulle .mails { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; white-space: normal; }
+    .bulle .mails li { display: grid; padding: 7px 10px; border-radius: 10px; background: var(--papier); }
+    .bulle .mails b { font-size: 14px; } .bulle .mails span { font-size: 12px; color: var(--encre-3); }
+    .micro { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border: 0; border-radius: 50%; background: var(--papier-2); color: var(--encre-2); cursor: pointer; }
+    .micro svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+    .micro[aria-pressed="true"] { color: #fff; background: linear-gradient(135deg, var(--a), var(--b)); animation: pouls 1.4s ease-in-out infinite; }
+    @keyframes pouls { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--b) 18%, transparent); } }
     .bulle time { display: block; margin-top: 3px; font: 500 11px var(--mono); opacity: .55; }
     .attente { align-self: flex-start; display: inline-flex; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--papier-2); }
     .attente i { width: 7px; height: 7px; border-radius: 50%; background: var(--encre-3); animation: point 1s ease-in-out infinite; }
@@ -81,13 +89,14 @@
   <div class="page">
     <header>
       <span class="avatar" aria-hidden="true">V</span>
-      <div><h1>Victor</h1><p id="etat">Dicte avec Wispr Flow, Victor s'en occupe</p></div>
+      <div><h1>Victor</h1><p id="etat">Dicte avec Wispr Flow ou le micro</p></div>
       <a href="../">Cockpit</a>
     </header>
     <main class="fil" id="fil" aria-live="polite"></main>
     <form class="saisie" id="saisie" hidden>
       <span class="compte" aria-hidden="true"></span>
       <button type="button" class="annuler" id="annuler">Corriger avant l'envoi</button>
+      <button type="button" class="micro" id="micro" aria-label="Parler à Victor" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
       <textarea id="champ" rows="1" enterkeyhint="send" autocapitalize="sentences" placeholder="Dis-le à Victor…" aria-label="Demande pour Victor"></textarea>
       <button type="submit" class="envoyer" id="envoyer" aria-label="Envoyer à Victor"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
     </form>
@@ -117,14 +126,17 @@
 
     function bulle(x) {
       var lien = x.ouvrir && x.ouvrir.indexOf("https://ar-conseil.github.io/cockpit/") === 0 ? el("a", { href: x.ouvrir, text: "Ouvrir dans le cockpit →" }) : null;
-      return el("div", { class: "bulle " + x.qui + (x.erreur ? " erreur" : "") }, [x.texte, lien ? el("br") : null, lien, el("time", { text: hm(new Date(x.le)) })]);
+      var mails = (x.mails || []).length ? el("ul", { class: "mails" }, x.mails.map(function (m) {
+        return el("li", {}, [el("b", { text: m.objet || "(sans objet)" }), el("span", { text: m.nom + " · " + String(m.de || "").replace(/<[^>]*>/g, "").trim() })]);
+      })) : null;
+      return el("div", { class: "bulle " + x.qui + (x.erreur ? " erreur" : "") }, [x.texte, mails, lien ? el("br") : null, lien, el("time", { text: hm(new Date(x.le)) })]);
     }
     function vide() {
       return el("div", { class: "vide" }, [
         el("h2", { text: "Parle, Victor s'en charge." }),
         el("p", { text: "Touche le champ en bas, dicte avec le clavier Wispr Flow : ta demande part toute seule deux secondes après." }),
         el("ul", {}, ["Ajoute une tâche pour Palomano : relancer le comptable vendredi", "Rendez-vous avec Arnaud jeudi à 14 h au club",
-          "Réponds à Vincent que je valide la proposition", "Termine la tâche facture Toyota"].map(function (t) { return el("li", { text: t }); }))
+          "Retrouve le mail de Vincent sur la prévoyance", "Mets à la corbeille le mail suspect Trust Wallet", "Qu'est-ce que j'ai demain ?"].map(function (t) { return el("li", { text: t }); }))
       ]);
     }
     function afficherHisto() {
@@ -153,18 +165,20 @@
       var attente = el("div", { class: "attente", "aria-label": "Victor s'en occupe" }, [el("i"), el("i"), el("i")]);
       fil.appendChild(attente); fil.scrollTop = fil.scrollHeight;
       etat.textContent = "Victor s'en occupe…";
-      var fin = function (texte, ok, ouvrir) {
+      var fin = function (texte, ok, ouvrir, mails) {
         envoiEnCours = false; attente.remove();
-        var v = { qui: "victor", texte: texte, le: Date.now(), erreur: !ok, ouvrir: ouvrir || null };
+        var v = { qui: "victor", texte: texte, le: Date.now(), erreur: !ok, ouvrir: ouvrir || null,
+          mails: (mails || []).slice(0, 4).map(function (m) { return { objet: m.objet, nom: m.nom, de: m.de }; }) };
         noter(v); fil.appendChild(bulle(v)); fil.scrollTop = fil.scrollHeight;
         etat.textContent = ok ? "Fait. Tu peux dicter la suite." : "Rien n'a été fait, réessaie.";
         if (navigator.vibrate) navigator.vibrate(ok ? 30 : [40, 60, 40]);
       };
-      db.functions.invoke("ajouter-tache", { body: { texte: phrase, format: "json" } }).then(function (r) {
+      var historique = lireHisto().slice(-9, -1).map(function (x) { return { qui: x.qui, texte: x.texte }; });
+      db.functions.invoke("assistant", { body: { texte: phrase, historique: historique } }).then(function (r) {
         if (r.error && r.error.context && typeof r.error.context.json === "function")
-          return r.error.context.json().then(function (j) { fin(j.texte || r.error.message, false); });
+          return r.error.context.json().then(function (j) { fin(j.texte || j.erreur || r.error.message, false); });
         if (r.error) throw r.error;
-        fin(r.data.texte, true, r.data.ouvrir);
+        fin(r.data.texte, true, r.data.ouvrir, r.data.mails);
       }).catch(function (e) { fin("Victor n'a pas pu traiter la demande : " + e.message + ". Rien n'a été fait.", false); });
     }
 
@@ -180,6 +194,24 @@
     });
     champ.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); envoyer(); }
+    });
+    // Micro : dictée du navigateur (Safari, Chrome) en français, envoi à la fin ; le clavier Wispr Flow reste possible
+    var Reco = window.SpeechRecognition || window.webkitSpeechRecognition, ecoute = null, micro = document.getElementById("micro");
+    if (!Reco) micro.hidden = true;
+    micro.addEventListener("click", function () {
+      if (ecoute) { ecoute.stop(); return; }
+      annuler();
+      var rec = new Reco(), avant = champ.value.trim(), final = "";
+      rec.lang = "fr-FR"; rec.interimResults = true; rec.continuous = false;
+      rec.onresult = function (ev) {
+        var prov = "";
+        for (var i = ev.resultIndex; i < ev.results.length; i++) { if (ev.results[i].isFinal) final += ev.results[i][0].transcript; else prov += ev.results[i][0].transcript; }
+        champ.value = [avant, (final + prov).trim()].filter(Boolean).join(" "); ajuster();
+      };
+      rec.onerror = function (ev) { if (ev.error === "not-allowed" || ev.error === "service-not-allowed") etat.textContent = "Micro refusé : autorise-le dans les réglages de Safari."; };
+      rec.onend = function () { ecoute = null; micro.setAttribute("aria-pressed", "false"); etat.textContent = "Dicte avec Wispr Flow ou le micro"; if (final.trim()) programmer(); };
+      try { rec.start(); } catch (e) { return; }
+      ecoute = rec; micro.setAttribute("aria-pressed", "true"); etat.textContent = "Je t'écoute…";
     });
     fil.addEventListener("click", function (ev) { if (!ev.target.closest("a")) champ.focus(); });
 

@@ -1019,8 +1019,8 @@ main[data-projet]:not([data-projet=""]) .rubriques button.actif { background: co
 .btn-plein.petit { padding: 7px 12px; font-size: 12.5px; }
 
 /* ---------- Fluidité : transitions entre pages, apparition au défilement ---------- */
-::view-transition-old(root) { animation: 110ms ease-in both fondu-sort; }
-::view-transition-new(root) { animation: 300ms var(--doux) 30ms both page-entre; }
+::view-transition-old(root) { animation: 90ms ease-in both fondu-sort; }
+::view-transition-new(root) { animation: 200ms var(--doux) 10ms both page-entre; }
 ::view-transition-group(lien-actif) { animation-duration: 300ms; animation-timing-function: var(--doux); }
 ::view-transition-old(cote), ::view-transition-new(cote) { animation: none; }
 ::view-transition-old(barre-haut), ::view-transition-new(barre-haut) { animation: 180ms ease both fondu-entre; }
@@ -1229,3 +1229,8 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .victor-reponse-mails b { font-size: 13.5px; font-weight: 600; }
 .victor-reponse-mails span { font-size: 12px; color: var(--encre-3); }
 .victor-reponse { max-height: calc(100dvh - var(--haut-nav, 48px) - 30px); overflow-y: auto; }
+
+/* Rapidité : le navigateur ne dessine les cartes et lignes de tâches que lorsqu'elles approchent de l'écran */
+.colonne-cartes > .carte-tache:not(.glissee) { content-visibility: auto; contain-intrinsic-size: auto 76px; }
+.liste-notion tbody tr { content-visibility: auto; contain-intrinsic-size: auto 44px; }
+.projets-section { content-visibility: auto; contain-intrinsic-size: auto 900px; }

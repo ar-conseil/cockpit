@@ -152,6 +152,21 @@
       db.from("reponses").select("*").gte("cree_le", ajouterJours(new Date(), -30).toISOString()).order("cree_le", { ascending: false })
     ]).then(function (r) {
       r.forEach(verifier);
+      appliquerDonnees(r.map(function (x) { return x.data; }));
+      memoriserDonnees(r.map(function (x) { return x.data; }));
+    });
+  }
+  // Copie des dernières données sur cet appareil : au démarrage, le cockpit s'affiche aussitôt avec elles,
+  // puis se met à jour dès que la base a répondu (aucune attente du renouvellement de session ni du réseau).
+  var CLE_CACHE = "cockpit-donnees-v1";
+  function memoriserDonnees(d) {
+    try { var t = JSON.stringify({ le: Date.now(), d: d }); if (t.length < 4500000) localStorage.setItem(CLE_CACHE, t); } catch (e) { try { localStorage.removeItem(CLE_CACHE); } catch (e2) { /* rien */ } }
+  }
+  function donneesMemorisees() {
+    try { var c = JSON.parse(localStorage.getItem(CLE_CACHE) || "null"); return c && c.d && c.d.length === 14 && Date.now() - c.le < 7 * 864e5 ? c.d : null; } catch (e) { return null; }
+  }
+  function appliquerDonnees(d) {
+    var r = d.map(function (x) { return { data: x }; });
       S.activites = r[0].data; S.agendas = r[1].data;
       // Un même rendez-vous présent dans deux agendas (invitation partagée) n'apparaît qu'une fois ;
       // on garde la copie modifiable, puis celle d'un agenda sans projet imposé.
@@ -168,7 +183,6 @@
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
       S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || []; S.production = r[12].data || [];
       S.reponses = r[13].data || [];
-    });
   }
   var redessinPrevu = null;
   function rechargerPuisDessiner() {
@@ -2841,14 +2855,22 @@
     message.textContent = texte || "";
     if (canal) { db.removeChannel(canal); canal = null; }
   }
+  var afficheDepuisCache = false;
   function ouvrirCockpit() {
     ecranConnexion.hidden = true; barre.hidden = false; app.hidden = false;
+    if (afficheDepuisCache) { chargerTout().then(function () { if (!enSaisie()) dessiner(); abonner(); }); return; }
     app.textContent = "";
     app.appendChild(el("div", { class: "squelette", "aria-label": "Chargement", role: "status" }, [
       el("i", { class: "s-titre" }), el("div", { class: "s-grille" }, [el("i", { class: "s-bloc grand" }), el("div", { class: "s-pile" }, [el("i", { class: "s-bloc" }), el("i", { class: "s-bloc" }), el("i", { class: "s-bloc" })])])
     ]));
     chargerTout().then(function () {
       router();
+      abonner();
+    }).catch(function (e) {
+      app.textContent = ""; app.appendChild(el("p", { class: "chargement erreur", text: "Impossible de charger le cockpit : " + e.message }));
+    });
+  }
+  function abonner() {
       if (!canal) {
         canal = db.channel("cockpit");
         ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations", "production", "reponses"].forEach(function (table) {
@@ -2859,9 +2881,6 @@
         });
         canal.subscribe();
       }
-    }).catch(function (e) {
-      app.textContent = ""; app.appendChild(el("p", { class: "chargement erreur", text: "Impossible de charger le cockpit : " + e.message }));
-    });
   }
   // Une modification arrivée pendant une saisie est appliquée dès que le champ est quitté.
   function appliquerAttente() {
@@ -2891,7 +2910,7 @@
       message.textContent = r.error ? r.error.message : "Un e-mail de réinitialisation vient d'être envoyé.";
     });
   });
-  document.getElementById("deconnexion").addEventListener("click", function () { db.auth.signOut(); });
+  document.getElementById("deconnexion").addEventListener("click", function () { try { localStorage.removeItem(CLE_CACHE); } catch (e) { /* rien */ } afficheDepuisCache = false; db.auth.signOut(); });
 
   if (!CFG.url || !CFG.cle || !window.supabase) {
     ecranConnexion.hidden = false;
@@ -2901,6 +2920,17 @@
   }
   db = window.supabase.createClient(CFG.url, CFG.cle, { auth: { persistSession: true, autoRefreshToken: true } });
   window.addEventListener("hashchange", function () { if (!barre.hidden) router(); });
+  (function () {
+    var sessionLocale = false;
+    try { sessionLocale = Object.keys(localStorage).some(function (k) { return /^sb-.*-auth-token$/.test(k); }); } catch (e) { /* stockage indisponible */ }
+    var d = sessionLocale && donneesMemorisees();
+    if (!d) return;
+    try {
+      appliquerDonnees(d);
+      ecranConnexion.hidden = true; barre.hidden = false; app.hidden = false;
+      afficheDepuisCache = true; router();
+    } catch (e) { afficheDepuisCache = false; }
+  })();
   db.auth.onAuthStateChange(function (evenement, session) {
     // Sortir du rappel avant de relire la base (sinon supabase-js peut se bloquer sur son verrou de session).
     setTimeout(function () {
@@ -2908,7 +2938,7 @@
         var nouveau = prompt("Nouveau mot de passe (10 caractères minimum) :");
         if (nouveau) db.auth.updateUser({ password: nouveau }).then(function (r) { signaler(r.error ? r.error.message : "Mot de passe changé"); });
       }
-      if (session && barre.hidden) ouvrirCockpit();
+      if (session && (barre.hidden || (afficheDepuisCache && !canal))) ouvrirCockpit();
       if (!session) afficherConnexion(evenement === "SIGNED_OUT" ? "À bientôt." : "");
     }, 0);
   });

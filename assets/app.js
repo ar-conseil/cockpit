@@ -250,6 +250,7 @@
     aujourdhui: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>',
     taches: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg>',
     agendas: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>',
+    chercher: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>',
     mails: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 9.5V12a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 14 12V9.5"/><path d="M2 9.5h3.2l.8 1.5h4l.8-1.5H14L12.3 3.7a1.5 1.5 0 0 0-1.4-1.2H5.1a1.5 1.5 0 0 0-1.4 1.2z"/></svg>',
     clients: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.8 13.5c.6-2.4 2.2-3.6 4.2-3.6s3.6 1.2 4.2 3.6"/><circle cx="11.5" cy="6" r="2"/><path d="M11 9.9c1.6 0 2.8 1 3.3 3"/></svg>',
     recos: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.9l-3.4 1.8.7-3.8-2.8-2.7 3.8-.5z"/></svg>',
@@ -291,6 +292,7 @@
       lienCote("#taches", S.route === "taches", [icone("taches"), el("span", { text: "Tâches" })], nbT, "B"),
       lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })]),
       lienCote("#mails", S.route === "mails", [icone("mails"), el("span", { text: "Tri des boîtes" })]),
+      lienCote("#recherche", S.route === "recherche", [icone("chercher"), el("span", { text: "Rechercher un mail" })]),
       lienCote("#reponses", S.route === "reponses", [icone("mails"), el("span", { text: "Réponses" })],
         (S.reponses || []).filter(function (x) { return x.statut === "brouillon"; }).length)
     ]));
@@ -309,7 +311,7 @@
     fil.textContent = "";
     fil.append(el("a", { href: "#", text: "Cockpit" }), el("span", { class: "fil-sep", text: "/" }),
       a ? (S.rubrique ? el("a", { class: "fil-page", href: "#" + a.id }, [iconeProjet(a), a.nom]) : el("span", { class: "fil-page" }, [iconeProjet(a), a.nom]))
-        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "reponses" ? "Réponses" : "Aujourd'hui" }));
+        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : "Aujourd'hui" }));
     var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
     if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
   }
@@ -947,7 +949,7 @@
           el("ul", { class: "victor-mails" }, visibles.map(function (m, i) {
             var bx = boiteDe(m);
             return el("li", {}, [el("button", { type: "button", class: "mail-ligne", style: "--c:" + couleur(bx.projet), title: "Lire le mail",
-              onclick: function () { ouvrirMail(i); } }, [
+              onclick: function () { ouvrirMail(i, mails); } }, [
               el("span", { class: "mail-de" }, [el("i", { "aria-hidden": "true" }), el("span", { text: m.boite || "" }), el("span", { class: "qui", text: nomSeul(m.de) })]),
               el("b", { text: m.objet || "(sans objet)" }),
               m.action || m.resume ? el("span", { class: "mail-action", text: m.action || m.resume }) : null,
@@ -967,9 +969,83 @@
     return el("section", { class: "victor", "aria-label": "Le point de Victor" }, parties);
   }
 
+
+  // ---------- Rechercher un mail : une description libre, Victor cherche dans toutes les boîtes (fonction chercher-mails) ----------
+  function lancerRecherche(demande) {
+    demande = String(demande || "").trim();
+    if (demande.length < 3) return;
+    S.recherche = { demande: demande, etat: "cherche" };
+    if (S.route !== "recherche") location.hash = "recherche"; else dessiner();
+    var r0 = S.recherche;
+    db.functions.invoke("chercher-mails", { body: { demande: demande } }).then(function (r) {
+      if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { throw new Error(j.erreur || r.error.message); });
+      if (r.error) throw r.error;
+      if (S.recherche !== r0) return;
+      S.recherche = { demande: demande, etat: "fini", comprise: r.data.comprise, erreurs: r.data.erreurs || [],
+        resultats: (r.data.resultats || []).map(function (x) { return { boite: x.nom, de: x.de, objet: x.objet, date: x.date, extrait: x.extrait, resume: x.raison || "", ref: { boite: x.boite, id: x.id } }; }) };
+      if (S.route === "recherche") dessiner();
+    }).catch(function (e) {
+      if (S.recherche !== r0) return;
+      S.recherche = { demande: demande, etat: "erreur", message: e.message };
+      if (S.route === "recherche") dessiner();
+    });
+  }
+  function dateCourte(d) {
+    var x = new Date(d), n = new Date();
+    if (memeJour(x, n)) return hm(x);
+    return fmt(x, x.getFullYear() === n.getFullYear() ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
+  }
+  function vueRecherche() {
+    var R = S.recherche || {}, f = document.createDocumentFragment();
+    var champ = el("input", { type: "search", class: "recherche-champ", value: R.demande || "", enterkeyhint: "search", "aria-label": "Mail recherché",
+      placeholder: "Ex. : le devis du plombier reçu cet été, avec le PDF" });
+    f.appendChild(el("header", { class: "recherche-tete" }, [
+      el("p", { class: "surtitre", text: "Toutes les boîtes · Gmail, Camp, Palomano, Harnes" }),
+      el("h1", { text: "Rechercher un mail" }),
+      el("p", { class: "recherche-aide", text: "Décris ce que tu cherches avec tes mots : qui l'a envoyé, de quoi il parle, à peu près quand. Victor fouille toutes tes boîtes et te montre le plus probable en premier." }),
+      el("form", { class: "recherche-form", role: "search", onsubmit: function (ev) { ev.preventDefault(); lancerRecherche(champ.value); } }, [
+        icone("chercher"), champ,
+        el("button", { type: "submit", class: "btn-plein", text: R.etat === "cherche" ? "Recherche…" : "Chercher", disabled: R.etat === "cherche" })
+      ]),
+      !R.etat ? el("div", { class: "recherche-exemples" }, ["la facture Palo-Franchise de novembre", "le mail d'Arnaud sur la prévoyance des joueurs",
+        "le contrat signé avec Toyota, en pièce jointe", "les avis Google du Camp ce mois-ci"].map(function (t) {
+        return el("button", { type: "button", class: "puce-exemple", text: t, onclick: function () { lancerRecherche(t); } });
+      })) : null
+    ]));
+    if (R.etat === "cherche") {
+      f.appendChild(el("div", { class: "recherche-attente", role: "status" }, [
+        el("p", {}, [el("span", { class: "dis-victor-onde envoi", "aria-hidden": "true" }, [el("i"), el("i"), el("i"), el("i")]), "Victor cherche dans toutes tes boîtes…"]),
+        el("div", { class: "lecteur-attente" }, [el("i"), el("i"), el("i"), el("i")])
+      ]));
+    } else if (R.etat === "erreur") {
+      f.appendChild(el("p", { class: "recherche-vide", text: "La recherche n'a pas abouti : " + R.message + ". Réessaie dans un instant." }));
+    } else if (R.etat === "fini") {
+      var res = R.resultats, k = R.comprise || {};
+      var compris = [].concat(k.expediteur ? ["de « " + k.expediteur + " »"] : [], (k.mots || []).length ? ["« " + k.mots.join(" », « ") + " »"] : [],
+        k.depuis || k.jusqu ? [(k.depuis ? "depuis le " + fmt(new Date(k.depuis), { day: "numeric", month: "short", year: "numeric" }) : "") + (k.jusqu ? " jusqu'au " + fmt(new Date(k.jusqu), { day: "numeric", month: "short", year: "numeric" }) : "")] : [],
+        k.pieces ? ["avec pièce jointe"] : [], (k.boites || []).length ? ["dans " + k.boites.join(", ")] : []);
+      f.appendChild(el("p", { class: "recherche-compris", text: (res.length ? res.length + " mail" + (res.length > 1 ? "s" : "") + " trouvé" + (res.length > 1 ? "s" : "") : "Aucun mail trouvé") + (compris.length ? " · " + compris.join(" · ") : "") }));
+      if (!res.length) f.appendChild(el("p", { class: "recherche-vide", text: "Essaie avec d'autres mots : le nom de l'expéditeur, un numéro de facture, ou une période plus large." }));
+      else f.appendChild(el("ol", { class: "recherche-resultats" }, res.map(function (m, i) {
+        var bx = boiteDe(m);
+        return el("li", { class: i === 0 ? "premier" : "" }, [el("button", { type: "button", class: "mail-ligne", style: "--c:" + couleur(bx.projet), onclick: function () { ouvrirMail(i, res); } }, [
+          i === 0 ? el("span", { class: "recherche-badge", text: "Le plus probable" }) : null,
+          el("span", { class: "mail-de" }, [el("i", { "aria-hidden": "true" }), el("span", { text: m.boite }), el("span", { class: "qui", text: nomSeul(m.de) }), el("time", { text: dateCourte(m.date) })]),
+          el("b", { text: m.objet || "(sans objet)" }),
+          m.extrait ? el("span", { class: "recherche-extrait", text: m.extrait }) : null,
+          m.resume ? el("span", { class: "mail-action", text: m.resume }) : null,
+          el("span", { class: "mail-fleche", "aria-hidden": "true", text: "→" })
+        ])]);
+      })));
+      if ((R.erreurs || []).length) f.appendChild(el("p", { class: "recherche-erreurs", text: "Boîtes non lues : " + R.erreurs.join(" ; ") }));
+    }
+    setTimeout(function () { if (!R.etat && document.activeElement === document.body) champ.focus(); }, 0);
+    return el("div", { class: "page-recherche" }, [f]);
+  }
   // ---------- Lecteur de mail : un clic sur un mail à traiter l'ouvre ici (texte brut, lecture seule) ----------
-  var lecteur = null, lecteurIndex = 0, lecteurCache = {};
-  function ouvrirMail(i) {
+  var lecteur = null, lecteurIndex = 0, lecteurCache = {}, lecteurListe = [];
+  function ouvrirMail(i, liste) {
+    if (liste) lecteurListe = liste;
     if (!lecteur) {
       lecteur = el("dialog", { class: "lecteur", "aria-label": "Mail" });
       lecteur.addEventListener("click", function (ev) { if (ev.target === lecteur) lecteur.close(); });
@@ -980,7 +1056,7 @@
       });
       document.body.appendChild(lecteur);
     }
-    var mails = (S.briefing && S.briefing.mails) || [];
+    var mails = lecteurListe;
     if (i < 0 || i >= mails.length) return;
     lecteurIndex = i;
     var m = mails[i], bx = boiteDe(m), cle = m.ref ? m.ref.boite + "|" + m.ref.id : null;
@@ -1056,6 +1132,10 @@
     annulerEnvoi();
     var phrase = victorChamp.value.trim();
     if (!phrase || victorForm.classList.contains("envoi")) return;
+    // « Retrouve le mail de… » : recherche dans toutes les boîtes plutôt qu'une tâche
+    if (/^(cherche|recherche|trouve|retrouve|montre)[- ]?(moi)?\b.*\b(e-?mails?|mails?|courriels?|message)\b/i.test(phrase)) {
+      victorChamp.value = ""; victorChamp.blur(); lancerRecherche(phrase); return;
+    }
     victorForm.classList.add("envoi"); victorChamp.readOnly = true;
     var rendu = function (texte, ok, ouvrir) {
       victorForm.classList.remove("envoi"); victorChamp.readOnly = false;
@@ -2559,7 +2639,7 @@
   function dessiner() {
     if (!db) return;
     var a = activite(S.route);
-    if (S.route && !a && S.route !== "agendas" && S.route !== "taches" && S.route !== "mails" && S.route !== "reponses") S.route = "";
+    if (S.route && !a && S.route !== "agendas" && S.route !== "taches" && S.route !== "mails" && S.route !== "recherche" && S.route !== "reponses") S.route = "";
     // Un redessin (temps réel, relecture toutes les 5 min) ne doit pas faire remonter les listes qui défilent.
     var cote = document.querySelector(".cote"), coteScroll = cote ? cote.scrollTop : 0, defilements = memoriserDefilements();
     dessinerNav();
@@ -2567,7 +2647,7 @@
     var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
     S.calScroll = defileAvant ? defileAvant.scrollTop : null;
     app.textContent = "";
-    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
+    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "recherche" ? vueRecherche() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
     var chA = a && CHARTES[a.id];
     app.dataset.projet = a ? a.id : "";
@@ -2587,7 +2667,7 @@
       if (c && d.scrollWidth > d.clientWidth) d.scrollLeft = Math.max(0, c.offsetLeft - d.clientWidth / 3);
     });
     var rubT = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
-    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "reponses" ? "Réponses" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
+    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
     var hh = document.getElementById("horloge-haut"), mt = new Date(); hh.textContent = fmt(mt, { weekday: "long", day: "numeric", month: "long" }) + " · " + hm(mt);
     mesurerNav(); suivreRubriques();
   }
@@ -2703,6 +2783,7 @@
       if (rs[k]) location.hash = S.route + "/" + rs[k].id;
     }
     else if (ev.key === "b" || ev.key === "B") location.hash = "taches";
+    else if (ev.key === "f" || ev.key === "F") { ev.preventDefault(); location.hash = "recherche"; }
     else if (ev.key === "t" || ev.key === "T") { location.hash = ""; changerJour(new Date()); }
   });
 

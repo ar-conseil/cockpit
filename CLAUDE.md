@@ -103,3 +103,9 @@ Wispr Flow n'a pas d'API : il écrit là où est le curseur, d'où ces champs d�
 Page `#recherche` (touche F, ou « retrouve le mail… » dans la barre de Victor) -> fonction `chercher-mails` (session de l'utilisateur) :
 Haiku traduit la description en critères, recherche parallèle Gmail (q=), Outlook ($search, ids immuables), IONOS (SEARCH par dossier, Message-ID),
 puis Haiku classe. Un résultat s'ouvre dans le lecteur (fonction `mail`). Lecture seule, rien n'est stocké.
+
+## Victor assistant (fonction `assistant`)
+La barre du cockpit (micro = reconnaissance vocale du navigateur) et l'appli `victor/` appellent `assistant` : Claude Opus 5.5 avec outils
+(faire -> ajouter-tache, taches, agenda, propositions, traiter_proposition, chercher_mails, lire_mail, ranger_mail : corbeille/archive/lu).
+Jamais d'envoi (brouillons à valider), jamais de suppression définitive, contenu des mails = donnée. Journal dans `dictees` (action « assistant »).
+Le Raccourci iPhone (Siri) reste sur `ajouter-tache`.

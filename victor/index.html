@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#ffffff">
+  <title>Victor</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icone-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Victor">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap">
+  <style>
+    /* Victor sur le téléphone : on dicte avec le clavier Wispr Flow, Victor exécute (agent ajouter-tache). */
+    :root {
+      --papier: #ffffff; --papier-2: #f4f3f0; --encre: #1d1c1a; --encre-2: #55534e; --encre-3: #8d8a83; --filet: #ebe9e4;
+      --rouge: #d0402a; --a: #204e99; --b: #7a5cf0; --sans: "Geist", -apple-system, system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --papier: #191918; --papier-2: #262624; --encre: #ecebe8; --encre-2: #b5b3ad; --encre-3: #7e7c77; --filet: #2e2e2c; --rouge: #ef7258; color-scheme: dark; }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body { background: var(--papier); color: var(--encre); font: 16px/1.5 var(--sans); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+    .page { display: flex; flex-direction: column; height: 100dvh; max-width: 640px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 18px 12px; border-bottom: 1px solid var(--filet); }
+    .avatar { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: #fff; font: 700 17px var(--sans);
+      background: linear-gradient(135deg, var(--a), var(--b)); box-shadow: 0 8px 18px -10px #4a3fd0; }
+    header h1 { margin: 0; font: 650 18px/1.2 var(--sans); letter-spacing: -.015em; }
+    header p { margin: 1px 0 0; font-size: 12.5px; color: var(--encre-3); }
+    header a { margin-left: auto; font-size: 13.5px; color: var(--encre-2); text-decoration: none; padding: 7px 11px; border-radius: 9px; background: var(--papier-2); }
+
+    .fil { flex: 1; overflow-y: auto; padding: 18px 18px 8px; display: flex; flex-direction: column; gap: 14px; overscroll-behavior: contain; }
+    .vide { margin: auto 0; padding: 0 4px 24px; }
+    .vide h2 { margin: 0 0 10px; font: 650 26px/1.18 var(--sans); letter-spacing: -.025em; text-wrap: balance; }
+    .vide p { margin: 0 0 14px; color: var(--encre-2); font-size: 15px; }
+    .vide ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .vide li { padding: 10px 14px; border-radius: 12px; background: var(--papier-2); font-size: 14.5px; color: var(--encre-2); }
+    .vide li::before { content: "« "; color: var(--b); } .vide li::after { content: " »"; color: var(--b); }
+    .bulle { max-width: 88%; padding: 10px 14px; border-radius: 16px; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; animation: entre .25s cubic-bezier(.2, .8, .2, 1); }
+    @keyframes entre { from { opacity: 0; transform: translateY(6px); } }
+    .bulle.moi { align-self: flex-end; background: var(--encre); color: var(--papier); border-bottom-right-radius: 6px; }
+    .bulle.victor { align-self: flex-start; background: var(--papier-2); border-bottom-left-radius: 6px; }
+    .bulle.victor.erreur { background: color-mix(in srgb, var(--rouge) 10%, var(--papier)); }
+    .bulle.victor a { display: inline-block; margin-top: 6px; color: var(--b); font-weight: 600; text-decoration: none; }
+    .bulle time { display: block; margin-top: 3px; font: 500 11px var(--mono); opacity: .55; }
+    .attente { align-self: flex-start; display: inline-flex; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--papier-2); }
+    .attente i { width: 7px; height: 7px; border-radius: 50%; background: var(--encre-3); animation: point 1s ease-in-out infinite; }
+    .attente i:nth-child(2) { animation-delay: .15s; } .attente i:nth-child(3) { animation-delay: .3s; }
+    @keyframes point { 50% { transform: translateY(-4px); opacity: .5; } }
+
+    form.saisie { position: relative; display: flex; align-items: flex-end; gap: 10px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--filet); background: var(--papier); }
+    textarea { flex: 1; min-height: 52px; max-height: 40vh; resize: none; padding: 14px 16px; border: 0; border-radius: 18px; background: var(--papier-2); color: var(--encre);
+      font: 450 17px/1.4 var(--sans); outline: none; box-shadow: inset 0 0 0 1.5px transparent; transition: box-shadow .15s; }
+    textarea:focus { box-shadow: inset 0 0 0 1.5px var(--b); }
+    textarea::placeholder { color: var(--encre-3); }
+    .envoyer { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border: 0; border-radius: 50%; color: #fff; cursor: pointer;
+      background: linear-gradient(135deg, var(--a), var(--b)); box-shadow: 0 10px 22px -12px #4a3fd0; }
+    .envoyer:disabled { opacity: .4; }
+    .envoyer svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .compte { position: absolute; left: 0; top: -1px; height: 2px; width: 0; background: linear-gradient(90deg, var(--a), var(--b)); }
+    .saisie.decompte .compte { animation: compte var(--duree, 2s) linear forwards; }
+    @keyframes compte { to { width: 100%; } }
+    .annuler { position: absolute; right: 14px; top: -40px; padding: 7px 12px; border: 0; border-radius: 999px; background: var(--encre); color: var(--papier);
+      font: 600 13px var(--sans); display: none; }
+    .saisie.decompte .annuler { display: block; }
+
+    .connexion { margin: auto 0; display: grid; gap: 10px; padding: 0 4px 30px; }
+    .connexion h2 { margin: 0 0 6px; font: 650 24px/1.2 var(--sans); letter-spacing: -.02em; }
+    .connexion input { height: 50px; padding: 0 14px; border: 1px solid var(--filet); border-radius: 12px; background: var(--papier); color: var(--encre); font: 16px var(--sans); }
+    .connexion button { height: 50px; border: 0; border-radius: 12px; color: #fff; font: 600 16px var(--sans); background: linear-gradient(135deg, var(--a), var(--b)); }
+    .connexion p { margin: 0; min-height: 20px; font-size: 14px; color: var(--rouge); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <span class="avatar" aria-hidden="true">V</span>
+      <div><h1>Victor</h1><p id="etat">Dicte avec Wispr Flow, Victor s'en occupe</p></div>
+      <a href="../">Cockpit</a>
+    </header>
+    <main class="fil" id="fil" aria-live="polite"></main>
+    <form class="saisie" id="saisie" hidden>
+      <span class="compte" aria-hidden="true"></span>
+      <button type="button" class="annuler" id="annuler">Corriger avant l'envoi</button>
+      <textarea id="champ" rows="1" enterkeyhint="send" autocapitalize="sentences" placeholder="Dis-le à Victor…" aria-label="Demande pour Victor"></textarea>
+      <button type="submit" class="envoyer" id="envoyer" aria-label="Envoyer à Victor"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+    </form>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="../assets/config.js"></script>
+  <script>
+  (function () {
+    "use strict";
+    var CFG = window.COCKPIT_CONFIG, db = window.supabase.createClient(CFG.url, CFG.cle, { auth: { persistSession: true, autoRefreshToken: true } });
+    var fil = document.getElementById("fil"), form = document.getElementById("saisie"), champ = document.getElementById("champ"), etat = document.getElementById("etat");
+    var DELAI = 2000, minuterie = null, envoiEnCours = false, CLE = "victor-historique";
+
+    function el(tag, attrs, enfants) {
+      var n = document.createElement(tag);
+      Object.keys(attrs || {}).forEach(function (k) {
+        if (k === "class") n.className = attrs[k]; else if (k === "text") n.textContent = attrs[k];
+        else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), attrs[k]); else n.setAttribute(k, attrs[k]);
+      });
+      (enfants || []).forEach(function (e) { if (e) n.appendChild(typeof e === "string" ? document.createTextNode(e) : e); });
+      return n;
+    }
+    var hm = function (d) { return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); };
+    function lireHisto() { try { return JSON.parse(localStorage.getItem(CLE) || "[]"); } catch (e) { return []; } }
+    function noter(x) { try { var h = lireHisto().concat([x]).slice(-40); localStorage.setItem(CLE, JSON.stringify(h)); } catch (e) { /* stockage indisponible */ } }
+
+    function bulle(x) {
+      var lien = x.ouvrir && x.ouvrir.indexOf("https://ar-conseil.github.io/cockpit/") === 0 ? el("a", { href: x.ouvrir, text: "Ouvrir dans le cockpit →" }) : null;
+      return el("div", { class: "bulle " + x.qui + (x.erreur ? " erreur" : "") }, [x.texte, lien ? el("br") : null, lien, el("time", { text: hm(new Date(x.le)) })]);
+    }
+    function vide() {
+      return el("div", { class: "vide" }, [
+        el("h2", { text: "Parle, Victor s'en charge." }),
+        el("p", { text: "Touche le champ en bas, dicte avec le clavier Wispr Flow : ta demande part toute seule deux secondes après." }),
+        el("ul", {}, ["Ajoute une tâche pour Palomano : relancer le comptable vendredi", "Rendez-vous avec Arnaud jeudi à 14 h au club",
+          "Réponds à Vincent que je valide la proposition", "Termine la tâche facture Toyota"].map(function (t) { return el("li", { text: t }); }))
+      ]);
+    }
+    function afficherHisto() {
+      fil.textContent = "";
+      var h = lireHisto();
+      if (!h.length) fil.appendChild(vide()); else h.forEach(function (x) { fil.appendChild(bulle(x)); });
+      fil.scrollTop = fil.scrollHeight;
+    }
+    function ajuster() { champ.style.height = "auto"; champ.style.height = Math.min(champ.scrollHeight, window.innerHeight * .4) + "px"; }
+
+    function annuler() { clearTimeout(minuterie); minuterie = null; form.classList.remove("decompte"); }
+    function programmer() {
+      annuler();
+      if (champ.value.trim().split(/\s+/).length < 2) return;
+      form.style.setProperty("--duree", DELAI + "ms"); void form.offsetWidth; form.classList.add("decompte");
+      minuterie = setTimeout(envoyer, DELAI);
+    }
+    function envoyer() {
+      annuler();
+      var phrase = champ.value.trim();
+      if (!phrase || envoiEnCours) return;
+      envoiEnCours = true; champ.value = ""; ajuster();
+      var moi = { qui: "moi", texte: phrase, le: Date.now() };
+      if (!lireHisto().length) fil.textContent = "";
+      noter(moi); fil.appendChild(bulle(moi));
+      var attente = el("div", { class: "attente", "aria-label": "Victor s'en occupe" }, [el("i"), el("i"), el("i")]);
+      fil.appendChild(attente); fil.scrollTop = fil.scrollHeight;
+      etat.textContent = "Victor s'en occupe…";
+      var fin = function (texte, ok, ouvrir) {
+        envoiEnCours = false; attente.remove();
+        var v = { qui: "victor", texte: texte, le: Date.now(), erreur: !ok, ouvrir: ouvrir || null };
+        noter(v); fil.appendChild(bulle(v)); fil.scrollTop = fil.scrollHeight;
+        etat.textContent = ok ? "Fait. Tu peux dicter la suite." : "Rien n'a été fait, réessaie.";
+        if (navigator.vibrate) navigator.vibrate(ok ? 30 : [40, 60, 40]);
+      };
+      db.functions.invoke("ajouter-tache", { body: { texte: phrase, format: "json" } }).then(function (r) {
+        if (r.error && r.error.context && typeof r.error.context.json === "function")
+          return r.error.context.json().then(function (j) { fin(j.texte || r.error.message, false); });
+        if (r.error) throw r.error;
+        fin(r.data.texte, true, r.data.ouvrir);
+      }).catch(function (e) { fin("Victor n'a pas pu traiter la demande : " + e.message + ". Rien n'a été fait.", false); });
+    }
+
+    form.addEventListener("submit", function (ev) { ev.preventDefault(); envoyer(); });
+    document.getElementById("annuler").addEventListener("click", function () { annuler(); champ.focus(); });
+    // Le clavier Wispr Flow insère la phrase d'un bloc : envoi automatique après DELAI ; une frappe au clavier annule le décompte.
+    champ.addEventListener("input", function (ev) {
+      ajuster();
+      var dicte = ev.inputType === "insertFromPaste" || ev.inputType === "insertReplacementText" || ev.inputType === "insertFromDictation" ||
+        (ev.inputType === "insertText" && (ev.data || "").length > 8);
+      if (dicte) programmer();
+      else if (minuterie) annuler();
+    });
+    champ.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); envoyer(); }
+    });
+    fil.addEventListener("click", function (ev) { if (!ev.target.closest("a")) champ.focus(); });
+
+    function connexion() {
+      form.hidden = true; fil.textContent = "";
+      var email = el("input", { type: "email", autocomplete: "username", placeholder: "E-mail", autocapitalize: "none" });
+      var mdp = el("input", { type: "password", autocomplete: "current-password", placeholder: "Mot de passe" });
+      var msg = el("p", { role: "alert" });
+      fil.appendChild(el("form", { class: "connexion", onsubmit: function (ev) {
+        ev.preventDefault(); msg.textContent = "";
+        db.auth.signInWithPassword({ email: email.value.trim(), password: mdp.value }).then(function (r) {
+          if (r.error) { msg.textContent = "Connexion refusée : vérifier l'e-mail et le mot de passe."; return; }
+          pret();
+        });
+      } }, [el("h2", { text: "Une seule fois sur ce téléphone" }), email, mdp, el("button", { type: "submit", text: "Se connecter" }), msg]));
+    }
+    function pret() { form.hidden = false; afficherHisto(); champ.focus(); }
+    db.auth.getSession().then(function (r) { if (r.data && r.data.session) pret(); else connexion(); });
+    document.addEventListener("visibilitychange", function () { if (!document.hidden && !form.hidden) champ.focus(); });
+  })();
+  </script>
+</body>
+</html>

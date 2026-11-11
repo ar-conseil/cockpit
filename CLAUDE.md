@@ -98,3 +98,8 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
 la phrase part seule 2 s après la dictée vers `ajouter-tache` (session de l'utilisateur, pas de clé). Historique local au téléphone.
 Dans le cockpit, même chose avec la barre « Dis-le à Victor » (touche /, ou une dictée collée sans champ actif).
 Wispr Flow n'a pas d'API : il écrit là où est le curseur, d'où ces champs dédiés.
+
+## Rechercher un mail
+Page `#recherche` (touche F, ou « retrouve le mail… » dans la barre de Victor) -> fonction `chercher-mails` (session de l'utilisateur) :
+Haiku traduit la description en critères, recherche parallèle Gmail (q=), Outlook ($search, ids immuables), IONOS (SEARCH par dossier, Message-ID),
+puis Haiku classe. Un résultat s'ouvre dans le lecteur (fonction `mail`). Lecture seule, rien n'est stocké.

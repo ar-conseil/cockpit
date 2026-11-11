@@ -23,7 +23,7 @@ const db = createClient(URL_SB, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { au
 const Note = z.object({
   resume: z.string(),
   priorites: z.array(z.object({ titre: z.string(), activite_id: z.string().nullable(), pourquoi: z.string() })),
-  mails: z.array(z.object({ boite: z.string(), de: z.string(), objet: z.string(), resume: z.string(), action: z.string() })),
+  mails: z.array(z.object({ id: z.string(), boite: z.string(), de: z.string(), objet: z.string(), resume: z.string(), action: z.string() })),
   propositions: z.array(z.object({
     cle: z.string(), titre: z.string(), activite_id: z.string().nullable(), notes: z.string().nullable(), echeance: z.string().nullable(),
     priorite: z.enum(["haute", "moyenne", "basse"]),
@@ -48,7 +48,7 @@ Règles :
 Ce que tu rends :
 - resume : 2 à 4 phrases sur ce qui compte aujourd'hui (rendez-vous clés, urgences des mails, retards). Exemple de ton : « Grosse journée Evoa : … Deux mails demandent une réponse avant midi. »
 - priorites : 3 à 6 actions concrètes, les plus importantes d'abord, en combinant mails, tâches du jour ou en retard et préparation des rendez-vous ; activite_id = id d'un projet ou null ; pourquoi = raison courte (échéance, relance, RDV à 10 h…).
-- mails : 10 au maximum, seulement ceux qui comptent ; action = ce qu'il faut faire, ou une chaîne vide.
+- mails : 10 au maximum, seulement ceux qui comptent ; id = l'id exact du mail, recopié tel quel (gmail:…, outlook:…, ionos:…) : le cockpit ouvre le mail par cet id ; action = ce qu'il faut faire, ou une chaîne vide.
 - propositions : une par mail qui demande une action d'Antonin ; cle = l'id exact du mail (gmail:…, outlook:…, ionos:…) ; jamais une clé de cles_deja_traitees, jamais en double d'une tâche ouverte ; titre = tâche à faire, verbe à l'infinitif ; activite_id = projet le plus probable (mots-clés, expéditeur, boîte : Camp → camp-rouzier-marechal, Evoa → evoa-courtage, Harnes → harnes-volley, Palomano → palomano) ; echeance = AAAA-MM-JJ si une date est donnée, sinon null ; source.recu_le = AAAA-MM-JJ.
 - factures : seulement d'après des mails Tiime ; liste vide sinon.`;
 
@@ -130,7 +130,12 @@ async function rediger(ctx: Record<string, unknown>) {
   });
   if (reponse.stop_reason === "refusal") throw new Error("Claude a refusé de rédiger le point");
   if (!reponse.parsed_output) throw new Error(`réponse illisible (${reponse.stop_reason})`);
-  return { note: reponse.parsed_output, lus: boites.map((b) => ({ boite: b.email, mails: (b.mails ?? []).length, erreur: b.erreur ?? null })) };
+  // Chaque mail à traiter garde sa boîte et son id (ref) : un clic dans le cockpit l'ouvre (fonction « mail »).
+  const boiteDe = new Map<string, string>();
+  for (const b of boites) for (const m of b.mails ?? []) boiteDe.set(m.id, b.email);
+  const note = reponse.parsed_output;
+  note.mails = note.mails.map((m) => ({ ...m, ...(boiteDe.has(m.id) ? { ref: { boite: boiteDe.get(m.id)!, id: m.id } } : {}) }));
+  return { note, lus: boites.map((b) => ({ boite: b.email, mails: (b.mails ?? []).length, erreur: b.erreur ?? null })) };
 }
 
 async function publier(note: NoteT, ctx: Record<string, unknown>) {

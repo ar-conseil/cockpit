@@ -44,7 +44,8 @@ async function gmail(jeton: string, depuis: Date) {
 async function outlook(jeton: string, depuis: Date) {
   const url = `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=${MAX}&$orderby=receivedDateTime desc` +
     `&$filter=receivedDateTime ge ${depuis.toISOString()}&$select=id,subject,from,toRecipients,receivedDateTime,body`;
-  const r = await appel(jeton, url, { Prefer: 'outlook.body-content-type="text"' });
+  // Identifiants immuables : ils restent valables quand trier-mails range le mail dans un dossier (le cockpit l'ouvre par cet id).
+  const r = await appel(jeton, url, { Prefer: 'outlook.body-content-type="text", IdType="ImmutableId"' });
   // deno-lint-ignore no-explicit-any
   return (r.value ?? []).map((m: any) => ({
     id: `outlook:${m.id}`, de: m.from?.emailAddress ? `${m.from.emailAddress.name ?? ""} <${m.from.emailAddress.address ?? ""}>` : "",
@@ -64,9 +65,11 @@ async function imap(hote: string, utilisateur: string, motDePasse: string, depui
       .trim().split(/\s+/).filter(Boolean).slice(-MAX);
     const mails = [];
     for (const uid of uids) {
-      const { recu, h, texte } = lireFetch(await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] BODY.PEEK[TEXT]<0.12000>)`));
+      const { recu, h, texte } = lireFetch(await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT MESSAGE-ID CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] BODY.PEEK[TEXT]<0.12000>)`));
       if (recu < depuis) continue;
-      mails.push({ id: `ionos:${uid}`, de: enTete(h["from"] ?? ""), a: enTete(h["to"] ?? ""), objet: enTete(h["subject"] ?? ""), recu_le: recu.toISOString(),
+      // Message-ID plutôt que l'UID, qui change quand trier-mails range le mail : le cockpit le retrouve dans n'importe quel dossier
+      const mid = (h["message-id"] ?? "").trim().replace(/^<|>$/g, "");
+      mails.push({ id: mid ? `ionos:${mid}` : `ionos:${uid}`, de: enTete(h["from"] ?? ""), a: enTete(h["to"] ?? ""), objet: enTete(h["subject"] ?? ""), recu_le: recu.toISOString(),
         texte: court(texte) });
     }
     return mails.reverse();

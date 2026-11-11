@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Playpen+Sans:wght@600;700&family=Montserrat:wght@600;700&family=Barlow+Condensed:wght@700&family=Anton&family=Bodoni+Moda:opsz,wght@6..96,500&display=swap">
-  <link rel="stylesheet" href="assets/style.css?v=20261110a">
+  <link rel="stylesheet" href="assets/style.css?v=20261111a">
 </head>
 <body>
   <div class="coquille" id="nav" hidden>
@@ -38,6 +38,15 @@
     <header class="barre-haut" id="barre-haut">
       <button type="button" class="btn-icone ouvrir-menu" id="ouvrir-menu" aria-label="Ouvrir le menu" aria-controls="cote" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg></button>
       <nav class="fil" id="fil" aria-label="Fil d'Ariane"></nav>
+      <form class="dis-victor" id="dis-victor" role="search" aria-label="Demander à Victor" autocomplete="off">
+        <span class="dis-victor-onde" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <input id="dis-victor-champ" type="text" enterkeyhint="send" spellcheck="true" maxlength="500"
+          placeholder="Dis-le à Victor : une tâche, un rendez-vous, une réponse…" aria-label="Demande pour Victor">
+        <kbd title="Appuyer sur / pour écrire ou dicter (Wispr Flow)">/</kbd>
+        <button type="submit" aria-label="Envoyer à Victor"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg></button>
+        <span class="dis-victor-compte" aria-hidden="true"></span>
+      </form>
+      <div class="victor-reponse" id="victor-reponse" role="status" aria-live="polite" hidden></div>
       <span class="horloge-haut" id="horloge-haut"></span>
       <button type="button" class="btn-icone ajout-mobile" id="btn-ajout-mobile" aria-label="Nouvelle tâche"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
     </header>
@@ -105,6 +114,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <script src="assets/config.js"></script>
-  <script src="assets/app.js?v=20261110a"></script>
+  <script src="assets/app.js?v=20261111a"></script>
 </body>
 </html>

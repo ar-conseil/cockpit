@@ -381,7 +381,17 @@ async function agirSurCible(c: Comprise, x: Contexte, taches: TacheOuverte[], rd
   return { texte: `${pre}Rendez-vous modifié : ${apres} (était ${direRdv(r!, x.aujourdhui)})${conflit ? `. Attention : chevauche « ${conflit} »` : ""}` };
 }
 
+// Le cockpit appelle aussi cette fonction depuis le navigateur : en-têtes CORS sur toutes les réponses.
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS" };
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  const r = await traiter(req);
+  const h = new Headers(r.headers); for (const [k, v] of Object.entries(CORS)) h.set(k, v);
+  return new Response(r.body, { status: r.status, headers: h });
+});
+
+async function traiter(req: Request): Promise<Response> {
   if (req.method !== "POST") return texte("Envoyer la phrase en POST.", 405);
   const brut = await req.text();
   let corps: { texte?: string; essai?: boolean; format?: string } = {};
@@ -394,7 +404,10 @@ Deno.serve(async (req) => {
     : texte(t + (ouvrir && !ouvrir.startsWith(SITE) ? " (mettre à jour le raccourci pour l'ouvrir directement)" : ""), status);
   const cle = req.headers.get("x-cle-tache") ?? "";
   // CLE_TACHE_ESSAI : clé temporaire pour tester sans toucher à celle du téléphone (posée puis retirée par l'API d'administration)
-  if (!egal(CLE_TACHE, cle) && !egal(Deno.env.get("CLE_TACHE_ESSAI") ?? "", cle)) return sortie("Clé refusée : vérifier l'en-tête x-cle-tache du raccourci.", 401);
+  // Depuis le cockpit (barre « Dis-le à Victor », dictée Wispr Flow ou clavier) : la session de l'utilisateur connecté suffit
+  const parSession = !cle && !!req.headers.get("authorization") &&
+    !!(await db.auth.getUser((req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""))).data?.user;
+  if (!parSession && !egal(CLE_TACHE, cle) && !egal(Deno.env.get("CLE_TACHE_ESSAI") ?? "", cle)) return sortie("Clé refusée : vérifier l'en-tête x-cle-tache du raccourci.", 401);
   const phrase = String(corps.texte ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
   if (!phrase) { // noté pour comprendre d'où vient le vide (champ absent, corps vide, dictée vide), sans contenu
     await db.from("dictees").insert({ phrase: "", action: "vide", resultat: `type=${req.headers.get("content-type") ?? "-"} octets=${brut.length} champs=${Object.keys(corps).join(",") || "-"} texte=${JSON.stringify(corps.texte ?? null).slice(0, 40)}` });
@@ -434,4 +447,4 @@ Deno.serve(async (req) => {
   }
   if (secours) console.error("ajouter-tache : réponse de secours sans Claude");
   return sortie(rep.texte, rep.status ?? 200, rep.ouvrir); // « ouvrir » : page ou appli où valider et envoyer
-});
+}

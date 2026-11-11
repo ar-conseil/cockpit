@@ -893,6 +893,26 @@
         type: /orias/i.test(e.titre || "") ? "orias" : "rdv", passe: new Date(e.fin) < maintenant };
     });
   }
+  // Boîtes du point de Victor : projet (couleur) et adresse, pour ouvrir un mail sans référence enregistrée
+  var BOITES = {
+    gmail: { email: "arouzier@gmail.com", projet: "perso", web: "gmail" },
+    camp: { email: "camprouziermarechal@gmail.com", projet: "camp-rouzier-marechal", web: "gmail" },
+    palomano: { email: "lille@palomano.com", projet: "palomano", web: "outlook" },
+    evoa: { email: "a.rouzier@evoa-courtage.fr", projet: "evoa-courtage", web: "outlook" },
+    harnes: { email: "antonin.rouzier@harnes-volleyball.fr", projet: "harnes-volley", web: "ionos" }
+  };
+  function boiteDe(m) {
+    var k = String(m.boite || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/\s/)[0];
+    return BOITES[k] || { email: m.ref ? m.ref.boite : "", projet: null, web: m.ref && /^gmail:/.test(m.ref.id) ? "gmail" : "outlook" };
+  }
+  function nomSeul(de) { var x = String(de || "").replace(/<[^>]*>/g, "").replace(/"/g, "").trim(); return x || String(de || "").replace(/[<>]/g, ""); }
+  function lienBoite(m) {
+    var b = boiteDe(m);
+    if (b.web === "gmail") return "https://mail.google.com/mail/u/" + encodeURIComponent(b.email) + "/#search/" + encodeURIComponent('subject:"' + (m.objet || "") + '"');
+    return b.web === "ionos" ? "https://mail.ionos.fr/" : "https://outlook.office.com/mail/";
+  }
+  function nomWeb(m) { var w = boiteDe(m).web; return w === "gmail" ? "Gmail" : w === "ionos" ? "la messagerie IONOS" : "Outlook"; }
+
   function blocVictor() {
     var b = S.briefing, props = S.propositions || [];
     var tete = el("header", { class: "victor-tete" }, [
@@ -903,22 +923,41 @@
     var parties = [tete];
     if (b) {
       if (b.resume) parties.push(el("p", { class: "victor-resume", text: b.resume }));
+      // Emploi du temps : une frise d'une ligne (le calendrier détaillé est juste en dessous)
+      var planning = planningDuJour(), maintenant = Date.now();
+      if (planning.length) parties.push(el("ol", { class: "victor-frise", "aria-label": "Emploi du temps" }, planning.map(function (x) {
+        return el("li", { class: (x.type === "orias" ? "orias" : "") + (x.passe ? " passe" : ""), style: "--c:" + couleur(x.activite_id) }, [
+          el("time", { text: x.debut }), el("span", { text: x.titre || "(sans titre)" })]);
+      })));
       var colonnes = [];
-      if ((b.priorites || []).length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "À faire aujourd'hui" }),
-        el("ol", { class: "victor-priorites" }, b.priorites.map(function (x) {
-          return el("li", {}, [el("b", { text: x.titre }), el("small", {}, [pastilleProjetSiConnu(x.activite_id), x.pourquoi ? el("span", { text: x.pourquoi }) : null])]);
+      if ((b.priorites || []).length) colonnes.push(el("div", { class: "victor-col priorites" }, [
+        el("h3", {}, ["À faire aujourd'hui", el("span", { class: "nb", text: String(b.priorites.length) })]),
+        el("ol", { class: "victor-priorites" }, b.priorites.map(function (x, i) {
+          return el("li", { style: "--c:" + couleur(x.activite_id) }, [
+            el("span", { class: "rang", text: String(i + 1).padStart(2, "0") }),
+            el("div", {}, [el("b", { text: x.titre }),
+              el("p", {}, [x.activite_id && activite(x.activite_id) ? el("span", { class: "projet", text: nomActivite(x.activite_id) }) : null, x.pourquoi ? el("span", { text: x.pourquoi }) : null])])
+          ]);
         }))]));
-      var planning = planningDuJour();
-      if (planning.length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "Emploi du temps" }),
-        el("ul", { class: "victor-planning" }, planning.map(function (x) {
-          return el("li", { class: (x.type === "orias" ? "orias" : "") + (x.passe ? " passe" : ""), style: "--c:" + couleur(x.activite_id) }, [
-            el("time", { text: x.debut + (x.fin ? "–" + x.fin : "") }), el("span", { text: x.titre || "(sans titre)" })]);
-        }))]));
-      if ((b.mails || []).length) colonnes.push(el("div", { class: "victor-col" }, [el("h3", { text: "Mails à traiter" }),
-        el("ul", { class: "victor-mails" }, b.mails.map(function (m) {
-          return el("li", {}, [el("small", { text: [m.boite, m.de].filter(Boolean).join(" · ") }), el("b", { text: m.objet || "(sans objet)" }),
-            m.action || m.resume ? el("span", { text: m.action || m.resume }) : null]);
-        }))]));
+      var mails = b.mails || [];
+      if (mails.length) {
+        var visibles = S.mailsTous ? mails : mails.slice(0, 6);
+        colonnes.push(el("div", { class: "victor-col mails" }, [
+          el("h3", {}, ["Mails à traiter", el("span", { class: "nb", text: String(mails.length) })]),
+          el("ul", { class: "victor-mails" }, visibles.map(function (m, i) {
+            var bx = boiteDe(m);
+            return el("li", {}, [el("button", { type: "button", class: "mail-ligne", style: "--c:" + couleur(bx.projet), title: "Lire le mail",
+              onclick: function () { ouvrirMail(i); } }, [
+              el("span", { class: "mail-de" }, [el("i", { "aria-hidden": "true" }), el("span", { text: m.boite || "" }), el("span", { class: "qui", text: nomSeul(m.de) })]),
+              el("b", { text: m.objet || "(sans objet)" }),
+              m.action || m.resume ? el("span", { class: "mail-action", text: m.action || m.resume }) : null,
+              el("span", { class: "mail-fleche", "aria-hidden": "true", text: "→" })
+            ])]);
+          })),
+          mails.length > 6 ? el("button", { type: "button", class: "btn-texte voir-plus", text: S.mailsTous ? "Réduire" : "Voir les " + (mails.length - 6) + " autres",
+            onclick: function () { S.mailsTous = !S.mailsTous; dessiner(); } }) : null
+        ]));
+      }
       if (colonnes.length) parties.push(el("div", { class: "victor-grille" }, colonnes));
     }
     if (props.length) parties.push(el("div", { class: "victor-propositions" }, [
@@ -927,6 +966,138 @@
     ]));
     return el("section", { class: "victor", "aria-label": "Le point de Victor" }, parties);
   }
+
+  // ---------- Lecteur de mail : un clic sur un mail à traiter l'ouvre ici (texte brut, lecture seule) ----------
+  var lecteur = null, lecteurIndex = 0, lecteurCache = {};
+  function ouvrirMail(i) {
+    if (!lecteur) {
+      lecteur = el("dialog", { class: "lecteur", "aria-label": "Mail" });
+      lecteur.addEventListener("click", function (ev) { if (ev.target === lecteur) lecteur.close(); });
+      lecteur.addEventListener("keydown", function (ev) {
+        if (ev.target.closest && ev.target.closest("a, button") && (ev.key === "Enter" || ev.key === " ")) return;
+        if (ev.key === "ArrowDown" || ev.key === "j") { ev.preventDefault(); ouvrirMail(lecteurIndex + 1); }
+        else if (ev.key === "ArrowUp" || ev.key === "k") { ev.preventDefault(); ouvrirMail(lecteurIndex - 1); }
+      });
+      document.body.appendChild(lecteur);
+    }
+    var mails = (S.briefing && S.briefing.mails) || [];
+    if (i < 0 || i >= mails.length) return;
+    lecteurIndex = i;
+    var m = mails[i], bx = boiteDe(m), cle = m.ref ? m.ref.boite + "|" + m.ref.id : null;
+    var corps = el("div", { class: "lecteur-corps" }, [el("div", { class: "lecteur-attente", "aria-label": "Chargement" }, [el("i"), el("i"), el("i"), el("i")])]);
+    var lien = el("a", { class: "btn-contour", href: lienBoite(m), target: "_blank", rel: "noopener", text: "Ouvrir dans " + nomWeb(m) + " ↗" });
+    var meta = el("dl", { class: "lecteur-meta" }, [el("dt", { text: "De" }), el("dd", { text: m.de || "" })]);
+    lecteur.textContent = "";
+    lecteur.style.setProperty("--c", couleur(bx.projet));
+    lecteur.appendChild(el("div", { class: "lecteur-feuille" }, [
+      el("header", { class: "lecteur-haut" }, [
+        el("span", { class: "lecteur-boite" }, [el("i", { "aria-hidden": "true" }), m.boite || ""]),
+        el("span", { class: "lecteur-pos", text: (i + 1) + " / " + mails.length }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Mail précédent", title: "Précédent (↑)", disabled: i === 0, text: "↑", onclick: function () { ouvrirMail(i - 1); } }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Mail suivant", title: "Suivant (↓)", disabled: i === mails.length - 1, text: "↓", onclick: function () { ouvrirMail(i + 1); } }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", title: "Fermer (Échap)", text: "×", onclick: function () { lecteur.close(); } })
+      ]),
+      el("h2", { text: m.objet || "(sans objet)" }),
+      meta,
+      m.action || m.resume ? el("p", { class: "lecteur-victor" }, [el("span", { text: "Victor" }), m.action || m.resume]) : null,
+      corps,
+      el("footer", { class: "lecteur-pied" }, [
+        el("button", { type: "button", class: "btn-plein", text: "Répondre avec Victor", onclick: function () {
+          lecteur.close(); direAVictor("Réponds à " + nomSeul(m.de) + " au sujet de « " + (m.objet || "") + " » : ", false);
+        } }),
+        el("button", { type: "button", class: "btn-contour", text: "En faire une tâche", onclick: function () {
+          lecteur.close(); direAVictor("Ajoute une tâche : " + (m.action || m.objet || ""), false);
+        } }),
+        lien
+      ])
+    ]));
+    if (!lecteur.open) lecteur.showModal();
+    lecteur.querySelector(".lecteur-feuille").scrollTop = 0;
+    var afficher = function (d) {
+      if (lecteurIndex !== i) return;
+      meta.textContent = "";
+      [["De", d.de], ["À", d.a], ["Cc", d.cc], ["Reçu", d.date ? fmt(new Date(d.date), { weekday: "long", day: "numeric", month: "long" }) + " à " + hm(new Date(d.date)) : ""]]
+        .forEach(function (x) { if (x[1]) { meta.appendChild(el("dt", { text: x[0] })); meta.appendChild(el("dd", { text: x[1] })); } });
+      if (d.lien) lien.href = d.lien;
+      corps.textContent = "";
+      if ((d.pieces || []).length) corps.appendChild(el("ul", { class: "lecteur-pieces" }, d.pieces.map(function (p) { return el("li", { text: p }); })));
+      corps.appendChild(el("div", { class: "lecteur-texte", text: d.texte || "(mail sans texte)" }));
+    };
+    var echec = function (texte) {
+      if (lecteurIndex !== i) return;
+      corps.textContent = "";
+      corps.appendChild(el("p", { class: "lecteur-absent", text: texte }));
+    };
+    if (!cle) return echec("Ce mail vient d'un point préparé avant l'ouverture directe : le bouton ci-dessous le retrouve dans " + nomWeb(m) + ". Les prochains points de Victor s'ouvriront ici.");
+    if (lecteurCache[cle]) return afficher(lecteurCache[cle]);
+    db.functions.invoke("mail", { body: { boite: m.ref.boite, id: m.ref.id } }).then(function (r) {
+      if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { if (j.lien) lien.href = j.lien; throw new Error(j.erreur || r.error.message); });
+      if (r.error) throw r.error;
+      lecteurCache[cle] = r.data; afficher(r.data);
+    }).catch(function (e) { echec(e.message || "Lecture impossible pour le moment."); });
+  }
+
+  // ---------- « Dis-le à Victor » : une phrase (tapée, ou dictée avec Wispr Flow) exécutée par l'agent des dictées ----------
+  // Une dictée arrive d'un bloc (collée par Wispr Flow) : envoi automatique après un court délai, annulable en tapant ou avec Échap.
+  var victorForm = document.getElementById("dis-victor"), victorChamp = document.getElementById("dis-victor-champ"), victorMinuterie = null;
+  function direAVictor(texte, envoyer) {
+    victorChamp.value = texte; victorChamp.focus();
+    victorChamp.setSelectionRange(texte.length, texte.length);
+    if (envoyer) programmerEnvoi();
+  }
+  function annulerEnvoi() { clearTimeout(victorMinuterie); victorMinuterie = null; victorForm.classList.remove("compte"); }
+  function programmerEnvoi() {
+    annulerEnvoi();
+    if (victorChamp.value.trim().split(/\s+/).length < 2) return;
+    void victorForm.offsetWidth; victorForm.classList.add("compte");
+    victorMinuterie = setTimeout(envoyerAVictor, 1800);
+  }
+  function envoyerAVictor() {
+    annulerEnvoi();
+    var phrase = victorChamp.value.trim();
+    if (!phrase || victorForm.classList.contains("envoi")) return;
+    victorForm.classList.add("envoi"); victorChamp.readOnly = true;
+    var rendu = function (texte, ok, ouvrir) {
+      victorForm.classList.remove("envoi"); victorChamp.readOnly = false;
+      if (ok) { victorChamp.value = ""; victorChamp.blur(); }
+      var bulle = document.getElementById("victor-reponse");
+      bulle.textContent = "";
+      bulle.className = "victor-reponse " + (ok ? "ok" : "erreur");
+      bulle.appendChild(el("span", { class: "victor-avatar mini", "aria-hidden": "true", text: "V" }));
+      bulle.appendChild(el("p", { text: texte }));
+      if (ouvrir && ouvrir.indexOf(location.origin) === 0) bulle.appendChild(el("a", { href: ouvrir.replace(/^[^#]*/, ""), class: "btn-texte", text: "Voir" }));
+      bulle.appendChild(el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { bulle.hidden = true; } }));
+      bulle.hidden = false;
+      clearTimeout(bulle.minuterie); bulle.minuterie = setTimeout(function () { bulle.hidden = true; }, ok ? 9000 : 16000);
+      if (ok) chargerTout().then(dessiner);
+    };
+    db.functions.invoke("ajouter-tache", { body: { texte: phrase, format: "json" } }).then(function (r) {
+      if (r.error && r.error.context && typeof r.error.context.json === "function")
+        return r.error.context.json().then(function (j) { rendu(j.texte || r.error.message, false); });
+      if (r.error) throw r.error;
+      rendu(r.data.texte, true, r.data.ouvrir);
+    }).catch(function (e) { rendu("Victor n'a pas pu traiter la demande : " + e.message, false); });
+  }
+  victorForm.addEventListener("submit", function (ev) { ev.preventDefault(); envoyerAVictor(); });
+  victorChamp.addEventListener("input", function (ev) {
+    var dicte = ev.inputType === "insertFromPaste" || ev.inputType === "insertReplacementText" || ev.inputType === "insertFromDrop" ||
+      (ev.inputType === "insertText" && (ev.data || "").length > 10);
+    if (dicte) programmerEnvoi(); else annulerEnvoi();
+  });
+  victorChamp.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") { ev.preventDefault(); if (victorMinuterie) annulerEnvoi(); else { victorChamp.value = ""; victorChamp.blur(); } }
+    else if (ev.key !== "Enter" && victorMinuterie && !ev.metaKey) annulerEnvoi();
+  });
+  // Wispr Flow colle la dictée là où se trouve le curseur : sans champ actif dans le cockpit, elle part vers Victor.
+  document.addEventListener("paste", function (ev) {
+    var t = ev.target;
+    if (!db || barre.hidden || dialogue.open || dlgRdv.open || (lecteur && lecteur.open)) return;
+    if (t && t.closest && t.closest("input, textarea, select, [contenteditable=''], [contenteditable=true]")) return;
+    var texte = ((ev.clipboardData || window.clipboardData).getData("text") || "").trim();
+    if (!texte || texte.length > 500) return;
+    ev.preventDefault();
+    direAVictor(texte, true);
+  });
 
   function vueAccueil() {
     var f = document.createDocumentFragment(), iso = isoJour(S.jour), n = new Date(), estAuj = memeJour(S.jour, n);
@@ -2518,6 +2689,7 @@
       if (ev.key === "Escape") { t.blur(); if (S.edition) { S.edition = null; dessiner(); } }
       return;
     }
+    if (ev.key === "/") { ev.preventDefault(); victorChamp.focus(); return; }
     if (/^[0-9]$/.test(ev.key)) {
       var i = +ev.key, cible = i === 0 ? "" : S.activites[i - 1] && S.activites[i - 1].id;
       if (cible != null) { location.hash = cible; ev.preventDefault(); }

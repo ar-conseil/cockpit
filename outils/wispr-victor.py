@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Relais Wispr Flow -> Victor, sur le Mac d'Antonin (lancé par launchd, voir outils/wispr-installer.sh).
-# Trois sources : les notes vocales de Wispr (meetings/<id>/refined.ndjson, une fois transcrites : c'est ce qu'utilise
-# Antonin, et son compte Evoa les envoie aussi au logiciel Evoa), le guetteur du presse-papiers (outils/presse-papiers-victor, Wispr colle chaque dictée par le presse-papiers ;
+# Les notes vocales Wispr sont lues en ligne par la fonction wispr-veille (même Mac éteint). Ce relais ne garde que les dictées
+# faites sur le Mac : le guetteur du presse-papiers (outils/presse-papiers-victor, Wispr colle chaque dictée par le presse-papiers ;
 # indispensable avec un compte qui ne garde pas l'historique, comme celui d'Evoa), et l'historique local de Wispr Flow (lecture seule).
 # Une dictée qui commence par « Victor »
 # (« Victor, ajoute… », « Hey Victor … ») est envoyée à l'agent du cockpit (fonction assistant, clé ~/.cockpit/cle-wispr),
@@ -176,7 +176,7 @@ def main():
                 with open(ETAT, "w") as f:
                     f.write(depuis)
                 traiter(texte)
-            surveiller_notes(faites)
+            # Les notes vocales sont lues en ligne (fonction wispr-veille, même Mac éteint) : plus ici, pour ne pas les traiter deux fois.
             if len(vus) > 500:
                 vus = set(list(vus)[-200:])
         except sqlite3.Error as e:

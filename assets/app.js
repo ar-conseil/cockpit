@@ -2721,6 +2721,37 @@
     f.appendChild(sectionBoitesMail());
     return f;
   }
+  // ---------- Wispr Flow : notes vocales « Victor, … » lues en ligne (fonctions wispr-connexion, wispr-veille) ----------
+  function chargerWispr() {
+    if (S.wisprEnCours) return;
+    S.wisprEnCours = true;
+    db.rpc("wispr_etat").then(function (r) { S.wisprEnCours = false; S.wispr = r.data || {}; if (S.route === "agendas" && !enSaisie()) dessiner(); });
+  }
+  function actionWispr(action, bouton) {
+    if (action === "deconnecter" && !confirm("Déconnecter Wispr Flow ? Tes notes « Victor, … » n'arriveront plus dans le cockpit.")) return;
+    bouton.disabled = true;
+    db.functions.invoke("wispr-connexion", { body: { action: action } }).then(function (r) {
+      if (r.error) throw r.error;
+      if (r.data && r.data.url) { location.href = r.data.url; return; }
+      S.wispr = null; chargerWispr(); signaler("Wispr Flow déconnecté");
+    }).catch(function (e) { bouton.disabled = false; signaler("Wispr Flow : " + e.message); });
+  }
+  function sectionWispr() {
+    if (!S.wispr) chargerWispr();
+    var w = S.wispr || {}, ok = w.connecte && !w.erreur;
+    var etat = !S.wispr ? "Lecture…" : !w.connecte ? "Non connecté" : w.erreur ? w.erreur
+      : "Connecté" + (w.derniere_synchro ? " · vérifié à " + hm(new Date(w.derniere_synchro)) : "") + (w.recues ? " · " + w.recues + " demande" + (w.recues > 1 ? "s" : "") + " cette semaine" : "");
+    return el("section", { class: "section wispr" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Wispr Flow" }),
+        el("p", { class: "aside", text: "Dis « Victor, … » dans une note vocale Wispr Flow, même en voiture, téléphone seul : Victor l'exécute dans la minute (tâche, rendez-vous, mail, réponse à valider). Les autres notes ne sont pas lues par le cockpit." })]),
+      el("div", { class: "wispr-ligne" + (ok ? " ok" : w.connecte ? " alerte" : "") }, [
+        el("span", { class: "wispr-pastille", "aria-hidden": "true" }),
+        el("span", { class: "wispr-etat", text: etat }),
+        w.connecte ? el("button", { type: "button", class: "btn-texte", text: w.erreur ? "Reconnecter" : "Déconnecter", onclick: function (ev) { actionWispr(w.erreur ? "connecter" : "deconnecter", ev.currentTarget); } })
+          : el("button", { type: "button", class: "btn-plein", text: "Connecter Wispr Flow", onclick: function (ev) { actionWispr("connecter", ev.currentTarget); } })
+      ])
+    ]);
+  }
   function vueAgendas() {
     var f = document.createDocumentFragment();
     f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
@@ -2732,6 +2763,7 @@
       ])
     ]));
     if (S.message) f.appendChild(el("p", { class: "bandeau", role: "status", text: S.message }));
+    f.appendChild(sectionWispr());
     f.appendChild(el("section", { class: "section" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Comptes connectés" })]),
       el("ul", { class: "agenda" }, S.comptes.filter(function (c) { return c.usage !== "mail"; }).length ? S.comptes.filter(function (c) { return c.usage !== "mail"; }).map(function (c) {

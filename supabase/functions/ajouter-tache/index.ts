@@ -28,7 +28,7 @@ const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "s
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const AVEC_TEAMS = new Set(["palomano"]); // projets dont les rendez-vous Outlook reçoivent un lien Teams
 const SANS_REPLI = new Set(["evoa-courtage"]); // sans agenda propre connecté, le rendez-vous devient une tâche (jamais l'agenda perso)
-const CHAMPS = ["date", "heure", "duree", "lieu", "priorite", "activite", "titre"] as const;
+const CHAMPS = ["date", "heure", "duree", "lieu", "visio", "priorite", "activite", "titre"] as const;
 
 type Activite = { id: string; nom: string; description: string | null; mots_cles: string[] | null };
 type Action = "creer" | "annuler" | "modifier" | "supprimer" | "terminer" | "repondre";
@@ -38,6 +38,7 @@ type Comprise = {
   action: Action; cibles: string[]; champs: string[]; canal: "mail" | "sms" | "whatsapp" | ""; correspondant: string; consigne: string;
   type: "tache" | "rdv"; titre: string; activite_id: string; date: string | null; heure: string | null; heure_fin: string | null;
   duree: number | null; journee: boolean; lieu: string | null; priorite: "haute" | "moyenne" | "basse";
+  visio?: boolean | null; // true : visio demandée (Meet sur Google, Teams sur Outlook) ; false : pas de visio ; null : rien de dit
 };
 type TacheOuverte = { id: string; titre: string; activite_id: string; echeance: string | null; priorite: string };
 type RdvDicte = { dictee: string | null; id: string; titre: string; debut: string; fin: string; journee: boolean; lieu: string | null; agenda: string; agenda_id?: string };
@@ -140,7 +141,7 @@ async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, 
     cibles: z.array(z.string()), champs: z.array(z.enum(CHAMPS)),
     type: z.enum(["tache", "rdv"]), titre: z.string(), activite: z.enum([...acts.map((a) => a.id), ""] as [string, ...string[]]),
     date: z.string(), heure: z.string(), heure_fin: z.string(), duree_minutes: z.number().int(), journee: z.boolean(),
-    lieu: z.string(), priorite: z.enum(["haute", "moyenne", "basse", ""]),
+    lieu: z.string(), priorite: z.enum(["haute", "moyenne", "basse", ""]), visio: z.enum(["oui", "non", ""]),
   });
   const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
   const r = await client.messages.parse({
@@ -169,7 +170,8 @@ async function comprendre(phrase: string, acts: Activite[], aujourdhui: string, 
 - heure : HH:MM (24 h) du début d'un rendez-vous (« 14 h » = 14:00, « 9 h et demie » = 09:30), sinon chaîne vide. heure_fin : HH:MM si une heure de fin est dite, sinon chaîne vide.
 - duree_minutes : durée dite (« pendant 2 h » = 120, « une demi-heure » = 30), sinon 0.
 - journee : true seulement pour un rendez-vous sur toute la journée sans heure.
-- lieu : le lieu dit (« au bureau », « à la Maillerie »), sans la préposition, sinon chaîne vide.
+- lieu : le lieu dit (« au bureau », « à la Maillerie », « 12 rue Nationale à Lille »), sans la préposition, sinon chaîne vide. Jamais « visio », « Teams » ni « en ligne » (ça va dans visio).
+- visio : « oui » si le rendez-vous se fait en visio (« en visio », « une visio », « en Teams », « sur Meet », « en Zoom », « appel vidéo », « en ligne »), « non » s'il est dit en présentiel ou sans visio, sinon chaîne vide. Pour modifier : mets « visio » dans champs si Antonin ajoute ou retire la visio.
 - priorite : « haute » si c'est dit urgent ou important, « basse » si c'est dit sans urgence ou « quand j'ai le temps », sinon « moyenne ». Pour modifier sans changer la priorité : chaîne vide.
 
 Maintenant : ${JOURS[enDate(aujourdhui).getUTCDay()]} ${aujourdhui}, ${heureParis(new Date())} (Europe/Paris). Jours à venir : ${calendrier.join(", ")}.
@@ -194,7 +196,7 @@ ${rdvs.map((e, i) => `- r${i + 1} : ${e.titre}, ${direRdv(e, aujourdhui)}${e.lie
   return { action: o.action, cibles: [...new Set(o.cibles)], champs: o.champs, canal: o.canal, correspondant: o.correspondant.trim(), consigne: o.consigne.trim(),
     type: o.type, titre: o.titre.trim(), activite_id: o.activite || parMotsCles(phrase, acts), date, heure: hh(o.heure), heure_fin: hh(o.heure_fin),
     duree: o.duree_minutes > 0 && o.duree_minutes <= 24 * 60 ? o.duree_minutes : null, journee: o.journee,
-    lieu: o.lieu.trim() || null, priorite: o.priorite || "moyenne" };
+    lieu: o.lieu.trim() || null, priorite: o.priorite || "moyenne", visio: o.visio === "oui" ? true : o.visio === "non" ? false : null };
 }
 
 // ---------- Agendas ----------
@@ -208,6 +210,27 @@ async function agendaPour(activite: string): Promise<Agenda | null> {
   if (duProjet.length && activite !== "perso") return duProjet[0];
   if (SANS_REPLI.has(activite)) return null;
   return liste.find((a) => a.fournisseur === "google" && a.nom === a.email && !a.activite_id) ?? null; // agenda principal (Perso, Berkay, Wealthy…)
+}
+
+// Adresse complète d'un lieu dicté (Base Adresse Nationale, sinon lieu nommé OpenStreetMap / Photon, autour de Lille).
+// Un lieu vague (« bureau », « maison », « club ») ou introuvable est gardé tel quel.
+async function adresseComplete(lieu: string | null): Promise<string | null> {
+  if (!lieu) return null;
+  const l = lieu.trim();
+  if (l.length < 4 || /^(le |la |au |chez )?(bureau|maison|chez moi|domicile|club|salle|t[ée]l[ée]phone|visio|teams|meet|zoom|en ligne)$/i.test(l)) return l;
+  const mots = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).filter((m) => m.length > 2);
+  try {
+    const b = await (await fetch(`https://api-adresse.data.gouv.fr/search/?limit=1&q=${encodeURIComponent(l)}&lat=50.63&lon=3.06`, { signal: AbortSignal.timeout(3000) })).json();
+    const f = b.features?.[0];
+    if (f && f.properties.score >= 0.7 && /housenumber|street/.test(f.properties.type)) return f.properties.label;
+    const p = await (await fetch(`https://photon.komoot.io/api/?limit=1&lang=fr&lat=50.63&lon=3.06&q=${encodeURIComponent(l)}`, { signal: AbortSignal.timeout(3000) })).json();
+    const q = p.features?.[0]?.properties;
+    if (q?.name && mots(q.name).some((m) => mots(l).includes(m))) {
+      const rue = [q.housenumber, q.street].filter(Boolean).join(" "), ville = [q.postcode, q.city || q.town || q.village].filter(Boolean).join(" ");
+      if (rue || ville) return [q.name, rue, ville].filter(Boolean).join(", ");
+    }
+  } catch { /* service d'adresses indisponible : lieu tel que dicté */ }
+  return l;
 }
 
 async function chevauchement(debut: Date, fin: Date, sauf?: string) {
@@ -268,21 +291,24 @@ async function creer(c: Comprise, x: Contexte): Promise<Reponse> {
     const quand = direRdv({ debut: debut.toISOString(), fin: fin.toISOString(), journee: !c.heure }, x.aujourdhui);
     const agenda = await agendaPour(c.activite_id);
     if (agenda) {
-      const teams = agenda.fournisseur === "microsoft" && AVEC_TEAMS.has(c.activite_id) && !!c.heure;
+      // Visio : demandée (Meet sur un agenda Google, Teams sur Outlook) ; sans rien de dit, Teams par défaut pour Palomano sur Outlook
+      const avecVisio = !!c.heure && (c.visio === true || (c.visio == null && agenda.fournisseur === "microsoft" && AVEC_TEAMS.has(c.activite_id)));
+      const visio = avecVisio ? (agenda.fournisseur === "google" ? "meet" : "teams") : null, nomVisio = visio === "meet" ? "Google Meet" : "Teams";
+      const lieu = visio && c.lieu && /visio|teams|meet|zoom|en ligne/i.test(c.lieu) ? null : await adresseComplete(c.lieu);
       const conflit = c.heure ? await chevauchement(debut, fin) : null;
-      const rdv = { action: "creer", agenda_id: agenda.id, titre, debut: debut.toISOString(), fin: fin.toISOString(), journee: !c.heure, lieu: c.lieu,
+      const rdv = { action: "creer", agenda_id: agenda.id, titre, debut: debut.toISOString(), fin: fin.toISOString(), journee: !c.heure, lieu,
         ...(agenda.activite_id !== c.activite_id ? { activite_forcee: c.activite_id } : {}) };
-      let sansTeams = false, ev = null;
+      let sansVisio = false, ev = null;
       if (!x.essai) {
-        try { ev = (await agendaEcrire({ ...rdv, teams })).evenement; }
+        try { ev = (await agendaEcrire({ ...rdv, ...(visio ? { visio } : {}) })).evenement; }
         catch (e) {
-          if (!teams) { console.error("ajouter-tache : rendez-vous", message(e)); return { texte: `Le rendez-vous n'a pas pu être créé dans ${agenda.nom}, réessayer.`, status: 502 }; }
-          try { ev = (await agendaEcrire(rdv)).evenement; sansTeams = true; } // Teams refusé par le compte : rendez-vous créé sans lien
+          if (!visio) { console.error("ajouter-tache : rendez-vous", message(e)); return { texte: `Le rendez-vous n'a pas pu être créé dans ${agenda.nom}, réessayer.`, status: 502 }; }
+          try { ev = (await agendaEcrire(rdv)).evenement; sansVisio = true; } // visio refusée par le compte : rendez-vous créé sans lien
           catch (e2) { console.error("ajouter-tache : rendez-vous", message(e2)); return { texte: `Le rendez-vous n'a pas pu être créé dans ${agenda.nom}, réessayer.`, status: 502 }; }
         }
       }
-      const ou = `${nom} (${agenda.fournisseur === "microsoft" ? "Outlook" : "agenda " + agenda.nom}${teams ? (sansTeams ? ", sans lien Teams" : ", lien Teams") : ""})`;
-      return { texte: `${pre || "Rendez-vous ajouté : "}${[titre, ou, quand, c.lieu].filter(Boolean).join(" · ")}${conflit ? `. Attention : chevauche « ${conflit} »` : ""}`,
+      const ou = `${nom} (${agenda.fournisseur === "microsoft" ? "Outlook" : "agenda " + agenda.nom}${visio ? (sansVisio ? `, sans lien ${nomVisio}` : `, lien ${nomVisio}`) : ""})`;
+      return { texte: `${pre || "Rendez-vous ajouté : "}${[titre, ou, quand, lieu].filter(Boolean).join(" · ")}${ev?.visio ? ` · ${ev.visio}` : ""}${conflit ? `. Attention : chevauche « ${conflit} »` : ""}`,
         status: 201, journal: { agenda_id: agenda.id, evenement_id: ev?.id ?? null, evenement_externe: ev?.externe_id ?? null, evenement_titre: titre } };
     }
     // Pas d'agenda modifiable pour ce projet (Evoa, tant que son Outlook n'est pas connecté) : une tâche « À caler » à la date dite
@@ -368,16 +394,25 @@ async function agirSurCible(c: Comprise, x: Contexte, taches: TacheOuverte[], rd
   else fin = new Date(debut.getTime() + (r!.journee ? 3600e3 : ancienneFin.getTime() - ancienDebut.getTime()));
   if (fin <= debut) fin = new Date(debut.getTime() + 3600e3);
   const titre = c.champs.includes("titre") && c.titre ? c.titre.slice(0, 200) : r!.titre;
-  const lieu = c.champs.includes("lieu") ? c.lieu : r!.lieu;
-  const change = debut.getTime() !== ancienDebut.getTime() || fin.getTime() !== ancienneFin.getTime() || titre !== r!.titre || lieu !== r!.lieu;
+  const lieu = c.champs.includes("lieu") ? await adresseComplete(c.lieu) : r!.lieu;
+  // Visio ajoutée ou retirée : Meet sur un agenda Google, Teams sur Outlook
+  let visio: "meet" | "teams" | null | undefined;
+  if (c.champs.includes("visio") && c.visio != null && !journee) {
+    const { data: evx } = await db.from("evenements").select("agendas(comptes_agenda(fournisseur))").eq("id", r!.id).maybeSingle();
+    // deno-lint-ignore no-explicit-any
+    visio = c.visio ? ((evx as any)?.agendas?.comptes_agenda?.fournisseur === "google" ? "meet" : "teams") : null;
+  }
+  const change = debut.getTime() !== ancienDebut.getTime() || fin.getTime() !== ancienneFin.getTime() || titre !== r!.titre || lieu !== r!.lieu || visio !== undefined;
   if (!change) return { texte: `Je n'ai pas compris quoi changer sur « ${r!.titre} » : rien de changé.` };
   const conflit = journee ? null : await chevauchement(debut, fin, r!.id);
   let ev = null;
   if (!x.essai) {
-    ev = (await agendaEcrire({ action: "modifier", evenement_id: r!.id, titre, debut: debut.toISOString(), fin: fin.toISOString(), journee, lieu })).evenement;
+    ev = (await agendaEcrire({ action: "modifier", evenement_id: r!.id, titre, debut: debut.toISOString(), fin: fin.toISOString(), journee, lieu,
+      ...(visio !== undefined ? { visio } : {}) })).evenement;
     if (ev && r!.dictee) await db.from("dictees").update({ evenement_id: ev.id, evenement_externe: ev.externe_id, evenement_titre: titre }).eq("id", r!.dictee);
   }
-  const apres = [titre, direRdv({ debut: debut.toISOString(), fin: fin.toISOString(), journee }, x.aujourdhui), lieu].filter(Boolean).join(" · ");
+  const apres = [titre, direRdv({ debut: debut.toISOString(), fin: fin.toISOString(), journee }, x.aujourdhui), lieu,
+    visio === undefined ? null : visio ? `visio ${visio === "meet" ? "Google Meet" : "Teams"}${ev?.visio ? ` ${ev.visio}` : ""}` : "sans visio"].filter(Boolean).join(" · ");
   return { texte: `${pre}Rendez-vous modifié : ${apres} (était ${direRdv(r!, x.aujourdhui)})${conflit ? `. Attention : chevauche « ${conflit} »` : ""}` };
 }
 

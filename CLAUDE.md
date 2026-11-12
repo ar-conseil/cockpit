@@ -123,3 +123,9 @@ ne garde pas l'historique), et lit aussi en lecture seule
 l'historique local de Wispr Flow (`~/Library/Application Support/Wispr Flow/flow.sqlite`, table History) toutes les 2 s. Une dictée qui commence
 par « Victor » part à `assistant` (en-tête x-cle-wispr = secret CLE_WISPR, copie locale ~/.cockpit/cle-wispr) ; réponse en notification macOS.
 Les autres dictées ne quittent pas le Mac. Avec la clé, `assistant` appelle `mail` / `chercher-mails` avec la clé de synchro.
+
+## Wispr Flow en ligne (notes vocales, sans le Mac)
+Page Agendas › Wispr Flow : OAuth PKCE (`wispr-connexion`, client décrit par `wispr/client.json` publié sur GitHub Pages, comme le connecteur
+du logiciel Evoa). `wispr-veille` (cron `wispr`, chaque minute) lit les nouvelles notes sur le serveur MCP de Wispr (search_meetings,
+get_meeting) ; une note qui commence par « Victor » (après « Speaker 1: ») part à `assistant` (x-cle-wispr). Notes vues : `wispr_vues`.
+Le relais du Mac ne traite plus que les dictées (presse-papiers, historique). Le logiciel Evoa ignore les notes « Victor » (app/wispr.py, pour_victor).

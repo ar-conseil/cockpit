@@ -1266,3 +1266,10 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .rejoindre { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; font: 600 13px var(--sans); text-decoration: none; color: #fff;
   background: linear-gradient(135deg, #204e99, #7a5cf0); }
 .moment .rejoindre { justify-self: start; margin-top: 6px; }
+
+/* Wispr Flow (page Agendas) */
+.wispr-ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 16px; border-radius: 12px; background: var(--papier-2); }
+.wispr-pastille { width: 9px; height: 9px; border-radius: 50%; background: var(--encre-3); }
+.wispr-ligne.ok .wispr-pastille { background: #2f9e62; box-shadow: 0 0 0 4px color-mix(in srgb, #2f9e62 18%, transparent); }
+.wispr-ligne.alerte .wispr-pastille { background: var(--rouge); }
+.wispr-etat { flex: 1; min-width: 200px; font-size: 14px; color: var(--encre-2); }

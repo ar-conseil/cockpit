@@ -1,0 +1,10 @@
+{
+  "client_id": "https://ar-conseil.github.io/cockpit/wispr/client.json",
+  "client_name": "Cockpit d'Antonin Rouzier",
+  "client_uri": "https://ar-conseil.github.io/cockpit/",
+  "redirect_uris": ["https://piuqaqjdegkwwhlwputf.supabase.co/functions/v1/wispr-connexion"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "scope": "openid offline_access"
+}

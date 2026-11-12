@@ -11,7 +11,8 @@ export const lienVisio = (...t: (string | null | undefined)[]) =>
   /https?:\/\/(?:meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|[\w.-]*zoom\.us|[\w.-]*webex\.com|whereby\.com|meet\.jit\.si)\/[^\s<>"')]+/i.exec(t.filter(Boolean).join(" "))?.[0] ?? null;
 // visio : « meet » (agendas Google), « teams » (Outlook), null pour retirer la visio, absent pour ne rien changer. teams: true = visio « teams ».
 // invites : adresses à ajouter aux participants (l'agenda leur envoie l'invitation) ; ceux déjà invités sont gardés.
-export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null; teams?: boolean; visio?: "meet" | "teams" | null; invites?: string[] };
+export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null; teams?: boolean; visio?: "meet" | "teams" | null; invites?: string[]; retirer?: string[] };
+// retirer : adresses à enlever des participants (l'agenda leur envoie l'annulation).
 
 const env = (k: string) => Deno.env.get(k) ?? "";
 export const urlRetourOAuth = () => `${env("SUPABASE_URL")}/functions/v1/agenda-connexion`;
@@ -195,13 +196,16 @@ export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, acti
     }
     if (visio === null && action === "modifier") corps.conferenceData = null;
     const invites = (r!.invites ?? []).map((x) => x.trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
-    if (invites.length) {
+    const retirer = new Set((r!.retirer ?? []).map((x) => x.trim().toLowerCase()));
+    if (invites.length || retirer.size) {
       // deno-lint-ignore no-explicit-any
-      const avant: any[] = action === "modifier" ? ((await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}?fields=attendees`)).attendees ?? []) : [];
+      const avant: any[] = (action === "modifier" ? ((await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}?fields=attendees`)).attendees ?? []) : [])
+        // deno-lint-ignore no-explicit-any
+        .filter((a: any) => !retirer.has(String(a.email).toLowerCase()));
       const deja = new Set(avant.map((a) => String(a.email).toLowerCase()));
       corps.attendees = [...avant, ...invites.filter((x) => !deja.has(x)).map((email) => ({ email }))];
     }
-    const conf = [visio !== undefined ? "conferenceDataVersion=1" : "", invites.length ? "sendUpdates=all" : ""].filter(Boolean).join("&");
+    const conf = [visio !== undefined ? "conferenceDataVersion=1" : "", invites.length || retirer.size ? "sendUpdates=all" : ""].filter(Boolean).join("&");
     const j = action === "creer"
       ? await appel(jeton, base + (conf ? "?" + conf : ""), { method: "POST", body: JSON.stringify(corps) })
       : await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}${conf ? "?" + conf : ""}`, { method: "PATCH", body: JSON.stringify(corps) });
@@ -216,9 +220,12 @@ export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, acti
     ...(visio === "teams" ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : visio === null && action === "modifier" ? { isOnlineMeeting: false } : {}) } as Record<string, unknown>;
   // Invités : Outlook envoie l'invitation dès qu'un participant est ajouté
   const invitesO = (r!.invites ?? []).map((x) => x.trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
-  if (invitesO.length) {
+  const retirerO = new Set((r!.retirer ?? []).map((x) => x.trim().toLowerCase()));
+  if (invitesO.length || retirerO.size) {
     // deno-lint-ignore no-explicit-any
-    const avant: any[] = action === "modifier" ? ((await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}?$select=attendees`)).attendees ?? []) : [];
+    const avant: any[] = (action === "modifier" ? ((await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}?$select=attendees`)).attendees ?? []) : [])
+      // deno-lint-ignore no-explicit-any
+      .filter((a: any) => !retirerO.has(String(a.emailAddress?.address).toLowerCase()));
     const deja = new Set(avant.map((a) => String(a.emailAddress?.address).toLowerCase()));
     corps.attendees = [...avant, ...invitesO.filter((x) => !deja.has(x)).map((address) => ({ emailAddress: { address }, type: "required" }))];
   }

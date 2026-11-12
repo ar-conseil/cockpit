@@ -46,7 +46,8 @@ Deno.serve(async (req) => {
     const compte = ag.comptes_agenda as unknown as Compte;
     const visio = b.teams ? "teams" : b.visio === "meet" || b.visio === "teams" ? b.visio : b.visio === null ? null : undefined, sortie: { visio?: string | null } = {};
     const id = await ecrireRdv(compte, await jetonAcces(db, compte), ag.externe_id!, action, (ev?.externe_id as string) ?? null,
-      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, visio, invites: Array.isArray(b.invites) ? b.invites.map(String).slice(0, 20) : undefined }, sortie);
+      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, visio, invites: Array.isArray(b.invites) ? b.invites.map(String).slice(0, 20) : undefined,
+        retirer: Array.isArray(b.retirer) ? b.retirer.map(String).slice(0, 20) : undefined }, sortie);
 
     if (action === "supprimer") {
       await db.from("evenements").delete().eq("id", ev!.id);

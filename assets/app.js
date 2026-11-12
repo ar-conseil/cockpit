@@ -2586,7 +2586,7 @@
     var liste = S.signatures || [];
     return el("section", { class: "section signatures" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Signatures" }),
-        el("p", { class: "aside", text: "Victor signe avec la signature de la boîte d'où part le message : réponses préparées en brouillon et invitations. Modifie-les ici." })]),
+        el("p", { class: "aside", text: "Victor signe avec la signature de la boîte d'où part le message : réponses préparées en brouillon et invitations. Les mails partent avec la version mise en forme ; la version texte sert aux messageries qui n'affichent pas les images." })]),
       el("div", { class: "signatures-grille" }, liste.map(function (x) {
         var zone = el("textarea", { class: "notes", rows: String(Math.min(9, x.texte.split("\n").length + 1)), "aria-label": "Signature " + x.boite });
         zone.value = x.texte;
@@ -2596,9 +2596,14 @@
             .then(function () { x.texte = zone.value.trim(); signaler("Signature enregistrée"); });
         } });
         zone.addEventListener("input", function () { bouton.disabled = zone.value.trim() === x.texte; });
+        // Aperçu de la signature mise en forme (celle des mails), dans un cadre isolé sans scripts
+        var apercu = x.html ? el("iframe", { class: "signature-apercu", title: "Aperçu de la signature", sandbox: "", loading: "lazy" }) : null;
+        if (apercu) apercu.srcdoc = '<!doctype html><meta charset="utf-8"><base target="_blank"><body style="margin:14px;background:#fff">' + x.html + "</body>";
+        if (apercu) apercu.addEventListener("load", function () { try { apercu.style.height = (apercu.contentDocument.body.scrollHeight + 28) + "px"; } catch (e) { /* cadre isolé */ } });
         return el("div", { class: "signature" }, [
           el("p", { class: "signature-boite" }, [el("b", { text: NOMS_BOITES[x.boite] || (/palomano/.test(x.boite) ? "Palomano" : x.boite) }), el("span", { text: x.boite })]),
-          zone, bouton]);
+          apercu,
+          el("details", { class: "signature-texte" }, [el("summary", { text: "Version texte (mails sans mise en forme)" }), zone, bouton])]);
       }))
     ]);
   }

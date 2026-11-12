@@ -7,3 +7,5 @@ create table if not exists public.signatures (
 );
 alter table public.signatures enable row level security;
 create policy signatures_proprietaire on public.signatures for all to authenticated using (true) with check (true);
+-- Version mise en forme (HTML pour les mails ; images dans le stockage public « signatures »)
+alter table public.signatures add column if not exists html text;

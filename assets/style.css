@@ -1281,3 +1281,7 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .signature-boite b { font-size: 14px; } .signature-boite span { font-size: 12.5px; color: var(--encre-3); }
 .signature textarea { width: 100%; font: 13.5px/1.5 var(--sans); white-space: pre-wrap; background: var(--blanc); }
 .signature .btn-contour { justify-self: start; }
+.signatures-grille { grid-template-columns: 1fr; }
+.signature-apercu { width: 100%; min-height: 150px; border: 0; border-radius: 10px; background: #fff; box-shadow: 0 0 0 1px var(--filet); }
+.signature-texte summary { cursor: pointer; font-size: 13px; color: var(--encre-2); }
+.signature-texte[open] { display: grid; gap: 8px; }

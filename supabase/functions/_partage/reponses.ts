@@ -111,23 +111,53 @@ ${canal === "mail"
 const b64url = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const motCode = (s: string) => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(s)))}?=`;
 const objetReponse = (o: string) => /^re\s*:/i.test(o.trim()) ? o.trim() : `Re: ${o.trim()}`;
-function brut(de: string, a: string, objet: string, texte: string, messageId: string, references: string) {
-  const corps = btoa(String.fromCharCode(...new TextEncoder().encode(texte))).replace(/(.{76})/g, "$1\r\n");
+const b64l = (t: string) => btoa(String.fromCharCode(...new TextEncoder().encode(t))).replace(/(.{76})/g, "$1\r\n");
+function brut(de: string, a: string, objet: string, texte: string, messageId: string, references: string, html?: string | null) {
+  const f = "alt-" + crypto.randomUUID();
+  const corps = html
+    ? [`Content-Type: multipart/alternative; boundary="${f}"`, "", `--${f}`, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", b64l(texte),
+       `--${f}`, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", b64l(html), `--${f}--`, ""]
+    : ["Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", b64l(texte)];
   return b64url([`From: ${de}`, `To: ${a}`, `Subject: ${motCode(objet)}`,
     ...(messageId ? [`In-Reply-To: ${messageId}`, `References: ${[references, messageId].filter(Boolean).join(" ")}`] : []),
-    "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", corps].join("\r\n"));
+    "MIME-Version: 1.0", ...corps].join("\r\n"));
+}
+
+// Version mise en forme d'un message : le texte en paragraphes, puis la signature HTML de la boîte (table signatures)
+// à la place de sa version texte. null si la boîte n'a pas de signature HTML.
+const echapper = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// deno-lint-ignore no-explicit-any
+export async function messageHtml(db: any, boite: string, texte: string): Promise<string | null> {
+  const { data } = await db.from("signatures").select("texte, html").eq("boite", boite.toLowerCase()).maybeSingle();
+  if (!data?.html) return null;
+  const sigTexte = (data.texte ?? "").trim();
+  let corps = texte.trimEnd();
+  if (sigTexte && corps.endsWith(sigTexte)) corps = corps.slice(0, -sigTexte.length).trimEnd();
+  const paragraphes = corps.split(/\n{2,}/).map((p) => `<p style="margin:0 0 12px">${echapper(p).replace(/\n/g, "<br>")}</p>`).join("");
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111">${paragraphes}<div style="padding-top:8px">${data.html}</div></div>`;
+}
+// Outlook : brouillon de réponse dont le corps est le message mis en forme, au-dessus du mail cité
+async function corpsOutlook(jeton: string, brouillonId: string, html: string) {
+  const d = await appel(jeton, `${GRAPH}/messages/${encodeURIComponent(brouillonId)}?$select=body`);
+  const avant = String(d.body?.content ?? "");
+  const i = avant.search(/<body[^>]*>/i);
+  const contenu = i >= 0 ? avant.replace(/<body[^>]*>/i, (b) => `${b}${html}<br>`) : `${html}<br>${avant}`;
+  await appel(jeton, `${GRAPH}/messages/${encodeURIComponent(brouillonId)}`, { method: "PATCH", body: JSON.stringify({ body: { contentType: "html", content: contenu } }) });
 }
 
 export type Brouillon = { brouillon_id: string; destinataire: string; objet: string };
-export async function deposerBrouillon(db: unknown, m: MailTrouve, texte: string): Promise<Brouillon> {
+// deno-lint-ignore no-explicit-any
+export async function deposerBrouillon(db: any, m: MailTrouve, texte: string): Promise<Brouillon> {
   const jeton = await jetonAcces(db, m.compte);
+  const html = await messageHtml(db, m.compte.email, texte);
   if (m.compte.fournisseur === "google") {
     const objet = objetReponse(m.objet);
     const d = await appel(jeton, `${GMAIL}/drafts`, { method: "POST", body: JSON.stringify({
-      message: { threadId: m.fil, raw: brut(m.compte.email, m.repondreA, objet, texte, m.messageId, m.references) } }) });
+      message: { threadId: m.fil, raw: brut(m.compte.email, m.repondreA, objet, texte, m.messageId, m.references, html) } }) });
     return { brouillon_id: d.id, destinataire: m.repondreA, objet };
   }
-  const d = await appel(jeton, `${GRAPH}/messages/${encodeURIComponent(m.id)}/createReply`, { method: "POST", body: JSON.stringify({ comment: texte }) });
+  const d = await appel(jeton, `${GRAPH}/messages/${encodeURIComponent(m.id)}/createReply`, { method: "POST", body: JSON.stringify(html ? {} : { comment: texte }) });
+  if (html) await corpsOutlook(jeton, d.id, html);
   return { brouillon_id: d.id, destinataire: (d.toRecipients ?? []).map((x: { emailAddress: { address: string } }) => x.emailAddress.address).join(", ") || m.repondreA, objet: d.subject ?? m.objet };
 }
 
@@ -148,11 +178,13 @@ export async function modifierBrouillon(db: any, r: Reponse, texte: string): Pro
     const m = await appel(jeton, `${GMAIL}/messages/${r.mail_id}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References`);
     const h = (k: string) => (m.payload?.headers ?? []).find((x: { name: string }) => x.name.toLowerCase() === k)?.value ?? "";
     await appel(jeton, `${GMAIL}/drafts/${r.brouillon_id}`, { method: "PUT", body: JSON.stringify({
-      message: { threadId: r.fil_id, raw: brut(c.email, r.destinataire, r.objet, texte, h("message-id"), h("references")) } }) });
+      message: { threadId: r.fil_id, raw: brut(c.email, r.destinataire, r.objet, texte, h("message-id"), h("references"), await messageHtml(db, c.email, texte)) } }) });
     return r.brouillon_id;
   }
   await appel(jeton, `${GRAPH}/messages/${encodeURIComponent(r.brouillon_id)}`, { method: "DELETE" }).catch(() => null);
-  const d = await appel(jeton, `${GRAPH}/messages/${encodeURIComponent(r.mail_id)}/createReply`, { method: "POST", body: JSON.stringify({ comment: texte }) });
+  const html = await messageHtml(db, c.email, texte);
+  const d = await appel(jeton, `${GRAPH}/messages/${encodeURIComponent(r.mail_id)}/createReply`, { method: "POST", body: JSON.stringify(html ? {} : { comment: texte }) });
+  if (html) await corpsOutlook(jeton, d.id, html);
   return d.id;
 }
 

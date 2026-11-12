@@ -5,6 +5,7 @@
 // Session du cockpit ou clé de synchro (assistant).  POST { evenement_id, emails: [..], annuler? } -> { ok, envoye_a }
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { base64Lignes, enteteUtf8, envoyerSmtp } from "../_partage/smtp.ts";
+import { messageHtml } from "../_partage/reponses.ts";
 import { connexionImap } from "../_partage/mails.ts";
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cle-synchro",
@@ -63,16 +64,18 @@ Deno.serve(async (req) => {
   const quand = ev.journee ? new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long" }).format(new Date(ev.debut))
     : `${quandParis(ev.debut)} – ${heureParis(ev.fin)}`;
   const objet = `${annuler ? "Annulé" : "Invitation"} : ${ev.titre} @ ${quand}`;
-  const { data: sig } = await db.from("signatures").select("texte").eq("boite", de.toLowerCase()).maybeSingle();
+  const { data: sig } = await db.from("signatures").select("texte, html").eq("boite", de.toLowerCase()).maybeSingle();
   const signature = sig?.texte?.trim() || NOM;     // signature de la boîte Harnes (page Tri des boîtes du cockpit)
   const texte = annuler ? `Bonjour,\n\nLe rendez-vous « ${ev.titre} » du ${quand} est annulé.\n\nBien à vous,\n\n${signature}`
     : `Bonjour,\n\nJe vous invite à « ${ev.titre} », ${quand} (heure de Paris).${lien ? `\n\nRejoindre la visio : ${lien}` : ""}${ev.lieu ? `\nLieu : ${ev.lieu}` : ""}\n\nBien à vous,\n\n${signature}`;
+  const html = await messageHtml(db, de, texte);       // version mise en forme, avec la signature HTML du club
   const frontiere = "cockpit-" + crypto.randomUUID();
   const message = [
     `From: ${enteteUtf8(NOM)} <${de}>`, `To: ${emails.join(", ")}`, `Subject: ${enteteUtf8(objet)}`, `Date: ${new Date().toUTCString().replace("GMT", "+0000")}`,
     `Message-ID: <${crypto.randomUUID()}@harnes-volleyball.fr>`, "MIME-Version: 1.0", `Content-Type: multipart/mixed; boundary="${frontiere}"`, "",
     `--${frontiere}`, `Content-Type: multipart/alternative; boundary="${frontiere}-alt"`, "",
     `--${frontiere}-alt`, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", base64Lignes(texte), "",
+    ...(html ? [`--${frontiere}-alt`, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", base64Lignes(html), ""] : []),
     `--${frontiere}-alt`, `Content-Type: text/calendar; charset=UTF-8; method=${methode}`, "Content-Transfer-Encoding: base64", "", base64Lignes(lignes), "",
     `--${frontiere}-alt--`, "",
     `--${frontiere}`, `Content-Type: application/ics; name="invitation.ics"`, `Content-Disposition: attachment; filename="invitation.ics"`,

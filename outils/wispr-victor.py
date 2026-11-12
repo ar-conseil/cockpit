@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Relais Wispr Flow -> Victor, sur le Mac d'Antonin (lancé par launchd, voir outils/wispr-installer.sh).
-# Deux sources : le guetteur du presse-papiers (outils/presse-papiers-victor, Wispr colle chaque dictée par le presse-papiers ;
+# Trois sources : les notes vocales de Wispr (meetings/<id>/refined.ndjson, une fois transcrites : c'est ce qu'utilise
+# Antonin, et son compte Evoa les envoie aussi au logiciel Evoa), le guetteur du presse-papiers (outils/presse-papiers-victor, Wispr colle chaque dictée par le presse-papiers ;
 # indispensable avec un compte qui ne garde pas l'historique, comme celui d'Evoa), et l'historique local de Wispr Flow (lecture seule).
 # Une dictée qui commence par « Victor »
 # (« Victor, ajoute… », « Hey Victor … ») est envoyée à l'agent du cockpit (fonction assistant, clé ~/.cockpit/cle-wispr),
@@ -11,6 +12,8 @@ from datetime import datetime, timezone
 
 BASE = os.path.expanduser("~/Library/Application Support/Wispr Flow/flow.sqlite")
 ETAT = os.path.expanduser("~/.cockpit/wispr-victor.etat")
+NOTES_FAITES = os.path.expanduser("~/.cockpit/wispr-victor.notes")
+DOSSIER_NOTES = os.path.expanduser("~/Library/Application Support/Wispr Flow/meetings")
 JOURNAL = os.path.expanduser("~/.cockpit/wispr-victor.log")
 URL = "https://piuqaqjdegkwwhlwputf.supabase.co/functions/v1/assistant"
 APPEL = re.compile(r"^\s*(?:(?:hey|hé|eh|ok|okay|dis|allo|allô)[\s,]+)?victor\b[\s,.:;!?-]*", re.I)
@@ -91,6 +94,53 @@ def guetter_presse_papiers():
         time.sleep(5)
 
 
+# ---------- Notes vocales : traitées une seule fois, dès que leur transcription est prête ----------
+def notes_faites():
+    try:
+        return set(open(NOTES_FAITES).read().split())
+    except FileNotFoundError:
+        return None
+
+
+def marquer_note(ident, faites):
+    faites.add(ident)
+    with open(NOTES_FAITES, "w") as f:
+        f.write("\n".join(sorted(faites)))
+
+
+def transcription(ident):
+    chemin = os.path.join(DOSSIER_NOTES, ident, "refined.ndjson")
+    if not os.path.exists(chemin):
+        return None
+    morceaux = []
+    with open(chemin) as f:
+        for ligne in f:
+            try:
+                morceaux.append(json.loads(ligne).get("text", "").strip())
+            except ValueError:
+                continue
+    return " ".join(m for m in morceaux if m)
+
+
+def surveiller_notes(faites):
+    con = sqlite3.connect(f"file:{BASE}?mode=ro", uri=True, timeout=2)
+    try:
+        lignes = con.execute("select id from Meetings where isDeleted = 0 and transcriptReady = 1 "
+                             "and createdAt > datetime('now', '-2 days') order by createdAt").fetchall()
+    finally:
+        con.close()
+    for (ident,) in lignes:
+        if ident in faites:
+            continue
+        texte = transcription(ident)
+        if texte is None:
+            continue
+        marquer_note(ident, faites)
+        if APPEL.match(texte):
+            noter("note vocale pour Victor")
+            threading.Thread(target=traiter, args=(texte,), daemon=True).start()
+
+
 def lire_depuis(depuis):
     con = sqlite3.connect(f"file:{BASE}?mode=ro", uri=True, timeout=2)
     try:
@@ -107,6 +157,13 @@ def main():
     else:  # premier lancement : seules les dictées à venir comptent
         depuis = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.000 +00:00")
     vus = set()
+    faites = notes_faites()
+    if faites is None:  # premier lancement : les notes déjà enregistrées ne sont pas rejouées
+        con = sqlite3.connect(f"file:{BASE}?mode=ro", uri=True, timeout=2)
+        faites = {i for (i,) in con.execute("select id from Meetings").fetchall()}
+        con.close()
+        with open(NOTES_FAITES, "w") as f:
+            f.write("\n".join(sorted(faites)))
     noter("relais démarré")
     threading.Thread(target=guetter_presse_papiers, daemon=True).start()
     while True:
@@ -119,6 +176,7 @@ def main():
                 with open(ETAT, "w") as f:
                     f.write(depuis)
                 traiter(texte)
+            surveiller_notes(faites)
             if len(vus) > 500:
                 vus = set(list(vus)[-200:])
         except sqlite3.Error as e:

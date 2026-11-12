@@ -11,7 +11,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method === "GET") return json({ cle_publique: Deno.env.get("VAPID_PUBLIQUE") ?? null });
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-  const { data: u } = await db.auth.getUser((req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""));
-  if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  const interne = !!Deno.env.get("CLE_SYNCHRO") && req.headers.get("x-cle-synchro") === Deno.env.get("CLE_SYNCHRO");
+  if (!interne) {
+    const { data: u } = await db.auth.getUser((req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""));
+    if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  }
   return json(await notifier(db, "Victor", "Les notifications sont activées : je te préviens ici dès que j'ai fini une demande."));
 });

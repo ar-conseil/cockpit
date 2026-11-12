@@ -11,7 +11,7 @@ export async function notifier(db: any, titre: string, corps: string, url = "htt
   if (!pub || !priv) return { envoyees: 0, raison: "clés absentes" };
   webpush.setVapidDetails("https://ar-conseil.github.io/cockpit/", pub, priv);
   const { data } = await db.from("push_abonnements").select("endpoint, abonnement");
-  let envoyees = 0;
+  let envoyees = 0; const erreurs: string[] = [];
   for (const a of data ?? []) {
     try {
       await webpush.sendNotification(a.abonnement, JSON.stringify({ titre, corps: sansMarkdown(corps).slice(0, 300), url }), { TTL: 3600, urgency: "high" });
@@ -19,8 +19,8 @@ export async function notifier(db: any, titre: string, corps: string, url = "htt
     } catch (e) {
       const code = (e as { statusCode?: number }).statusCode;
       if (code === 404 || code === 410) await db.from("push_abonnements").delete().eq("endpoint", a.endpoint); // appareil désabonné
-      else console.error("notification :", code, (e as Error).message);
+      else { console.error("notification :", code, (e as Error).message); erreurs.push(`${code ?? "?"} ${(e as Error).message}`.slice(0, 200)); }
     }
   }
-  return { envoyees };
+  return { envoyees, abonnes: (data ?? []).length, erreurs };
 }

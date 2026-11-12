@@ -2597,7 +2597,7 @@
         } });
         zone.addEventListener("input", function () { bouton.disabled = zone.value.trim() === x.texte; });
         // Aperçu de la signature mise en forme (celle des mails), dans un cadre isolé sans scripts
-        var apercu = x.html ? el("iframe", { class: "signature-apercu", title: "Aperçu de la signature", sandbox: "", loading: "lazy" }) : null;
+        var apercu = x.html ? el("iframe", { class: "signature-apercu", title: "Aperçu de la signature", sandbox: "allow-same-origin allow-popups" }) : null;
         if (apercu) apercu.srcdoc = '<!doctype html><meta charset="utf-8"><base target="_blank"><body style="margin:14px;background:#fff">' + x.html + "</body>";
         if (apercu) apercu.addEventListener("load", function () { try { apercu.style.height = (apercu.contentDocument.body.scrollHeight + 28) + "px"; } catch (e) { /* cadre isolé */ } });
         return el("div", { class: "signature" }, [

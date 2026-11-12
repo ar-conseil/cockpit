@@ -809,7 +809,8 @@
     if (courant) lignes.push(el("div", { class: "moment actuel", style: "--c:" + couleur(courant.activite) }, [
       el("span", { class: "etiquette", text: "En cours · encore " + duree(new Date(courant.ev.fin) - n) }),
       el("button", { type: "button", onclick: function () { ouvrirRdv(courant.ev); } }, [courant.ev.titre || "(sans titre)"]),
-      el("small", { text: nomActivite(courant.activite) + " · jusqu'à " + hm(new Date(courant.ev.fin)) })]));
+      el("small", { text: nomActivite(courant.activite) + " · jusqu'à " + hm(new Date(courant.ev.fin)) }),
+      visioDe(courant.ev) ? el("a", { class: "rejoindre", href: visioDe(courant.ev), target: "_blank", rel: "noopener", text: "Rejoindre " + nomVisio(visioDe(courant.ev)) + " ↗" }) : null]));
     else if (bloc) lignes.push(el("div", { class: "moment moment-prevu", style: "--c:" + couleur(bloc.activite) }, [
       el("span", { class: "etiquette", text: "Créneau prévu · jusqu'à " + hTexte(bloc.e) }), el("b", { text: bloc.libelle }),
       el("small", { text: bloc.activite ? nomActivite(bloc.activite) : "Semaine type" })]));
@@ -819,7 +820,8 @@
       lignes.push(el("div", { class: "moment suivant" + (dans < 15 * 60000 ? " imminent" : ""), style: "--c:" + couleur(actEv(suivant)) }, [
         el("span", { class: "etiquette", text: memeJour(d, n) ? "Ensuite · dans " + duree(dans) : "Prochain rendez-vous · " + quand(d) }),
         el("button", { type: "button", onclick: function () { ouvrirRdv(suivant); } }, [suivant.titre || "(sans titre)"]),
-        el("small", { text: hm(d) + " · " + nomActivite(actEv(suivant)) + (suivant.lieu ? " · " + suivant.lieu.split("\n")[0] : "") })]));
+        el("small", { text: hm(d) + " · " + nomActivite(actEv(suivant)) + (visioDe(suivant) ? " · " + nomVisio(visioDe(suivant)) : suivant.lieu ? " · " + suivant.lieu.split("\n")[0] : "") }),
+        visioDe(suivant) && dans < 30 * 60000 ? el("a", { class: "rejoindre", href: visioDe(suivant), target: "_blank", rel: "noopener", text: "Rejoindre " + nomVisio(visioDe(suivant)) + " ↗" }) : null]));
     }
     return el("div", { class: "moments", id: "bloc-maintenant" }, lignes);
   }
@@ -2305,15 +2307,15 @@
     $("rdv-jour").value = isoJour(d);
     $("rdv-journee").checked = e ? !!e.journee : false;
     $("rdv-debut").value = hm(d); $("rdv-fin").value = e && e.journee ? "" : hm(f);
-    $("rdv-lieu").value = e ? e.lieu || "" : "";
     var selA = $("rdv-agenda"); selA.textContent = "";
     (e ? [ag || { id: "", nom: "Agenda inconnu" }] : agendasEcriture()).forEach(function (g) { selA.appendChild(el("option", { value: g.id, text: g.nom + (g.compte_id ? "" : " (iCal)") })); });
     if (!e) { var parProjet = agendasEcriture().filter(function (g) { return g.activite_id === S.route; })[0]; if (parProjet) selA.value = parProjet.id; }
     selA.disabled = !!e;
+    preparerLieuVisio(e, modifiable);
     var selP = $("rdv-projet"); selP.textContent = "";
     [el("option", { value: "", text: e ? "Automatique (" + nomActivite(e.activite_id) + ")" : "Automatique" })].concat(optionsActivites(e ? e.activite_forcee : S.route || null)).forEach(function (o) { selP.appendChild(o); });
     if (e && !e.activite_forcee) selP.value = "";
-    ["rdv-titre", "rdv-jour", "rdv-debut", "rdv-fin", "rdv-journee", "rdv-lieu"].forEach(function (id) { $(id).disabled = !modifiable; });
+    ["rdv-titre", "rdv-jour", "rdv-debut", "rdv-fin", "rdv-journee", "rdv-lieu", "rdv-visio-lien"].forEach(function (id) { $(id).disabled = !modifiable; });
     $("rdv-supprimer").hidden = !(e && modifiable);
     $("rdv-ok").disabled = !e && !modifiable;
     $("rdv-info").textContent = !e && !modifiable ? "Pour créer un rendez-vous, connectez d'abord un compte Google ou Outlook (page Agendas)."
@@ -2323,6 +2325,139 @@
     dlgRdv.showModal();
     if (modifiable) $("rdv-titre").focus();
   }
+  // ---------- Lieu ou visio d'un rendez-vous ----------
+  // Visio créée par l'agenda lui-même : Google Meet sur un agenda Google, Teams sur un agenda Outlook ; ou un lien collé (Zoom, Webex…).
+  // Lieu : recherche d'adresse automatique (Base Adresse Nationale pour les adresses, OpenStreetMap / Photon pour les lieux et commerces).
+  var rdvModeVisio = { mode: "lieu", visio: null, avant: null };
+  function fournisseurAgenda(agendaId) {
+    var g = S.agendas.filter(function (x) { return x.id === agendaId; })[0];
+    var c = g && S.comptes.filter(function (x) { return x.id === g.compte_id; })[0];
+    return c ? c.fournisseur : null;
+  }
+  function visioDe(e) {
+    if (!e) return null;
+    if (e.visio) return e.visio;
+    var m = /https?:\/\/(?:meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|[\w.-]*zoom\.us|[\w.-]*webex\.com|whereby\.com|meet\.jit\.si)\/[^\s<>"')]+/i.exec([e.lieu, e.description].filter(Boolean).join(" "));
+    return m ? m[0] : null;
+  }
+  function nomVisio(url) {
+    return /meet\.google/.test(url) ? "Google Meet" : /teams\./.test(url) ? "Microsoft Teams" : /zoom\.us/.test(url) ? "Zoom" : /webex/.test(url) ? "Webex" : "Visio";
+  }
+  function preparerLieuVisio(e, modifiable) {
+    var $ = function (id) { return document.getElementById(id); };
+    var lien = visioDe(e), lieuEstLien = e && e.lieu && /^https?:\/\//.test(e.lieu.trim());
+    rdvModeVisio = { mode: lien ? "visio" : e && e.lieu ? "lieu" : (e ? "aucun" : "lieu"), visio: null, avant: e && e.visio ? (/meet\.google/.test(e.visio) ? "meet" : /teams\./.test(e.visio) ? "teams" : null) : null, lien: lien };
+    rdvModeVisio.visio = rdvModeVisio.avant || (lien ? "lien" : null);
+    $("rdv-lieu").value = e && !lieuEstLien && !(lien && e.lieu && e.lieu.indexOf(lien) >= 0) ? e.lieu || "" : "";
+    $("rdv-visio-lien").value = rdvModeVisio.visio === "lien" ? lien : "";
+    document.querySelectorAll("#rdv-ou .rdv-mode button").forEach(function (b) { b.disabled = !modifiable; });
+    afficherLieuVisio();
+  }
+  function afficherLieuVisio() {
+    var $ = function (id) { return document.getElementById(id); }, m = rdvModeVisio.mode;
+    document.querySelectorAll("#rdv-ou .rdv-mode button").forEach(function (b) { b.setAttribute("aria-checked", b.dataset.mode === m ? "true" : "false"); });
+    $("rdv-lieu-zone").hidden = m !== "lieu"; $("rdv-visio-zone").hidden = m !== "visio";
+    fermerSuggestions();
+    if (m !== "visio") return;
+    var agendaId = rdvCourant ? rdvCourant.agenda_id : $("rdv-agenda").value, f = fournisseurAgenda(agendaId);
+    var natif = f === "google" ? ["meet", "Google Meet"] : f === "microsoft" ? ["teams", "Microsoft Teams"] : null;
+    if (!rdvModeVisio.visio) rdvModeVisio.visio = natif ? natif[0] : "lien";
+    if (rdvModeVisio.visio !== "lien" && (!natif || natif[0] !== rdvModeVisio.visio)) rdvModeVisio.visio = natif ? natif[0] : "lien";
+    var zone = $("rdv-visio-choix"); zone.textContent = "";
+    (natif ? [natif] : []).concat([["lien", "Autre lien (Zoom, Webex…)"]]).forEach(function (o) {
+      zone.appendChild(el("button", { type: "button", role: "radio", "aria-checked": rdvModeVisio.visio === o[0] ? "true" : "false", class: "visio-" + o[0],
+        disabled: $("rdv-titre").disabled, onclick: function () { rdvModeVisio.visio = o[0]; afficherLieuVisio(); if (o[0] === "lien") $("rdv-visio-lien").focus(); } }, [o[1]]));
+    });
+    $("rdv-visio-lien").hidden = rdvModeVisio.visio !== "lien";
+    var info = $("rdv-visio-info"); info.textContent = "";
+    var existant = rdvModeVisio.lien && rdvModeVisio.visio !== "lien" ? rdvModeVisio.lien : null;
+    if (existant) info.appendChild(el("a", { href: existant, target: "_blank", rel: "noopener", class: "rejoindre", text: "Rejoindre " + nomVisio(existant) + " ↗" }));
+    else if (rdvModeVisio.visio === "meet") info.textContent = "Le lien Google Meet est créé dans l'agenda à l'enregistrement et envoyé aux invités.";
+    else if (rdvModeVisio.visio === "teams") info.textContent = "La réunion Teams est créée dans Outlook à l'enregistrement, avec son lien.";
+    if (existant) info.appendChild(el("button", { type: "button", class: "btn-texte", text: "Copier le lien", onclick: function () {
+      navigator.clipboard.writeText(existant).then(function () { signaler("Lien copié"); });
+    } }));
+  }
+  function lireLieuVisio() {
+    var $ = function (id) { return document.getElementById(id); }, m = rdvModeVisio.mode;
+    var retirer = rdvModeVisio.avant && !(m === "visio" && rdvModeVisio.visio === rdvModeVisio.avant) ? null : undefined;
+    if (m === "lieu") return { lieu: $("rdv-lieu").value.trim() || null, visio: retirer };
+    if (m === "aucun") return { lieu: null, visio: retirer };
+    if (rdvModeVisio.visio === "lien") {
+      var l = $("rdv-visio-lien").value.trim();
+      if (l && !/^https?:\/\//i.test(l)) return { erreur: "Le lien de visio doit commencer par https://" };
+      return { lieu: l || null, visio: retirer };
+    }
+    return { lieu: null, visio: rdvModeVisio.visio };
+  }
+  document.querySelectorAll("#rdv-ou .rdv-mode button").forEach(function (b) {
+    b.addEventListener("click", function () { rdvModeVisio.mode = b.dataset.mode; afficherLieuVisio(); if (b.dataset.mode === "lieu") document.getElementById("rdv-lieu").focus(); });
+  });
+  document.getElementById("rdv-agenda").addEventListener("change", function () { if (rdvModeVisio.mode === "visio") { if (rdvModeVisio.visio !== "lien") rdvModeVisio.visio = null; afficherLieuVisio(); } });
+
+  // Recherche d'adresse : saisie -> suggestions (adresses françaises, puis lieux nommés), flèches + Entrée, ou clic
+  var suggestionsLieu = [], indexSuggestion = -1, minuterieLieu = null, requeteLieu = 0;
+  function fermerSuggestions() {
+    var ul = document.getElementById("rdv-suggestions"); ul.hidden = true; ul.textContent = ""; suggestionsLieu = []; indexSuggestion = -1;
+    document.getElementById("rdv-lieu").setAttribute("aria-expanded", "false");
+  }
+  function montrerSuggestions() {
+    var ul = document.getElementById("rdv-suggestions"); ul.textContent = "";
+    suggestionsLieu.forEach(function (x, i) {
+      ul.appendChild(el("li", { role: "option", id: "sugg-" + i, "aria-selected": i === indexSuggestion ? "true" : "false", class: "sugg-" + x.type,
+        onmousedown: function (ev) { ev.preventDefault(); choisirSuggestion(i); } }, [el("b", { text: x.nom }), x.detail ? el("span", { text: x.detail }) : null]));
+    });
+    ul.hidden = !suggestionsLieu.length;
+    var champ = document.getElementById("rdv-lieu");
+    champ.setAttribute("aria-expanded", suggestionsLieu.length ? "true" : "false");
+    if (indexSuggestion >= 0) champ.setAttribute("aria-activedescendant", "sugg-" + indexSuggestion); else champ.removeAttribute("aria-activedescendant");
+  }
+  function choisirSuggestion(i) {
+    var x = suggestionsLieu[i]; if (!x) return;
+    document.getElementById("rdv-lieu").value = x.complet;
+    fermerSuggestions();
+  }
+  function chercherLieu(q) {
+    var n = ++requeteLieu;
+    var ban = fetch("https://api-adresse.data.gouv.fr/search/?limit=4&autocomplete=1&q=" + encodeURIComponent(q) + "&lat=50.63&lon=3.06")
+      .then(function (r) { return r.json(); }).then(function (j) {
+        return (j.features || []).map(function (f) { var p = f.properties; return { type: "adresse", nom: p.name, detail: p.postcode + " " + p.city, complet: p.label }; });
+      }).catch(function () { return []; });
+    var photon = fetch("https://photon.komoot.io/api/?limit=5&lang=fr&lat=50.63&lon=3.06&q=" + encodeURIComponent(q))
+      .then(function (r) { return r.json(); }).then(function (j) {
+        return (j.features || []).filter(function (f) { return f.properties.name && f.properties.osm_key !== "place" && f.properties.osm_key !== "boundary"; }).map(function (f) {
+          var p = f.properties, rue = [p.housenumber, p.street].filter(Boolean).join(" "), ville = [p.postcode, p.city || p.town || p.village].filter(Boolean).join(" ");
+          return { type: "lieu", nom: p.name, detail: [rue, ville].filter(Boolean).join(", "), complet: [p.name, rue, ville].filter(Boolean).join(", ") };
+        });
+      }).catch(function () { return []; });
+    Promise.all([ban, photon]).then(function (r) {
+      if (n !== requeteLieu || document.activeElement !== document.getElementById("rdv-lieu")) return;
+      var vus = {}, tout = r[1].slice(0, 3).concat(r[0]).concat(r[1].slice(3));
+      suggestionsLieu = tout.filter(function (x) { var k = x.complet.toLowerCase(); if (vus[k]) return false; vus[k] = true; return true; }).slice(0, 7);
+      indexSuggestion = -1; montrerSuggestions();
+    });
+  }
+  (function () {
+    var champ = document.getElementById("rdv-lieu");
+    champ.addEventListener("input", function () {
+      clearTimeout(minuterieLieu);
+      var q = champ.value.trim();
+      if (q.length < 3) { fermerSuggestions(); return; }
+      minuterieLieu = setTimeout(function () { chercherLieu(q); }, 220);
+    });
+    champ.addEventListener("keydown", function (ev) {
+      if (!suggestionsLieu.length) return;
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        indexSuggestion = (indexSuggestion + (ev.key === "ArrowDown" ? 1 : -1) + suggestionsLieu.length + 1) % (suggestionsLieu.length + 1);
+        if (indexSuggestion === suggestionsLieu.length) indexSuggestion = -1;
+        montrerSuggestions();
+      } else if (ev.key === "Enter" && indexSuggestion >= 0) { ev.preventDefault(); choisirSuggestion(indexSuggestion); }
+      else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); fermerSuggestions(); }
+    });
+    champ.addEventListener("blur", function () { setTimeout(fermerSuggestions, 120); });
+  })();
+
   function majJournee() {
     var j = document.getElementById("rdv-journee").checked;
     document.getElementById("rdv-debut").parentNode.hidden = j; document.getElementById("rdv-fin").parentNode.hidden = j;
@@ -2356,15 +2491,21 @@
       debut = h($("rdv-debut").value); fin = h($("rdv-fin").value);
       if (fin <= debut) { $("rdv-info").textContent = "La fin doit être après le début."; return; }
     }
+    var lv = lireLieuVisio();
+    if (lv.erreur) { $("rdv-info").textContent = lv.erreur; return; }
     var corps = { action: e ? "modifier" : "creer", agenda_id: e ? e.agenda_id : $("rdv-agenda").value, evenement_id: e ? e.id : undefined,
-      titre: $("rdv-titre").value.trim(), debut: debut.toISOString(), fin: fin.toISOString(), journee: journee, lieu: $("rdv-lieu").value.trim() || null, activite_forcee: projet };
+      titre: $("rdv-titre").value.trim(), debut: debut.toISOString(), fin: fin.toISOString(), journee: journee, lieu: lv.lieu, visio: lv.visio, activite_forcee: projet };
     if (!corps.titre) return;
     // Affichage immédiat, puis confirmation par Google / Outlook.
     if (e) Object.assign(e, { titre: corps.titre, debut: corps.debut, fin: corps.fin, journee: journee, lieu: corps.lieu, activite_forcee: projet });
     else S.evenements.push({ id: "temp-" + Date.now(), agenda_id: corps.agenda_id, titre: corps.titre, debut: corps.debut, fin: corps.fin, journee: journee, lieu: corps.lieu, activite_forcee: projet, modifiable: true });
     S.evenements.sort(function (x, y) { return new Date(x.debut) - new Date(y.debut); });
     dlgRdv.close(); dessiner();
-    ecrireRdv(corps, function () { signaler(e ? "Rendez-vous modifié dans votre agenda" : "Rendez-vous ajouté à votre agenda"); chargerTout().then(dessiner); });
+    ecrireRdv(corps, function (d) {
+      var lien = d && d.evenement && d.evenement.visio;
+      signaler((e ? "Rendez-vous modifié" : "Rendez-vous ajouté") + (lien && corps.visio ? " avec son lien " + (corps.visio === "meet" ? "Google Meet" : "Teams") : " dans votre agenda"));
+      chargerTout().then(dessiner);
+    });
   });
   // Un même rendez-vous peut exister dans plusieurs agendas (invitation copiée dans « Famille »…) : on supprime toutes les copies modifiables.
   document.getElementById("rdv-supprimer").addEventListener("click", function () {

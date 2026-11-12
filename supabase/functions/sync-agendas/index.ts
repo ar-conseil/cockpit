@@ -6,7 +6,7 @@
 import ICAL from "npm:ical.js@2.1.0";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { extraireOccurrences } from "./ical.ts";
-import { jetonAcces, lireRdv, listerAgendas, projetParDefaut, type Compte } from "../_partage/fournisseurs.ts";
+import { jetonAcces, lienVisio, lireRdv, listerAgendas, projetParDefaut, type Compte } from "../_partage/fournisseurs.ts";
 
 const URL = Deno.env.get("SUPABASE_URL")!;
 const CLE_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
         const rdv = await lireRdv(compte, await jetonAcces(db, compte), ag.externe_id!, debut, fin);
         lignes = rdv.map((o) => ({
           agenda_id: ag.id, uid: o.externe_id, externe_id: o.externe_id, debut: o.debut, fin: o.fin, journee: o.journee,
-          titre: o.titre, lieu: o.lieu, description: o.description, modifiable: !!ag.ecriture, serie: o.serie,
+          titre: o.titre, lieu: o.lieu, description: o.description, visio: o.visio ?? null, modifiable: !!ag.ecriture, serie: o.serie,
           activite_id: classer(o.titre, o.lieu, ag.activite_id), annule: false, vu_le: marque,
         }));
       } else {
@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         lignes = extraireOccurrences(ICAL, await r.text(), debut, fin).map((o) => ({
           agenda_id: ag.id, uid: o.uid, debut: o.debut, fin: o.fin, journee: o.journee,
-          titre: o.titre, lieu: o.lieu, description: o.description, modifiable: false,
+          titre: o.titre, lieu: o.lieu, description: o.description, visio: lienVisio(o.lieu, o.description), modifiable: false,
           activite_id: classer(o.titre, o.lieu, ag.activite_id), annule: false, vu_le: marque,
         }));
       }

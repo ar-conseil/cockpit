@@ -19,7 +19,7 @@
   <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Playpen+Sans:wght@600;700&family=Montserrat:wght@600;700&family=Barlow+Condensed:wght@700&family=Anton&family=Bodoni+Moda:opsz,wght@6..96,500&display=swap" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Playpen+Sans:wght@600;700&family=Montserrat:wght@600;700&family=Barlow+Condensed:wght@700&family=Anton&family=Bodoni+Moda:opsz,wght@6..96,500&display=swap"></noscript>
-  <link rel="stylesheet" href="assets/style.css?v=20261112a">
+  <link rel="stylesheet" href="assets/style.css?v=20261112b">
 </head>
 <body>
   <div class="coquille" id="nav" hidden>
@@ -101,7 +101,23 @@
         <label class="champ"><span>Fin</span><input id="rdv-fin" type="time" step="300"></label>
         <label class="champ case"><input id="rdv-journee" type="checkbox"> <span>Toute la journée</span></label>
       </div>
-      <input id="rdv-lieu" type="text" placeholder="Lieu ou lien de visio" autocomplete="off" aria-label="Lieu">
+      <div class="rdv-ou" id="rdv-ou">
+        <div class="rdv-mode" role="radiogroup" aria-label="Lieu ou visio">
+          <button type="button" role="radio" data-mode="lieu" aria-checked="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14.5s4.5-4.2 4.5-7.7A4.5 4.5 0 0 0 3.5 6.8C3.5 10.3 8 14.5 8 14.5z"/><circle cx="8" cy="6.8" r="1.6"/></svg>Lieu</button>
+          <button type="button" role="radio" data-mode="visio" aria-checked="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="4" width="9" height="8" rx="1.8"/><path d="m10.5 7 4-2.2v6.4l-4-2.2"/></svg>Visio</button>
+          <button type="button" role="radio" data-mode="aucun" aria-checked="false">Aucun</button>
+        </div>
+        <div class="rdv-lieu-zone" id="rdv-lieu-zone">
+          <input id="rdv-lieu" type="text" placeholder="Rechercher une adresse, un lieu, un restaurant…" autocomplete="off" aria-label="Lieu"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="rdv-suggestions">
+          <ul class="rdv-suggestions" id="rdv-suggestions" role="listbox" hidden></ul>
+        </div>
+        <div class="rdv-visio-zone" id="rdv-visio-zone" hidden>
+          <div class="rdv-visio-choix" id="rdv-visio-choix" role="radiogroup" aria-label="Type de visio"></div>
+          <input id="rdv-visio-lien" type="url" placeholder="Coller le lien Zoom, Webex…" autocomplete="off" aria-label="Lien de visio" hidden>
+          <p class="rdv-visio-info" id="rdv-visio-info"></p>
+        </div>
+      </div>
       <div class="rangee">
         <label class="champ"><span>Agenda</span><select id="rdv-agenda"></select></label>
         <label class="champ"><span>Projet</span><select id="rdv-projet"></select></label>
@@ -118,6 +134,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <script src="assets/config.js"></script>
-  <script src="assets/app.js?v=20261112a"></script>
+  <script src="assets/app.js?v=20261112b"></script>
 </body>
 </html>

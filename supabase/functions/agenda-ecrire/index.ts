@@ -1,6 +1,7 @@
 // Création, modification et suppression d'un rendez-vous depuis le cockpit, répercutées dans Google ou Outlook.
 // Corps : { action: "creer" | "modifier" | "supprimer", agenda_id, evenement_id?, titre, debut, fin, journee, lieu, activite_forcee?, teams? }
-// teams: true ajoute un lien de réunion Teams (agendas Outlook seulement).
+// visio : « meet » (Google Meet, agendas Google) ou « teams » (agendas Outlook), null pour la retirer ; teams: true = « teams ».
+// Le lien de la réunion créée est enregistré dans evenements.visio.
 // Appelée avec le jeton de l'utilisateur connecté (contrôlé ici ; déployée avec --no-verify-jwt comme les autres).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { ecrireRdv, jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
@@ -40,8 +41,9 @@ Deno.serve(async (req) => {
   }
   try {
     const compte = ag.comptes_agenda as unknown as Compte;
+    const visio = b.teams ? "teams" : b.visio === "meet" || b.visio === "teams" ? b.visio : b.visio === null ? null : undefined, sortie: { visio?: string | null } = {};
     const id = await ecrireRdv(compte, await jetonAcces(db, compte), ag.externe_id!, action, (ev?.externe_id as string) ?? null,
-      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, teams: !!b.teams });
+      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, visio }, sortie);
 
     if (action === "supprimer") {
       await db.from("evenements").delete().eq("id", ev!.id);
@@ -49,7 +51,7 @@ Deno.serve(async (req) => {
     }
     const ligne = {
       agenda_id: ag.id, uid: id, externe_id: id, debut: new Date(b.debut).toISOString(), fin: new Date(b.fin).toISOString(), journee: !!b.journee,
-      titre: b.titre, lieu: b.lieu ?? null, activite_id: (ev?.activite_id as string) ?? ag.activite_id,
+      titre: b.titre, lieu: b.lieu ?? null, visio: sortie.visio ?? (visio === null ? null : (ev?.visio as string) ?? null), activite_id: (ev?.activite_id as string) ?? ag.activite_id,
       activite_forcee: b.activite_forcee === undefined ? (ev?.activite_forcee ?? null) : b.activite_forcee,
       modifiable: true, serie: (ev?.serie as boolean) ?? false, annule: false, vu_le: new Date().toISOString(),
     };

@@ -5,8 +5,12 @@ export type Fournisseur = "google" | "microsoft";
 export type Usage = "agenda" | "mail"; // agendas (lecture et écriture) ou mails (lecture et tri, pour Victor)
 export type Compte = { id: string; fournisseur: Fournisseur; email: string; refresh_token: string | null; jeton_acces: string | null; jeton_expire_le: string | null; usage?: Usage; droits?: string | null };
 export type AgendaDistant = { externe_id: string; nom: string; ecriture: boolean; principal: boolean; actif: boolean };
-export type RdvDistant = { externe_id: string; debut: string; fin: string; journee: boolean; titre: string | null; lieu: string | null; description: string | null; serie: boolean };
-export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null; teams?: boolean }; // teams : réunion Teams (Outlook seulement)
+export type RdvDistant = { externe_id: string; debut: string; fin: string; journee: boolean; titre: string | null; lieu: string | null; description: string | null; serie: boolean; visio?: string | null };
+// Lien de visio repéré dans un lieu ou une description (Meet, Teams, Zoom, Webex, Whereby…)
+export const lienVisio = (...t: (string | null | undefined)[]) =>
+  /https?:\/\/(?:meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|[\w.-]*zoom\.us|[\w.-]*webex\.com|whereby\.com|meet\.jit\.si)\/[^\s<>"')]+/i.exec(t.filter(Boolean).join(" "))?.[0] ?? null;
+// visio : « meet » (agendas Google), « teams » (Outlook), null pour retirer la visio, absent pour ne rien changer. teams: true = visio « teams ».
+export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null; teams?: boolean; visio?: "meet" | "teams" | null };
 
 const env = (k: string) => Deno.env.get(k) ?? "";
 export const urlRetourOAuth = () => `${env("SUPABASE_URL")}/functions/v1/agenda-connexion`;
@@ -135,14 +139,16 @@ export async function lireRdv(c: Compte, jeton: string, agendaId: string, debut:
         sortie.push({ externe_id: e.id, journee, serie: !!e.recurringEventId,
           debut: journee ? minuitParis(e.start.date) : new Date(e.start.dateTime).toISOString(),
           fin: journee ? minuitParis(e.end.date) : new Date(e.end.dateTime).toISOString(),
-          titre: texte(e.summary), lieu: texte(e.location), description: texte(e.description) });
+          titre: texte(e.summary), lieu: texte(e.location), description: texte(e.description),
+          // deno-lint-ignore no-explicit-any
+          visio: e.hangoutLink ?? (e.conferenceData?.entryPoints ?? []).find((p: any) => p.entryPointType === "video")?.uri ?? lienVisio(e.location, e.description) });
       }
       page = j.nextPageToken || "";
     } while (page);
     return sortie;
   }
   const q = new URLSearchParams({ startDateTime: debut.toISOString(), endDateTime: fin.toISOString(), $top: "500",
-    $select: "id,subject,start,end,isAllDay,location,bodyPreview,isCancelled,type" });
+    $select: "id,subject,start,end,isAllDay,location,bodyPreview,isCancelled,type,onlineMeeting,onlineMeetingUrl" });
   let url = `${MICROSOFT.api}/me/calendars/${encodeURIComponent(agendaId)}/calendarView?${q}`;
   while (url) {
     const j = await appel(jeton, url, { headers: { Prefer: 'outlook.timezone="Europe/Paris"' } });
@@ -152,7 +158,8 @@ export async function lireRdv(c: Compte, jeton: string, agendaId: string, debut:
       sortie.push({ externe_id: e.id, journee, serie: e.type === "occurrence" || e.type === "exception",
         debut: journee ? minuitParis(e.start.dateTime.slice(0, 10)) : parisVersUtc(e.start.dateTime),
         fin: journee ? minuitParis(e.end.dateTime.slice(0, 10)) : parisVersUtc(e.end.dateTime),
-        titre: texte(e.subject), lieu: texte(e.location?.displayName), description: texte(e.bodyPreview) });
+        titre: texte(e.subject), lieu: texte(e.location?.displayName), description: texte(e.bodyPreview),
+        visio: e.onlineMeeting?.joinUrl ?? e.onlineMeetingUrl ?? lienVisio(e.location?.displayName, e.bodyPreview) });
     }
     url = j["@odata.nextLink"] || "";
   }
@@ -167,26 +174,42 @@ function parisVersUtc(local: string): string { // « 2026-11-03T09:00:00.0000000
 }
 
 // Création, modification ou suppression d'un rendez-vous chez le fournisseur. Retourne l'identifiant distant.
-export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, action: "creer" | "modifier" | "supprimer", rdvId: string | null, r?: RdvSaisi): Promise<string | null> {
+// sortie.visio reçoit le lien de la réunion en ligne créée (Meet ou Teams), quand il y en a une.
+export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, action: "creer" | "modifier" | "supprimer", rdvId: string | null, r?: RdvSaisi,
+  sortie: { visio?: string | null } = {}): Promise<string | null> {
+  const visio = r ? (r.teams ? "teams" : r.visio) : undefined;
   const jour = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Paris" }).format(new Date(iso)); // AAAA-MM-JJ à Paris
   if (c.fournisseur === "google") {
     const base = `${GOOGLE.api}/calendars/${encodeURIComponent(agendaId)}/events`;
     if (action === "supprimer") { await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}`, { method: "DELETE" }); return null; }
-    const corps = { summary: r!.titre, location: r!.lieu ?? null,
+    if (visio === "teams") throw new Error("Teams n'existe que sur les agendas Outlook : choisir Google Meet pour un agenda Google");
+    const corps: Record<string, unknown> = { summary: r!.titre, location: r!.lieu ?? null,
       start: r!.journee ? { date: jour(r!.debut), dateTime: null } : { dateTime: r!.debut, timeZone: "Europe/Paris", date: null },
       end: r!.journee ? { date: jour(r!.fin), dateTime: null } : { dateTime: r!.fin, timeZone: "Europe/Paris", date: null } };
+    // Google Meet : demande de conférence (conferenceDataVersion=1) ; null la retire
+    if (visio === "meet" && action === "creer") corps.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } };
+    if (visio === "meet" && action === "modifier") {
+      const avant = await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}?fields=hangoutLink`);
+      if (!avant.hangoutLink) corps.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } };
+    }
+    if (visio === null && action === "modifier") corps.conferenceData = null;
+    const conf = visio !== undefined ? "?conferenceDataVersion=1" : "";
     const j = action === "creer"
-      ? await appel(jeton, base, { method: "POST", body: JSON.stringify(corps) })
-      : await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}`, { method: "PATCH", body: JSON.stringify(corps) });
+      ? await appel(jeton, base + conf, { method: "POST", body: JSON.stringify(corps) })
+      : await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}${conf}`, { method: "PATCH", body: JSON.stringify(corps) });
+    // deno-lint-ignore no-explicit-any
+    sortie.visio = j.hangoutLink ?? (j.conferenceData?.entryPoints ?? []).find((p: any) => p.entryPointType === "video")?.uri ?? null;
     return j.id;
   }
+  if (visio === "meet") throw new Error("Google Meet n'existe que sur les agendas Google : choisir Teams pour un agenda Outlook");
   if (action === "supprimer") { await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}`, { method: "DELETE" }); return null; }
   const quand = (iso: string) => r!.journee ? { dateTime: jour(iso) + "T00:00:00", timeZone: "Europe/Paris" } : { dateTime: iso.replace(/Z$/, ""), timeZone: "UTC" };
   const corps = { subject: r!.titre, isAllDay: r!.journee, start: quand(r!.debut), end: quand(r!.fin), location: { displayName: r!.lieu ?? "" },
-    ...(r!.teams ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : {}) };
+    ...(visio === "teams" ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : visio === null && action === "modifier" ? { isOnlineMeeting: false } : {}) };
   const j = action === "creer"
     ? await appel(jeton, `${MICROSOFT.api}/me/calendars/${encodeURIComponent(agendaId)}/events`, { method: "POST", body: JSON.stringify(corps) })
     : await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}`, { method: "PATCH", body: JSON.stringify(corps) });
+  sortie.visio = j.onlineMeeting?.joinUrl ?? j.onlineMeetingUrl ?? null;
   return j.id;
 }
 

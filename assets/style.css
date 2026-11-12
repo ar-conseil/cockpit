@@ -1234,3 +1234,35 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .colonne-cartes > .carte-tache:not(.glissee) { content-visibility: auto; contain-intrinsic-size: auto 76px; }
 .liste-notion tbody tr { content-visibility: auto; contain-intrinsic-size: auto 44px; }
 .projets-section { content-visibility: auto; contain-intrinsic-size: auto 900px; }
+
+/* ---------- Rendez-vous : lieu (recherche d'adresse) ou visio (Meet, Teams, lien) ---------- */
+.rdv-ou { display: grid; gap: 10px; }
+.rdv-mode { display: inline-flex; justify-self: start; gap: 2px; padding: 3px; border-radius: 11px; background: var(--papier-2); }
+.rdv-mode button, .rdv-visio-choix button { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px; border: 0; border-radius: 8px; background: none;
+  color: var(--encre-2); font: 550 13.5px var(--sans); cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+.rdv-mode button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+.rdv-mode button[aria-checked="true"] { background: var(--blanc); color: var(--encre); box-shadow: 0 1px 2px rgb(0 0 0 / .08), 0 0 0 1px var(--filet); }
+.rdv-mode button:disabled { cursor: default; opacity: .6; }
+.rdv-lieu-zone { position: relative; }
+.rdv-lieu-zone input { width: 100%; }
+.rdv-suggestions { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 6px); list-style: none; margin: 0; padding: 6px; border-radius: 12px; background: var(--blanc);
+  box-shadow: 0 0 0 1px var(--filet), 0 18px 40px -18px rgb(15 15 15 / .35); max-height: 300px; overflow-y: auto; }
+.rdv-suggestions li { display: grid; grid-template-columns: 20px 1fr; gap: 0 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.rdv-suggestions li::before { content: ""; grid-row: span 2; align-self: center; width: 14px; height: 14px; background: var(--encre-3);
+  -webkit-mask: var(--pin) center / contain no-repeat; mask: var(--pin) center / contain no-repeat;
+  --pin: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 15s5-4.6 5-8.4A5 5 0 0 0 3 6.6C3 10.4 8 15 8 15z'/%3E%3C/svg%3E"); }
+.rdv-suggestions li.sugg-lieu::before { background: #7a5cf0; }
+.rdv-suggestions li[aria-selected="true"], .rdv-suggestions li:hover { background: var(--survol); }
+.rdv-suggestions b { font-size: 14px; font-weight: 550; }
+.rdv-suggestions span { font-size: 12.5px; color: var(--encre-3); }
+.rdv-visio-zone { display: grid; gap: 8px; }
+.rdv-visio-choix { display: flex; flex-wrap: wrap; gap: 6px; }
+.rdv-visio-choix button { box-shadow: inset 0 0 0 1px var(--filet-fort); }
+.rdv-visio-choix button[aria-checked="true"] { color: var(--encre); box-shadow: inset 0 0 0 1.5px var(--encre); background: var(--blanc); }
+.rdv-visio-choix .visio-meet::before, .rdv-visio-choix .visio-teams::before { content: ""; width: 9px; height: 9px; border-radius: 3px; }
+.rdv-visio-choix .visio-meet::before { background: linear-gradient(135deg, #00832d, #0066da 50%, #ffba00); }
+.rdv-visio-choix .visio-teams::before { background: #5b5fc7; }
+.rdv-visio-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; font-size: 13px; color: var(--encre-3); }
+.rejoindre { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; font: 600 13px var(--sans); text-decoration: none; color: #fff;
+  background: linear-gradient(135deg, #204e99, #7a5cf0); }
+.moment .rejoindre { justify-self: start; margin-top: 6px; }

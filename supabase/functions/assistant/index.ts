@@ -110,6 +110,8 @@ async function rangerMail(boite: string, id: string, action: string) {
 }
 
 type Ctx = { auth: string; mails: unknown[]; ouvrir?: string; actions: string[] };
+// Appels aux fonctions mail et chercher-mails : la session de l'utilisateur, sinon (relais Wispr) la clé de synchro interne
+const entetesLecture = (ctx: Ctx): Record<string, string> => ctx.auth ? { Authorization: ctx.auth } : { "x-cle-synchro": Deno.env.get("CLE_SYNCHRO") ?? "" };
 async function outil(nom: string, e: Record<string, unknown>, ctx: Ctx): Promise<unknown> {
   const fonction = async (f: string, corps: unknown, entetes: Record<string, string>) => {
     const r = await fetch(`${URL_SB}/functions/v1/${f}`, { method: "POST", headers: { "Content-Type": "application/json", ...entetes }, body: JSON.stringify(corps) });
@@ -156,12 +158,12 @@ async function outil(nom: string, e: Record<string, unknown>, ctx: Ctx): Promise
       return { ok: true, titre: p.titre };
     }
     case "chercher_mails": {
-      const r = await fonction("chercher-mails", { demande: e.description }, { Authorization: ctx.auth });
+      const r = await fonction("chercher-mails", { demande: e.description }, entetesLecture(ctx));
       if (r.resultats?.length) ctx.mails = r.resultats.slice(0, 6);
       return r.erreur ? r : { resultats: (r.resultats ?? []).map((m: Record<string, string>) => ({ boite: m.boite, nom: m.nom, id: m.id, de: m.de, objet: m.objet, date: m.date?.slice(0, 10), raison: m.raison, extrait: m.extrait?.slice(0, 160) })), erreurs: r.erreurs };
     }
     case "lire_mail": {
-      const r = await fonction("mail", { boite: e.boite, id: e.id }, { Authorization: ctx.auth });
+      const r = await fonction("mail", { boite: e.boite, id: e.id }, entetesLecture(ctx));
       return r.erreur ? r : { de: r.de, a: r.a, date: r.date, objet: r.objet, pieces: r.pieces, texte: String(r.texte ?? "").slice(0, 6000) };
     }
     case "ranger_mail": {
@@ -188,9 +190,13 @@ async function contexte() {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  const auth = req.headers.get("authorization") ?? "";
-  const { data: u } = await db.auth.getUser(auth.replace(/^Bearer\s+/i, ""));
-  if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  // Session du cockpit, ou clé du relais Wispr Flow du Mac (outils/wispr-victor.py, secret CLE_WISPR)
+  let auth = req.headers.get("authorization") ?? "";
+  const cleWispr = Deno.env.get("CLE_WISPR") ?? "", parWispr = !!cleWispr && req.headers.get("x-cle-wispr") === cleWispr;
+  if (!parWispr) {
+    const { data: u } = await db.auth.getUser(auth.replace(/^Bearer\s+/i, ""));
+    if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  } else auth = "";
   const corps = await req.json().catch(() => ({}));
   const texte = String(corps.texte ?? "").replace(/\s+/g, " ").trim().slice(0, 1000);
   if (texte.length < 2) return json({ texte: "Je n'ai rien reçu : redis-moi ta demande." }, 400);
@@ -223,6 +229,6 @@ Deno.serve(async (req) => {
     console.error("assistant :", e instanceof Error ? e.message : e);
     return json({ texte: "Je n'ai pas pu traiter la demande pour le moment, réessaie dans un instant." + (ctx.actions.length ? ` Déjà fait : ${ctx.actions.join(" ; ")}.` : "") }, 502);
   }
-  await db.from("dictees").insert({ phrase: texte.slice(0, 500), action: "assistant", resultat: `${reponse}${ctx.actions.length ? ` [${ctx.actions.join(" ; ")}]` : ""}`.slice(0, 1000) });
+  await db.from("dictees").insert({ phrase: texte.slice(0, 500), action: parWispr ? "assistant-wispr" : "assistant", resultat: `${reponse}${ctx.actions.length ? ` [${ctx.actions.join(" ; ")}]` : ""}`.slice(0, 1000) });
   return json({ texte: reponse || "C'est fait.", ...(ctx.ouvrir ? { ouvrir: ctx.ouvrir } : {}), ...(ctx.mails.length ? { mails: ctx.mails } : {}) });
 });

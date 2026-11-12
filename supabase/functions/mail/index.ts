@@ -86,8 +86,12 @@ async function ionos(id: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-  const { data: u } = await db.auth.getUser((req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""));
-  if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  // Session du cockpit, ou appel interne de l'assistant (clé de synchro)
+  const interne = !!Deno.env.get("CLE_SYNCHRO") && req.headers.get("x-cle-synchro") === Deno.env.get("CLE_SYNCHRO");
+  if (!interne) {
+    const { data: u } = await db.auth.getUser((req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""));
+    if (!u?.user) return json({ erreur: "non autorisé" }, 401);
+  }
   const b = await req.json().catch(() => ({}));
   const [genre, ...reste] = String(b.id ?? "").split(":"), id = reste.join(":"), boite = String(b.boite ?? "");
   if (!id || !boite) return json({ erreur: "mail non précisé" }, 400);

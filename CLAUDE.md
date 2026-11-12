@@ -115,3 +115,9 @@ Fiche rendez-vous : Lieu (recherche d'adresse : api-adresse.data.gouv.fr + photo
 Visio : Google Meet sur un agenda Google (conferenceData, conferenceDataVersion=1), Teams sur Outlook (isOnlineMeeting), ou lien collé (Zoom…, mis dans le lieu).
 agenda-ecrire accepte `visio: "meet" | "teams" | null` ; le lien est gardé dans `evenements.visio` (aussi lu à la synchro : hangoutLink, onlineMeeting.joinUrl, ou lien repéré).
 Bouton « Rejoindre » dans le bloc Maintenant (rendez-vous en cours, ou dans moins de 30 min).
+
+## Wispr Flow sur le Mac -> Victor
+`outils/wispr-victor.py` (service launchd `fr.arconseil.wispr-victor`, installé par `outils/wispr-installer.sh`, lancé par Antonin) lit en lecture seule
+l'historique local de Wispr Flow (`~/Library/Application Support/Wispr Flow/flow.sqlite`, table History) toutes les 2 s. Une dictée qui commence
+par « Victor » part à `assistant` (en-tête x-cle-wispr = secret CLE_WISPR, copie locale ~/.cockpit/cle-wispr) ; réponse en notification macOS.
+Les autres dictées ne quittent pas le Mac. Avec la clé, `assistant` appelle `mail` / `chercher-mails` avec la clé de synchro.

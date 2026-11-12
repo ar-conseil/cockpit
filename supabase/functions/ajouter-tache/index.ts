@@ -16,7 +16,7 @@ import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.4.0/helpers/zod";
 import { z } from "npm:zod@4.6.7";
 import { jetonAcces, organisateurAutre, type Compte } from "../_partage/fournisseurs.ts";
-import { deposerBrouillon, dernierMail, rediger } from "../_partage/reponses.ts";
+import { deposerBrouillon, dernierMail, rediger, signatureDe } from "../_partage/reponses.ts";
 
 const CLE_TACHE = Deno.env.get("CLE_TACHE") ?? "";
 const URL_PROJET = Deno.env.get("SUPABASE_URL")!;
@@ -264,7 +264,7 @@ async function repondre(c: Comprise, x: Contexte): Promise<Reponse> {
   }
   const m = await dernierMail(db, c.correspondant, BOITE_DU_PROJET[c.activite_id]);
   if (!m) return { texte: `Je n'ai trouvé aucun mail reçu de « ${c.correspondant} » ces 6 derniers mois : rien de préparé.` };
-  const t = await rediger("mail", c.consigne, m.de, m);
+  const t = await rediger("mail", c.consigne, m.de, m, await signatureDe(db, m.compte.email));
   const quand = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "long" }).format(new Date(m.recu_le));
   const resume = `Réponse à ${m.de.replace(/\s*<.*>/, "") || m.de} (« ${extrait(m.objet, 60)} », reçu le ${quand}, boîte ${m.compte.email}) : « ${extrait(t, 220)} »`;
   if (x.essai) return { texte: `${pre}${resume}` };

@@ -63,8 +63,10 @@ Deno.serve(async (req) => {
   const quand = ev.journee ? new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long" }).format(new Date(ev.debut))
     : `${quandParis(ev.debut)} – ${heureParis(ev.fin)}`;
   const objet = `${annuler ? "Annulé" : "Invitation"} : ${ev.titre} @ ${quand}`;
-  const texte = annuler ? `Bonjour,\n\nLe rendez-vous « ${ev.titre} » du ${quand} est annulé.\n\n${NOM}`
-    : `Bonjour,\n\nJe vous invite à « ${ev.titre} », ${quand} (heure de Paris).${lien ? `\n\nRejoindre la visio : ${lien}` : ""}${ev.lieu ? `\nLieu : ${ev.lieu}` : ""}\n\nBien à vous,\n${NOM}`;
+  const { data: sig } = await db.from("signatures").select("texte").eq("boite", de.toLowerCase()).maybeSingle();
+  const signature = sig?.texte?.trim() || NOM;     // signature de la boîte Harnes (page Tri des boîtes du cockpit)
+  const texte = annuler ? `Bonjour,\n\nLe rendez-vous « ${ev.titre} » du ${quand} est annulé.\n\nBien à vous,\n\n${signature}`
+    : `Bonjour,\n\nJe vous invite à « ${ev.titre} », ${quand} (heure de Paris).${lien ? `\n\nRejoindre la visio : ${lien}` : ""}${ev.lieu ? `\nLieu : ${ev.lieu}` : ""}\n\nBien à vous,\n\n${signature}`;
   const frontiere = "cockpit-" + crypto.randomUUID();
   const message = [
     `From: ${enteteUtf8(NOM)} <${de}>`, `To: ${emails.join(", ")}`, `Subject: ${enteteUtf8(objet)}`, `Date: ${new Date().toUTCString().replace("GMT", "+0000")}`,

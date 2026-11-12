@@ -1273,3 +1273,11 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .wispr-ligne.ok .wispr-pastille { background: #2f9e62; box-shadow: 0 0 0 4px color-mix(in srgb, #2f9e62 18%, transparent); }
 .wispr-ligne.alerte .wispr-pastille { background: var(--rouge); }
 .wispr-etat { flex: 1; min-width: 200px; font-size: 14px; color: var(--encre-2); }
+
+/* Signatures (page Tri des boîtes) */
+.signatures-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.signature { display: grid; gap: 8px; align-content: start; padding: 14px; border-radius: 12px; background: var(--papier-2); }
+.signature-boite { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.signature-boite b { font-size: 14px; } .signature-boite span { font-size: 12.5px; color: var(--encre-3); }
+.signature textarea { width: 100%; font: 13.5px/1.5 var(--sans); white-space: pre-wrap; background: var(--blanc); }
+.signature .btn-contour { justify-self: start; }

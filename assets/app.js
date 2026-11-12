@@ -2576,6 +2576,32 @@
       if (S.route === "mails" && !enSaisie()) dessiner();
     });
   }
+  // Signatures : Victor les ajoute à ce qu'il rédige depuis chaque boîte (brouillons de réponse, invitations)
+  var NOMS_BOITES = { "arouzier@gmail.com": "Gmail", "camprouziermarechal@gmail.com": "Camp", "a.rouzier@evoa-courtage.fr": "Evoa", "antonin.rouzier@harnes-volleyball.fr": "Harnes" };
+  function sectionSignatures() {
+    if (!S.signatures && !S.signaturesEnCours) {
+      S.signaturesEnCours = true;
+      db.from("signatures").select("*").order("boite").then(function (r) { S.signaturesEnCours = false; S.signatures = r.data || []; if (S.route === "mails" && !enSaisie()) dessiner(); });
+    }
+    var liste = S.signatures || [];
+    return el("section", { class: "section signatures" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Signatures" }),
+        el("p", { class: "aside", text: "Victor signe avec la signature de la boîte d'où part le message : réponses préparées en brouillon et invitations. Modifie-les ici." })]),
+      el("div", { class: "signatures-grille" }, liste.map(function (x) {
+        var zone = el("textarea", { class: "notes", rows: String(Math.min(9, x.texte.split("\n").length + 1)), "aria-label": "Signature " + x.boite });
+        zone.value = x.texte;
+        var bouton = el("button", { type: "button", class: "btn-contour petit", text: "Enregistrer", disabled: true, onclick: function () {
+          bouton.disabled = true;
+          db.from("signatures").update({ texte: zone.value.trim(), mis_a_jour: new Date().toISOString() }).eq("boite", x.boite).then(verifier)
+            .then(function () { x.texte = zone.value.trim(); signaler("Signature enregistrée"); });
+        } });
+        zone.addEventListener("input", function () { bouton.disabled = zone.value.trim() === x.texte; });
+        return el("div", { class: "signature" }, [
+          el("p", { class: "signature-boite" }, [el("b", { text: NOMS_BOITES[x.boite] || (/palomano/.test(x.boite) ? "Palomano" : x.boite) }), el("span", { text: x.boite })]),
+          zone, bouton]);
+      }))
+    ]);
+  }
   function sectionBoitesMail() {
     var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
     return el("section", { class: "section" }, [
@@ -2719,6 +2745,7 @@
     }
     if (S.message) f.appendChild(el("p", { class: "bandeau", role: "status", text: S.message }));
     f.appendChild(sectionBoitesMail());
+    f.appendChild(sectionSignatures());
     return f;
   }
   // ---------- Wispr Flow : notes vocales « Victor, … » lues en ligne (fonctions wispr-connexion, wispr-veille) ----------

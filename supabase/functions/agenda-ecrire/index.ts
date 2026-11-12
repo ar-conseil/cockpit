@@ -22,6 +22,9 @@ Deno.serve(async (req) => {
   }
 
   const b = await req.json().catch(() => ({}));
+  // Dates au format ISO strict (« 2026-11-16 16:30:00+00 » venu de la base devient « 2026-11-16T16:30:00.000Z »)
+  for (const k of ["debut", "fin"]) if (typeof b[k] === "string" && !Number.isNaN(Date.parse(b[k].replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00"))))
+    b[k] = new Date(b[k].replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00")).toISOString();
   const action = b.action as "creer" | "modifier" | "supprimer";
   if (!["creer", "modifier", "supprimer"].includes(action)) return json({ erreur: "action inconnue" }, 400);
 

@@ -1285,3 +1285,17 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .signature-apercu { width: 100%; min-height: 150px; border: 0; border-radius: 10px; background: #fff; box-shadow: 0 0 0 1px var(--filet); }
 .signature-texte summary { cursor: pointer; font-size: 13px; color: var(--encre-2); }
 .signature-texte[open] { display: grid; gap: 8px; }
+
+/* Tes demandes à Victor (page Aujourd'hui) et tâches nouvelles */
+.victor-demandes { display: grid; gap: 4px; padding-top: 14px; border-top: 1px solid var(--filet); }
+.victor-demandes ul { gap: 0; }
+.victor-demandes li { display: grid; grid-template-columns: 58px 1fr auto; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--filet); }
+.victor-demandes li:last-child { border-bottom: 0; }
+.demande-source { justify-self: start; padding: 2px 8px; border-radius: 999px; font: 600 11px var(--sans); letter-spacing: .03em; color: #fff; background: linear-gradient(135deg, #204e99, #7a5cf0); }
+.victor-demandes li.echec .demande-source { background: var(--rouge); }
+.demande-phrase { margin: 0; font-size: 13px; color: var(--encre-3); }
+.demande-resultat { margin: 2px 0 0; font-size: 14px; line-height: 1.45; color: var(--encre); }
+.demande-fin { display: grid; justify-items: end; gap: 2px; }
+.demande-fin time { font: 500 12px var(--mono); color: var(--encre-3); }
+.badge-nouveau { padding: 0 7px; border-radius: 6px; font-weight: 600; color: #fff !important; background: linear-gradient(135deg, #204e99, #7a5cf0); }
+@media (max-width: 640px) { .victor-demandes li { grid-template-columns: 1fr auto; } .demande-source { grid-column: 1 / -1; } }

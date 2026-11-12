@@ -101,9 +101,12 @@
   var POIDS = { haute: 0, moyenne: 1, basse: 2 };
   var STATUTS = { "a-faire": "À faire", "en-cours": "En cours", "en-revision": "En révision", "fait": "Terminé" };
   var TYPES_SUIVI = { appel: "Appel", mail: "E-mail", rdv: "Rendez-vous", note: "Note", relance: "Relance", devis: "Devis", signature: "Signature" };
+  // Tâche créée depuis moins de 24 h (souvent par Victor) : badge « Nouveau », et en tête de sa colonne
+  function estNouvelle(t) { return t.statut !== "fait" && t.cree_le && Date.now() - new Date(t.cree_le) < 864e5; }
   function trierTaches(ts) {
     return ts.sort(function (x, y) {
       if ((x.statut === "fait") !== (y.statut === "fait")) return x.statut === "fait" ? 1 : -1;
+      if (estNouvelle(x) !== estNouvelle(y)) return estNouvelle(x) ? -1 : 1;
       if (x.echeance && y.echeance && x.echeance !== y.echeance) return x.echeance < y.echeance ? -1 : 1;
       if (!x.echeance !== !y.echeance) return x.echeance ? -1 : 1;
       return (POIDS[x.priorite] || 1) - (POIDS[y.priorite] || 1);
@@ -149,7 +152,9 @@
       db.from("propositions").select("*").eq("statut", "proposee").order("cree_le"),
       db.from("recommandations").select("*").order("recue_le", { ascending: false }),
       db.from("production").select("*").order("annee").order("mois").order("cree_le"),
-      db.from("reponses").select("*").gte("cree_le", ajouterJours(new Date(), -30).toISOString()).order("cree_le", { ascending: false })
+      db.from("reponses").select("*").gte("cree_le", ajouterJours(new Date(), -30).toISOString()).order("cree_le", { ascending: false }),
+      db.from("dictees").select("id, cree_le, phrase, action, resultat, tache_id, evenement_id").gte("cree_le", ajouterJours(new Date(), -2).toISOString())
+        .neq("action", "vide").order("cree_le", { ascending: false }).limit(40)
     ]).then(function (r) {
       r.forEach(verifier);
       appliquerDonnees(r.map(function (x) { return x.data; }));
@@ -163,7 +168,7 @@
     try { var t = JSON.stringify({ le: Date.now(), d: d }); if (t.length < 4500000) localStorage.setItem(CLE_CACHE, t); } catch (e) { try { localStorage.removeItem(CLE_CACHE); } catch (e2) { /* rien */ } }
   }
   function donneesMemorisees() {
-    try { var c = JSON.parse(localStorage.getItem(CLE_CACHE) || "null"); return c && c.d && c.d.length === 14 && Date.now() - c.le < 7 * 864e5 ? c.d : null; } catch (e) { return null; }
+    try { var c = JSON.parse(localStorage.getItem(CLE_CACHE) || "null"); return c && c.d && c.d.length === 15 && Date.now() - c.le < 7 * 864e5 ? c.d : null; } catch (e) { return null; }
   }
   function appliquerDonnees(d) {
     var r = d.map(function (x) { return { data: x }; });
@@ -183,6 +188,7 @@
       S.taches = r[3].data; S.clients = r[4].data; S.suivis = r[5].data; S.semaine = r[6].data; S.factures = r[7].data; S.comptes = r[8].data;
       S.briefing = r[9].data; S.propositions = r[10].data || []; S.recommandations = r[11].data || []; S.production = r[12].data || [];
       S.reponses = r[13].data || [];
+      S.dictees = r[14].data || [];
   }
   var redessinPrevu = null;
   function rechargerPuisDessiner() {
@@ -353,6 +359,7 @@
     if (S.edition === t.id) return formTache(t);
     var j = t.echeance ? joursDepuis(lireJour(t.echeance)) : null;
     var meta = [];
+    if (estNouvelle(t)) meta.push(el("span", { class: "badge-nouveau", text: "Nouveau" }));
     if (options.projet) meta.push(el("span", { class: "pt", style: "--c:" + couleur(t.activite_id), text: nomActivite(t.activite_id) }));
     if (options.date !== false && t.echeance) meta.push(el("span", { class: t.statut !== "fait" && j < 0 ? "retard" : "", text: quand(lireJour(t.echeance)) }));
     if (t.statut === "en-cours" || t.statut === "en-revision") meta.push(el("span", { text: STATUTS[t.statut] }));
@@ -442,6 +449,7 @@
     var j = t.echeance ? joursDepuis(lireJour(t.echeance)) : null, meta = [];
     if (opts.projet) meta.push(pastilleProjet(t.activite_id));
     if (t.echeance) meta.push(el("span", { class: "carte-date" + (t.statut !== "fait" && j < 0 ? " retard" : ""), text: quand(lireJour(t.echeance)) }));
+    if (estNouvelle(t)) meta.push(el("span", { class: "badge-nouveau", text: "Nouveau" }));
     if (t.priorite === "haute") meta.push(el("span", { class: "carte-prio", text: "Prioritaire" }));
     var client = t.client_id && S.clients.filter(function (c) { return c.id === t.client_id; })[0];
     if (client) meta.push(el("span", { text: client.nom }));
@@ -931,6 +939,29 @@
   }
   function nomWeb(m) { var w = boiteDe(m).web; return w === "gmail" ? "Gmail" : w === "ionos" ? "la messagerie IONOS" : "Outlook"; }
 
+  // Demandes faites à Victor (Wispr Flow, téléphone, barre du cockpit) depuis 24 h, avec ce qu'il a fait.
+  // Une demande à l'agent (« assistant ») cache les actions qu'il a lui-même confiées à l'agent des dictées dans la foulée.
+  function demandesVictor() {
+    var ds = (S.dictees || []).filter(function (d) { return Date.now() - new Date(d.cree_le) < 864e5; });
+    var agents = ds.filter(function (d) { return /^assistant/.test(d.action); });
+    return ds.filter(function (d) {
+      if (/^assistant/.test(d.action)) return true;
+      var t = new Date(d.cree_le).getTime();
+      return !agents.some(function (a) { return Math.abs(new Date(a.cree_le).getTime() - t) < 150000; });
+    }).map(function (d) {
+      var tache = (S.taches || []).filter(function (x) { return x.id === d.tache_id; })[0];
+      return { cree_le: d.cree_le, phrase: d.phrase, resultat: (d.resultat || "").replace(/\s*\[[^\]]*\]\s*$/, ""),
+        tache_id: d.tache_id || (agents.indexOf(d) >= 0 ? null : null), evenement_id: d.evenement_id,
+        source: d.action === "assistant-wispr" ? "Wispr Flow" : d.action === "assistant" ? "Cockpit" : "Téléphone", tache: tache };
+    }).map(function (x) {
+      // une demande à l'agent : on rattache la tâche créée par l'action qu'il a lancée juste après
+      if (!x.tache_id && /^(Wispr|Cockpit)/.test(x.source)) {
+        var lie = ds.filter(function (d) { return !/^assistant/.test(d.action) && d.tache_id && Math.abs(new Date(d.cree_le) - new Date(x.cree_le)) < 150000; })[0];
+        if (lie) x.tache_id = lie.tache_id;
+      }
+      return x;
+    });
+  }
   function blocVictor() {
     var b = S.briefing, props = S.propositions || [];
     var tete = el("header", { class: "victor-tete" }, [
@@ -978,6 +1009,22 @@
       }
       if (colonnes.length) parties.push(el("div", { class: "victor-grille" }, colonnes));
     }
+    var demandes = demandesVictor();
+    if (demandes.length) parties.push(el("div", { class: "victor-demandes" }, [
+      el("h3", {}, ["Tes demandes à Victor", el("span", { class: "nb", text: String(demandes.length) })]),
+      el("ul", {}, demandes.slice(0, S.demandesToutes ? 20 : 4).map(function (d) {
+        var ok = !/^(Je n'ai|Ça n'a pas|Victor n'a pas|Clé refusée|Je n'ai rien|Le rendez-vous n'a pas|La réponse n'a pas)/.test(d.resultat || "");
+        var lien = d.tache_id ? "#taches" : d.evenement_id ? "#" : /brouillon|Réponses/i.test(d.resultat || "") ? "#reponses" : null;
+        return el("li", { class: ok ? "" : "echec" }, [
+          el("span", { class: "demande-source", title: d.source, text: d.source === "Wispr Flow" ? "Wispr" : d.source === "Téléphone" ? "Tél." : "Cockpit" }),
+          el("div", {}, [el("p", { class: "demande-phrase", text: "« " + d.phrase + " »" }), el("p", { class: "demande-resultat", text: d.resultat || "En cours…" })]),
+          el("div", { class: "demande-fin" }, [el("time", { text: memeJour(new Date(d.cree_le), new Date()) ? hm(new Date(d.cree_le)) : "hier " + hm(new Date(d.cree_le)) }),
+            lien ? el("a", { href: lien, class: "btn-texte", text: "Voir" }) : null])
+        ]);
+      })),
+      demandes.length > 4 ? el("button", { type: "button", class: "btn-texte voir-plus", text: S.demandesToutes ? "Réduire" : "Voir les " + (demandes.length - 4) + " autres",
+        onclick: function () { S.demandesToutes = !S.demandesToutes; dessiner(); } }) : null
+    ]));
     if (props.length) parties.push(el("div", { class: "victor-propositions" }, [
       el("h3", { text: "Victor propose " + props.length + " tâche" + (props.length > 1 ? "s" : "") + " d'après vos mails" }),
       el("ul", {}, props.map(carteProposition))
@@ -3078,7 +3125,7 @@
   function abonner() {
       if (!canal) {
         canal = db.channel("cockpit");
-        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations", "production", "reponses"].forEach(function (table) {
+        ["evenements", "taches", "clients", "suivis", "activites", "factures", "briefings", "propositions", "recommandations", "production", "reponses", "dictees"].forEach(function (table) {
           canal.on("postgres_changes", { event: "*", schema: "public", table: table }, function () {
             if (enSaisie() || dialogue.open || dlgRdv.open || S.glisse) { attenteSaisie = true; return; }
             rechargerPuisDessiner();

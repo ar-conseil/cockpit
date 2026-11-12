@@ -33,6 +33,11 @@
       background: linear-gradient(135deg, var(--a), var(--b)); box-shadow: 0 8px 18px -10px #4a3fd0; }
     header h1 { margin: 0; font: 650 18px/1.2 var(--sans); letter-spacing: -.015em; }
     header p { margin: 1px 0 0; font-size: 12.5px; color: var(--encre-3); }
+    .cloche { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 0; border-radius: 9px; background: linear-gradient(135deg, var(--a), var(--b));
+      color: #fff; font: 600 13px var(--sans); cursor: pointer; }
+    .cloche svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+    .cloche.active { background: var(--papier-2); color: var(--encre-2); }
+    .cloche:not([hidden]) + a { margin-left: 0; }
     header a { margin-left: auto; font-size: 13.5px; color: var(--encre-2); text-decoration: none; padding: 7px 11px; border-radius: 9px; background: var(--papier-2); }
 
     .fil { flex: 1; overflow-y: auto; padding: 18px 18px 8px; display: flex; flex-direction: column; gap: 14px; overscroll-behavior: contain; }
@@ -90,6 +95,7 @@
     <header>
       <span class="avatar" aria-hidden="true">V</span>
       <div><h1>Victor</h1><p id="etat">Dicte avec Wispr Flow ou le micro</p></div>
+      <button type="button" class="cloche" id="cloche" hidden aria-label="Activer les notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="cloche-texte">Notifications</span></button>
       <a href="../">Cockpit</a>
     </header>
     <main class="fil" id="fil" aria-live="polite"></main>
@@ -228,7 +234,41 @@
         });
       } }, [el("h2", { text: "Une seule fois sur ce téléphone" }), email, mdp, el("button", { type: "submit", text: "Se connecter" }), msg]));
     }
-    function pret() { form.hidden = false; afficherHisto(); champ.focus(); }
+    // ---------- Notifications : Victor prévient sur ce téléphone quand il a fini une demande (Wispr Flow…) ----------
+    var cloche = document.getElementById("cloche"), clocheTexte = document.getElementById("cloche-texte");
+    var surIOS = /iPhone|iPad|iPod/.test(navigator.userAgent), installee = window.navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+    function base64EnOctets(b) { var p = "=".repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, function (c) { return c.charCodeAt(0); }); }
+    function etatCloche(actif, texte) { cloche.hidden = false; cloche.classList.toggle("active", !!actif); clocheTexte.textContent = texte; }
+    function preparerNotifications() {
+      if (!("serviceWorker" in navigator)) return;
+      navigator.serviceWorker.register("sw.js").then(function (reg) {
+        if (!("PushManager" in window)) { if (surIOS && !installee) etatCloche(false, "Notifications"); return; }
+        reg.pushManager.getSubscription().then(function (ab) { etatCloche(!!ab && Notification.permission === "granted", ab && Notification.permission === "granted" ? "Activées" : "Notifications"); });
+      });
+    }
+    cloche.addEventListener("click", function () {
+      if (surIOS && !installee) { alert("Pour recevoir les notifications, ouvre Victor depuis son icône sur l'écran d'accueil (Partager › Sur l'écran d'accueil), puis touche à nouveau la cloche."); return; }
+      if (cloche.classList.contains("active")) {
+        etatCloche(true, "Envoi…");
+        db.functions.invoke("notifications", { body: { test: true } }).then(function () { etatCloche(true, "Activées"); });
+        return;
+      }
+      Notification.requestPermission().then(function (perm) {
+        if (perm !== "granted") { etatCloche(false, "Refusées"); alert("Notifications refusées : autorise-les dans Réglages › Notifications › Victor."); return; }
+        return Promise.all([navigator.serviceWorker.ready, fetch(CFG.url + "/functions/v1/notifications").then(function (r) { return r.json(); })]).then(function (x) {
+          if (!x[1].cle_publique) { alert("Les notifications ne sont pas encore prêtes côté cockpit."); etatCloche(false, "Notifications"); return; }
+          return x[0].pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64EnOctets(x[1].cle_publique) }).then(function (ab) {
+            var j = ab.toJSON();
+            return db.from("push_abonnements").upsert({ endpoint: j.endpoint, abonnement: j, appareil: navigator.userAgent.slice(0, 120) }).then(function (r) {
+              if (r.error) throw r.error;
+              etatCloche(true, "Activées");
+              return db.functions.invoke("notifications", { body: { test: true } });
+            });
+          });
+        });
+      }).catch(function (e) { alert("Activation impossible : " + e.message); etatCloche(false, "Notifications"); });
+    });
+    function pret() { form.hidden = false; afficherHisto(); champ.focus(); preparerNotifications(); }
     db.auth.getSession().then(function (r) { if (r.data && r.data.session) pret(); else connexion(); });
     document.addEventListener("visibilitychange", function () { if (!document.hidden && !form.hidden) champ.focus(); });
   })();

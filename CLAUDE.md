@@ -129,3 +129,8 @@ Page Agendas › Wispr Flow : OAuth PKCE (`wispr-connexion`, client décrit par 
 du logiciel Evoa). `wispr-veille` (cron `wispr`, chaque minute) lit les nouvelles notes sur le serveur MCP de Wispr (search_meetings,
 get_meeting) ; une note qui commence par « Victor » (après « Speaker 1: ») part à `assistant` (x-cle-wispr). Notes vues : `wispr_vues`.
 Le relais du Mac ne traite plus que les dictées (presse-papiers, historique). Le logiciel Evoa ignore les notes « Victor » (app/wispr.py, pour_victor).
+
+## Notifications du téléphone (Web Push)
+L'appli `victor/` (installée sur l'écran d'accueil) s'abonne avec la cloche « Notifications » (service worker `victor/sw.js`, table `push_abonnements`).
+Clés VAPID : secrets VAPID_PUBLIQUE / VAPID_PRIVEE posés par `outils/notifications-cles.sh` (lancé par Antonin). Envoi : `_partage/notifier.ts`
+(npm:web-push) ; `assistant` notifie à la fin de chaque demande venue de Wispr Flow. Fonction `notifications` : GET clé publique, POST test.

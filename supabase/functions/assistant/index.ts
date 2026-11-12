@@ -9,6 +9,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
 import { connexionImap } from "../_partage/mails.ts";
+import { notifier } from "../_partage/notifier.ts";
 
 const URL_SB = Deno.env.get("SUPABASE_URL")!;
 const db = createClient(URL_SB, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
@@ -247,5 +248,8 @@ Deno.serve(async (req) => {
     return json({ texte: "Je n'ai pas pu traiter la demande pour le moment, réessaie dans un instant." + (ctx.actions.length ? ` Déjà fait : ${ctx.actions.join(" ; ")}.` : "") }, 502);
   }
   await db.from("dictees").insert({ phrase: texte.slice(0, 500), action: parWispr ? "assistant-wispr" : "assistant", resultat: `${reponse}${ctx.actions.length ? ` [${ctx.actions.join(" ; ")}]` : ""}`.slice(0, 1000) });
+  // Demande venue de Wispr Flow (téléphone en poche, en voiture…) : Victor prévient sur le téléphone quand il a fini
+  if (parWispr) await notifier(db, ctx.actions.length ? "Victor a fini" : "Victor", reponse || "C'est fait.",
+    ctx.ouvrir && ctx.ouvrir.startsWith("https://ar-conseil.github.io/cockpit/") ? ctx.ouvrir : undefined).catch((e) => console.error("notification :", e));
   return json({ texte: reponse || "C'est fait.", ...(ctx.ouvrir ? { ouvrir: ctx.ouvrir } : {}), ...(ctx.mails.length ? { mails: ctx.mails } : {}) });
 });

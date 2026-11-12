@@ -10,7 +10,8 @@ export type RdvDistant = { externe_id: string; debut: string; fin: string; journ
 export const lienVisio = (...t: (string | null | undefined)[]) =>
   /https?:\/\/(?:meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|[\w.-]*zoom\.us|[\w.-]*webex\.com|whereby\.com|meet\.jit\.si)\/[^\s<>"')]+/i.exec(t.filter(Boolean).join(" "))?.[0] ?? null;
 // visio : « meet » (agendas Google), « teams » (Outlook), null pour retirer la visio, absent pour ne rien changer. teams: true = visio « teams ».
-export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null; teams?: boolean; visio?: "meet" | "teams" | null };
+// invites : adresses à ajouter aux participants (l'agenda leur envoie l'invitation) ; ceux déjà invités sont gardés.
+export type RdvSaisi = { titre: string; debut: string; fin: string; journee: boolean; lieu?: string | null; teams?: boolean; visio?: "meet" | "teams" | null; invites?: string[] };
 
 const env = (k: string) => Deno.env.get(k) ?? "";
 export const urlRetourOAuth = () => `${env("SUPABASE_URL")}/functions/v1/agenda-connexion`;
@@ -193,10 +194,17 @@ export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, acti
       if (!avant.hangoutLink) corps.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } };
     }
     if (visio === null && action === "modifier") corps.conferenceData = null;
-    const conf = visio !== undefined ? "?conferenceDataVersion=1" : "";
+    const invites = (r!.invites ?? []).map((x) => x.trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+    if (invites.length) {
+      // deno-lint-ignore no-explicit-any
+      const avant: any[] = action === "modifier" ? ((await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}?fields=attendees`)).attendees ?? []) : [];
+      const deja = new Set(avant.map((a) => String(a.email).toLowerCase()));
+      corps.attendees = [...avant, ...invites.filter((x) => !deja.has(x)).map((email) => ({ email }))];
+    }
+    const conf = [visio !== undefined ? "conferenceDataVersion=1" : "", invites.length ? "sendUpdates=all" : ""].filter(Boolean).join("&");
     const j = action === "creer"
-      ? await appel(jeton, base + conf, { method: "POST", body: JSON.stringify(corps) })
-      : await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}${conf}`, { method: "PATCH", body: JSON.stringify(corps) });
+      ? await appel(jeton, base + (conf ? "?" + conf : ""), { method: "POST", body: JSON.stringify(corps) })
+      : await appel(jeton, `${base}/${encodeURIComponent(rdvId!)}${conf ? "?" + conf : ""}`, { method: "PATCH", body: JSON.stringify(corps) });
     // deno-lint-ignore no-explicit-any
     sortie.visio = j.hangoutLink ?? (j.conferenceData?.entryPoints ?? []).find((p: any) => p.entryPointType === "video")?.uri ?? null;
     return j.id;
@@ -205,7 +213,15 @@ export async function ecrireRdv(c: Compte, jeton: string, agendaId: string, acti
   if (action === "supprimer") { await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}`, { method: "DELETE" }); return null; }
   const quand = (iso: string) => r!.journee ? { dateTime: jour(iso) + "T00:00:00", timeZone: "Europe/Paris" } : { dateTime: iso.replace(/Z$/, ""), timeZone: "UTC" };
   const corps = { subject: r!.titre, isAllDay: r!.journee, start: quand(r!.debut), end: quand(r!.fin), location: { displayName: r!.lieu ?? "" },
-    ...(visio === "teams" ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : visio === null && action === "modifier" ? { isOnlineMeeting: false } : {}) };
+    ...(visio === "teams" ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : visio === null && action === "modifier" ? { isOnlineMeeting: false } : {}) } as Record<string, unknown>;
+  // Invités : Outlook envoie l'invitation dès qu'un participant est ajouté
+  const invitesO = (r!.invites ?? []).map((x) => x.trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+  if (invitesO.length) {
+    // deno-lint-ignore no-explicit-any
+    const avant: any[] = action === "modifier" ? ((await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}?$select=attendees`)).attendees ?? []) : [];
+    const deja = new Set(avant.map((a) => String(a.emailAddress?.address).toLowerCase()));
+    corps.attendees = [...avant, ...invitesO.filter((x) => !deja.has(x)).map((address) => ({ emailAddress: { address }, type: "required" }))];
+  }
   const j = action === "creer"
     ? await appel(jeton, `${MICROSOFT.api}/me/calendars/${encodeURIComponent(agendaId)}/events`, { method: "POST", body: JSON.stringify(corps) })
     : await appel(jeton, `${MICROSOFT.api}/me/events/${encodeURIComponent(rdvId!)}`, { method: "PATCH", body: JSON.stringify(corps) });

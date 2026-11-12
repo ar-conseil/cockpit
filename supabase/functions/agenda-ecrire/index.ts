@@ -1,7 +1,7 @@
 // Création, modification et suppression d'un rendez-vous depuis le cockpit, répercutées dans Google ou Outlook.
 // Corps : { action: "creer" | "modifier" | "supprimer", agenda_id, evenement_id?, titre, debut, fin, journee, lieu, activite_forcee?, teams? }
 // visio : « meet » (Google Meet, agendas Google) ou « teams » (agendas Outlook), null pour la retirer ; teams: true = « teams ».
-// Le lien de la réunion créée est enregistré dans evenements.visio.
+// Le lien de la réunion créée est enregistré dans evenements.visio. invites : adresses ajoutées aux participants (l'agenda les invite).
 // Appelée avec le jeton de l'utilisateur connecté (contrôlé ici ; déployée avec --no-verify-jwt comme les autres).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { ecrireRdv, jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
     const compte = ag.comptes_agenda as unknown as Compte;
     const visio = b.teams ? "teams" : b.visio === "meet" || b.visio === "teams" ? b.visio : b.visio === null ? null : undefined, sortie: { visio?: string | null } = {};
     const id = await ecrireRdv(compte, await jetonAcces(db, compte), ag.externe_id!, action, (ev?.externe_id as string) ?? null,
-      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, visio }, sortie);
+      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, visio, invites: Array.isArray(b.invites) ? b.invites.map(String).slice(0, 20) : undefined }, sortie);
 
     if (action === "supprimer") {
       await db.from("evenements").delete().eq("id", ev!.id);

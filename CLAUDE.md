@@ -117,7 +117,9 @@ agenda-ecrire accepte `visio: "meet" | "teams" | null` ; le lien est gardé dans
 Bouton « Rejoindre » dans le bloc Maintenant (rendez-vous en cours, ou dans moins de 30 min).
 
 ## Wispr Flow sur le Mac -> Victor
-`outils/wispr-victor.py` (service launchd `fr.arconseil.wispr-victor`, installé par `outils/wispr-installer.sh`, lancé par Antonin) lit en lecture seule
+`outils/wispr-victor.py` (service launchd `fr.arconseil.wispr-victor`, installé par `outils/wispr-installer.sh`, lancé par Antonin) écoute le guetteur
+du presse-papiers `outils/presse-papiers-victor` (Swift, compilé par l'installeur : Wispr colle les dictées par le presse-papiers, et le compte Evoa
+ne garde pas l'historique), et lit aussi en lecture seule
 l'historique local de Wispr Flow (`~/Library/Application Support/Wispr Flow/flow.sqlite`, table History) toutes les 2 s. Une dictée qui commence
 par « Victor » part à `assistant` (en-tête x-cle-wispr = secret CLE_WISPR, copie locale ~/.cockpit/cle-wispr) ; réponse en notification macOS.
 Les autres dictées ne quittent pas le Mac. Avec la clé, `assistant` appelle `mail` / `chercher-mails` avec la clé de synchro.

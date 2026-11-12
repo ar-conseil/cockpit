@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # Relais Wispr Flow -> Victor, sur le Mac d'Antonin (lancé par launchd, voir outils/wispr-installer.sh).
-# Toutes les 2 secondes, lit (en lecture seule) l'historique local de Wispr Flow ; une dictée qui commence par « Victor »
+# Deux sources : le guetteur du presse-papiers (outils/presse-papiers-victor, Wispr colle chaque dictée par le presse-papiers ;
+# indispensable avec un compte qui ne garde pas l'historique, comme celui d'Evoa), et l'historique local de Wispr Flow (lecture seule).
+# Une dictée qui commence par « Victor »
 # (« Victor, ajoute… », « Hey Victor … ») est envoyée à l'agent du cockpit (fonction assistant, clé ~/.cockpit/cle-wispr),
 # et sa réponse s'affiche en notification macOS. Rien d'autre n'est lu ni envoyé : les autres dictées restent sur le Mac.
 # Journal minimal (heure, statut, sans le texte) dans ~/.cockpit/wispr-victor.log.
-import json, os, re, sqlite3, subprocess, time, urllib.request, urllib.error
+import json, os, re, sqlite3, subprocess, threading, time, urllib.request, urllib.error
 from datetime import datetime, timezone
 
 BASE = os.path.expanduser("~/Library/Application Support/Wispr Flow/flow.sqlite")
@@ -44,6 +46,51 @@ def envoyer(phrase):
         return False, f"cockpit injoignable ({type(e).__name__})"
 
 
+GUETTEUR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "presse-papiers-victor")
+recents = {}  # phrase normalisée -> heure : la même dictée vue par les deux sources n'est envoyée qu'une fois
+verrou = threading.Lock()
+
+
+def traiter(texte):
+    m = APPEL.match(texte or "")
+    if not m:
+        return
+    phrase = texte[m.end():].strip()
+    if len(phrase) < 3:
+        return
+    cle_n = re.sub(r"\W+", " ", phrase.lower()).strip()
+    with verrou:
+        maintenant = time.time()
+        for k in [k for k, t in recents.items() if maintenant - t > 120]:
+            del recents[k]
+        if cle_n in recents:
+            return
+        recents[cle_n] = maintenant
+    notifier("Victor", "Je m'en occupe…")
+    ok, reponse = envoyer(phrase)
+    noter(f"demande transmise : {'ok' if ok else 'échec'}")
+    notifier("Victor" if ok else "Victor : non traité", reponse)
+
+
+def guetter_presse_papiers():
+    while True:
+        if not os.path.exists(GUETTEUR):
+            noter("guetteur du presse-papiers absent : relancer outils/wispr-installer.sh")
+            return
+        try:
+            p = subprocess.Popen([GUETTEUR], stdout=subprocess.PIPE, text=True)
+            noter("guetteur du presse-papiers démarré")
+            for ligne in p.stdout:
+                try:
+                    texte = json.loads(ligne).get("texte", "")
+                except ValueError:
+                    continue
+                threading.Thread(target=traiter, args=(texte,), daemon=True).start()
+        except Exception as e:
+            noter(f"guetteur : {type(e).__name__} {e}")
+        time.sleep(5)
+
+
 def lire_depuis(depuis):
     con = sqlite3.connect(f"file:{BASE}?mode=ro", uri=True, timeout=2)
     try:
@@ -61,6 +108,7 @@ def main():
         depuis = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.000 +00:00")
     vus = set()
     noter("relais démarré")
+    threading.Thread(target=guetter_presse_papiers, daemon=True).start()
     while True:
         try:
             for ident, horodatage, texte in lire_depuis(depuis):
@@ -70,16 +118,7 @@ def main():
                 depuis = horodatage
                 with open(ETAT, "w") as f:
                     f.write(depuis)
-                m = APPEL.match(texte or "")
-                if not m:
-                    continue
-                phrase = texte[m.end():].strip()
-                if len(phrase) < 3:
-                    continue
-                notifier("Victor", "Je m'en occupe…")
-                ok, reponse = envoyer(phrase)
-                noter(f"demande transmise : {'ok' if ok else 'échec'}")
-                notifier("Victor" if ok else "Victor : non traité", reponse)
+                traiter(texte)
             if len(vus) > 500:
                 vus = set(list(vus)[-200:])
         except sqlite3.Error as e:

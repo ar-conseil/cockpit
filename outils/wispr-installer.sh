@@ -18,6 +18,10 @@ urllib.request.urlopen(req)
 PY
 echo "Clé du relais enregistrée."
 
+# Guetteur du presse-papiers (Wispr colle les dictées par le presse-papiers)
+swiftc -O -o outils/presse-papiers-victor outils/presse-papiers-victor.swift
+echo "Guetteur du presse-papiers compilé."
+
 PLIST=~/Library/LaunchAgents/fr.arconseil.wispr-victor.plist
 mkdir -p ~/Library/LaunchAgents
 cat > "$PLIST" <<EOF

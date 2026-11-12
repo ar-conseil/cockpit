@@ -2,6 +2,9 @@
 // outils/notifications-cles.sh). Sans clés ou sans abonnement : rien n'est envoyé, sans erreur.
 import webpush from "npm:web-push@3.6.7";
 
+// Texte brut pour la notification (sans **gras**, titres ni puces Markdown)
+const sansMarkdown = (t: string) => t.replace(/\*\*|__|`/g, "").replace(/^#+\s*/gm, "").replace(/^\s*[-*]\s+/gm, "· ").trim();
+
 // deno-lint-ignore no-explicit-any
 export async function notifier(db: any, titre: string, corps: string, url = "https://ar-conseil.github.io/cockpit/victor/") {
   const pub = Deno.env.get("VAPID_PUBLIQUE"), priv = Deno.env.get("VAPID_PRIVEE");
@@ -11,7 +14,7 @@ export async function notifier(db: any, titre: string, corps: string, url = "htt
   let envoyees = 0;
   for (const a of data ?? []) {
     try {
-      await webpush.sendNotification(a.abonnement, JSON.stringify({ titre, corps: corps.slice(0, 300), url }), { TTL: 3600, urgency: "high" });
+      await webpush.sendNotification(a.abonnement, JSON.stringify({ titre, corps: sansMarkdown(corps).slice(0, 300), url }), { TTL: 3600, urgency: "high" });
       envoyees++;
     } catch (e) {
       const code = (e as { statusCode?: number }).statusCode;

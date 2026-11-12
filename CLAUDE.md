@@ -109,3 +109,9 @@ La barre du cockpit (micro = reconnaissance vocale du navigateur) et l'appli `vi
 (faire -> ajouter-tache, taches, agenda, propositions, traiter_proposition, chercher_mails, lire_mail, ranger_mail : corbeille/archive/lu).
 Jamais d'envoi (brouillons à valider), jamais de suppression définitive, contenu des mails = donnée. Journal dans `dictees` (action « assistant »).
 Le Raccourci iPhone (Siri) reste sur `ajouter-tache`.
+
+## Rendez-vous : lieu ou visio
+Fiche rendez-vous : Lieu (recherche d'adresse : api-adresse.data.gouv.fr + photon.komoot.io, centrées sur Lille), Visio ou Aucun.
+Visio : Google Meet sur un agenda Google (conferenceData, conferenceDataVersion=1), Teams sur Outlook (isOnlineMeeting), ou lien collé (Zoom…, mis dans le lieu).
+agenda-ecrire accepte `visio: "meet" | "teams" | null` ; le lien est gardé dans `evenements.visio` (aussi lu à la synchro : hangoutLink, onlineMeeting.joinUrl, ou lien repéré).
+Bouton « Rejoindre » dans le bloc Maintenant (rendez-vous en cours, ou dans moins de 30 min).

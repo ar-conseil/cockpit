@@ -1051,11 +1051,13 @@
     R.minuteries.forEach(clearTimeout); R.minuteries = [];
     var seq = ++R.seq, nq = normeTexte(q);
     R.q = q;
-    if (nq.length < 2) { R.local = []; R.boites = {}; R.victor = null; rendreRecherche(); return; }
+    if (nq.length < 2) { R.local = []; R.localEtat = ""; R.boites = {}; R.victor = null; rendreRecherche(); return; }
+    R.localEtat = "cherche";
     // 1. archives du tri, presque instantané
     R.minuteries.push(setTimeout(function () {
       db.rpc("chercher_tri", { q: q, n: 30 }).then(function (r) {
         if (seq !== R.seq) return;
+        R.localEtat = r.error ? "erreur" : "ok";
         R.local = (r.data || []).map(function (x) {
           var bx = BOITES[String(x.boite).toLowerCase()] || {};
           return { boite: x.boite, de: x.de, objet: x.objet, date: x.recu_le, extrait: x.resume || "", resume: x.dossier && x.dossier !== "Réception" ? "Rangé dans « " + x.dossier + " »" : "",
@@ -1117,10 +1119,11 @@
   function rendreRecherche() {
     var zone = document.getElementById("recherche-resultats"), etat = document.getElementById("recherche-etat");
     if (!zone || !etat) return;
+    var exemples = document.querySelector(".recherche-exemples"); if (exemples) exemples.hidden = normeTexte(R.q).length >= 2;
     var f = resultatsFusionnes(), liste = f.liste;
     etat.textContent = "";
     if (normeTexte(R.q).length >= 2) {
-      etat.appendChild(el("span", { class: "puce-etat ok", text: "Archives · " + R.local.length }));
+      etat.appendChild(el("span", { class: "puce-etat " + (R.localEtat || "cherche"), text: "Archives" + (R.localEtat === "ok" ? " · " + R.local.length : "") }));
       Object.keys(R.boites).forEach(function (k) {
         var b = R.boites[k];
         etat.appendChild(el("span", { class: "puce-etat " + b.etat, text: b.nom + (b.etat === "ok" ? " · " + b.res.length : b.etat === "erreur" ? " · indisponible" : "") }));
@@ -1159,9 +1162,9 @@
         icone("chercher"), champ, el("button", { type: "submit", class: "btn-plein", text: "Chercher" })
       ]),
       el("div", { class: "recherche-etat", id: "recherche-etat", "aria-live": "polite" }),
-      !R.q ? el("div", { class: "recherche-exemples" }, ["chaleur tournante", "Arnaud prévoyance", "facture Palo-Franchise", "le contrat signé avec Toyota, en pièce jointe"].map(function (t) {
+      el("div", { class: "recherche-exemples" }, ["chaleur tournante", "Arnaud prévoyance", "facture Palo-Franchise", "le contrat signé avec Toyota, en pièce jointe"].map(function (t) {
         return el("button", { type: "button", class: "puce-exemple", text: t, onclick: function () { champ.value = t; lancerRecherche(t, true); } });
-      })) : null
+      }))
     ]));
     f.appendChild(el("div", { id: "recherche-resultats" }));
     setTimeout(function () { rendreRecherche(); if (document.activeElement === document.body) champ.focus(); }, 0);

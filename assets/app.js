@@ -2424,6 +2424,7 @@
     if (!e) { var parProjet = agendasEcriture().filter(function (g) { return g.activite_id === S.route; })[0]; if (parProjet) selA.value = parProjet.id; }
     selA.disabled = !!e;
     preparerLieuVisio(e, modifiable);
+    preparerInvites(e, modifiable);
     var selP = $("rdv-projet"); selP.textContent = "";
     [el("option", { value: "", text: e ? "Automatique (" + nomActivite(e.activite_id) + ")" : "Automatique" })].concat(optionsActivites(e ? e.activite_forcee : S.route || null)).forEach(function (o) { selP.appendChild(o); });
     if (e && !e.activite_forcee) selP.value = "";
@@ -2437,6 +2438,80 @@
     dlgRdv.showModal();
     if (modifiable) $("rdv-titre").focus();
   }
+  // ---------- Invités d'un rendez-vous : carnet d'adresses tiré des mails, invitation envoyée depuis l'adresse du projet ----------
+  var rdvInvites = { deja: [], nouveaux: [], sugg: [], index: -1, minuterie: null };
+  var EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  function projetDuRdv() {
+    var p = document.getElementById("rdv-projet").value;
+    if (p) return p;
+    var agId = rdvCourant ? rdvCourant.agenda_id : document.getElementById("rdv-agenda").value, g = S.agendas.filter(function (a) { return a.id === agId; })[0];
+    return (rdvCourant && (rdvCourant.activite_forcee || rdvCourant.activite_id)) || (g && g.activite_id) || null;
+  }
+  function expediteurInvitation() {
+    if (projetDuRdv() === "harnes-volley") return BOITES.harnes.email;
+    var agId = rdvCourant ? rdvCourant.agenda_id : document.getElementById("rdv-agenda").value, g = S.agendas.filter(function (a) { return a.id === agId; })[0];
+    var c = g && S.comptes.filter(function (x) { return x.id === g.compte_id; })[0];
+    return c ? c.email : null;
+  }
+  function afficherInvites() {
+    var zone = document.getElementById("rdv-invites-puces"), info = document.getElementById("rdv-invites-info");
+    zone.textContent = "";
+    rdvInvites.deja.forEach(function (x) { zone.appendChild(el("span", { class: "puce-invite deja", title: "Déjà invité", text: x })); });
+    rdvInvites.nouveaux.forEach(function (x, i) {
+      zone.appendChild(el("span", { class: "puce-invite" }, [x, el("button", { type: "button", "aria-label": "Retirer " + x, text: "×", onclick: function () { rdvInvites.nouveaux.splice(i, 1); afficherInvites(); } })]));
+    });
+    var de = expediteurInvitation();
+    info.textContent = rdvInvites.nouveaux.length ? "L'invitation partira de " + (de || "ton agenda") + " à l'enregistrement." : (rdvInvites.deja.length ? "" : "Les invités reçoivent l'invitation " + (de ? "de " + de : "de ton agenda") + ", avec le lieu ou le lien de visio.");
+  }
+  function ajouterInvite(adresse) {
+    var a = String(adresse || "").trim().toLowerCase().replace(/[,;]+$/, "");
+    if (!EMAIL_OK.test(a)) return false;
+    if (rdvInvites.deja.indexOf(a) < 0 && rdvInvites.nouveaux.indexOf(a) < 0) rdvInvites.nouveaux.push(a);
+    var champ = document.getElementById("rdv-invite"); champ.value = ""; fermerSuggInvites(); afficherInvites(); champ.focus();
+    return true;
+  }
+  function fermerSuggInvites() { var ul = document.getElementById("rdv-invites-sugg"); ul.hidden = true; ul.textContent = ""; rdvInvites.sugg = []; rdvInvites.index = -1; }
+  function montrerSuggInvites() {
+    var ul = document.getElementById("rdv-invites-sugg"); ul.textContent = "";
+    rdvInvites.sugg.forEach(function (x, i) {
+      ul.appendChild(el("li", { role: "option", "aria-selected": i === rdvInvites.index ? "true" : "false", class: "sugg-contact",
+        onmousedown: function (ev) { ev.preventDefault(); ajouterInvite(x.email); } }, [el("b", { text: x.nom || x.email }), el("span", { text: x.email })]));
+    });
+    ul.hidden = !rdvInvites.sugg.length;
+  }
+  function preparerInvites(e, modifiable) {
+    rdvInvites.deja = (e && e.invites) || []; rdvInvites.nouveaux = [];
+    var champ = document.getElementById("rdv-invite"); champ.value = ""; champ.disabled = !modifiable;
+    fermerSuggInvites(); afficherInvites();
+  }
+  (function () {
+    var champ = document.getElementById("rdv-invite");
+    champ.addEventListener("input", function () {
+      clearTimeout(rdvInvites.minuterie);
+      var q = champ.value.trim();
+      if (/[,;\s]$/.test(champ.value) && EMAIL_OK.test(q.replace(/[,;]+$/, ""))) { ajouterInvite(q); return; }
+      if (q.length < 2) { fermerSuggInvites(); return; }
+      rdvInvites.minuterie = setTimeout(function () {
+        db.rpc("contacts_mail", { q: q, n: 6 }).then(function (r) {
+          if (champ.value.trim() !== q) return;
+          rdvInvites.sugg = (r.data || []).filter(function (x) { return rdvInvites.nouveaux.indexOf(x.email) < 0; });
+          rdvInvites.index = rdvInvites.sugg.length ? 0 : -1; montrerSuggInvites();
+        });
+      }, 180);
+    });
+    champ.addEventListener("keydown", function (ev) {
+      if ((ev.key === "ArrowDown" || ev.key === "ArrowUp") && rdvInvites.sugg.length) {
+        ev.preventDefault(); rdvInvites.index = (rdvInvites.index + (ev.key === "ArrowDown" ? 1 : -1) + rdvInvites.sugg.length) % rdvInvites.sugg.length; montrerSuggInvites();
+      } else if (ev.key === "Enter") {
+        if (rdvInvites.index >= 0 && rdvInvites.sugg[rdvInvites.index]) { ev.preventDefault(); ajouterInvite(rdvInvites.sugg[rdvInvites.index].email); }
+        else if (EMAIL_OK.test(champ.value.trim())) { ev.preventDefault(); ajouterInvite(champ.value); }
+      } else if (ev.key === "Backspace" && !champ.value && rdvInvites.nouveaux.length) { rdvInvites.nouveaux.pop(); afficherInvites(); }
+      else if (ev.key === "Escape" && !ev.defaultPrevented && rdvInvites.sugg.length) { ev.preventDefault(); fermerSuggInvites(); }
+    });
+    champ.addEventListener("blur", function () { setTimeout(function () { if (EMAIL_OK.test(champ.value.trim())) ajouterInvite(champ.value); fermerSuggInvites(); }, 150); });
+    ["rdv-projet", "rdv-agenda"].forEach(function (id) { document.getElementById(id).addEventListener("change", afficherInvites); });
+  })();
+
   // ---------- Lieu ou visio d'un rendez-vous ----------
   // Visio créée par l'agenda lui-même : Google Meet sur un agenda Google, Teams sur un agenda Outlook ; ou un lien collé (Zoom, Webex…).
   // Lieu : recherche d'adresse automatique (Base Adresse Nationale pour les adresses, OpenStreetMap / Photon pour les lieux et commerces).
@@ -2606,7 +2681,8 @@
     var lv = lireLieuVisio();
     if (lv.erreur) { $("rdv-info").textContent = lv.erreur; return; }
     var corps = { action: e ? "modifier" : "creer", agenda_id: e ? e.agenda_id : $("rdv-agenda").value, evenement_id: e ? e.id : undefined,
-      titre: $("rdv-titre").value.trim(), debut: debut.toISOString(), fin: fin.toISOString(), journee: journee, lieu: lv.lieu, visio: lv.visio, activite_forcee: projet };
+      titre: $("rdv-titre").value.trim(), debut: debut.toISOString(), fin: fin.toISOString(), journee: journee, lieu: lv.lieu, visio: lv.visio, activite_forcee: projet,
+      invites: rdvInvites.nouveaux.slice() };
     if (!corps.titre) return;
     // Affichage immédiat, puis confirmation par Google / Outlook.
     if (e) Object.assign(e, { titre: corps.titre, debut: corps.debut, fin: corps.fin, journee: journee, lieu: corps.lieu, activite_forcee: projet });
@@ -2615,7 +2691,8 @@
     dlgRdv.close(); dessiner();
     ecrireRdv(corps, function (d) {
       var lien = d && d.evenement && d.evenement.visio;
-      signaler((e ? "Rendez-vous modifié" : "Rendez-vous ajouté") + (lien && corps.visio ? " avec son lien " + (corps.visio === "meet" ? "Google Meet" : "Teams") : " dans votre agenda"));
+      signaler((e ? "Rendez-vous modifié" : "Rendez-vous ajouté") + (lien && corps.visio ? " avec son lien " + (corps.visio === "meet" ? "Google Meet" : "Teams") : " dans votre agenda")
+        + (corps.invites.length ? " · invitation envoyée à " + corps.invites.length + " personne" + (corps.invites.length > 1 ? "s" : "") : ""));
       chargerTout().then(dessiner);
     });
   });

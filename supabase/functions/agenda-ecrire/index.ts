@@ -44,16 +44,24 @@ Deno.serve(async (req) => {
   }
   try {
     const compte = ag.comptes_agenda as unknown as Compte;
+    // Invités : selon le projet, l'invitation part de la bonne adresse. Harnes : depuis la boîte du club (invitation-harnes) ;
+    // les autres : participants de l'agenda Google ou Outlook (c'est l'agenda qui envoie l'invitation).
+    const projet = (b.activite_forcee ?? ev?.activite_forcee ?? ev?.activite_id ?? ag.activite_id) as string | null;
+    const invites = (Array.isArray(b.invites) ? b.invites : []).map((x: unknown) => String(x).trim().toLowerCase())
+      .filter((x: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x)).slice(0, 20);
+    const parHarnes = invites.length > 0 && projet === "harnes-volley" && !!Deno.env.get("IONOS_EMAIL");
     const visio = b.teams ? "teams" : b.visio === "meet" || b.visio === "teams" ? b.visio : b.visio === null ? null : undefined, sortie: { visio?: string | null } = {};
     const id = await ecrireRdv(compte, await jetonAcces(db, compte), ag.externe_id!, action, (ev?.externe_id as string) ?? null,
-      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, visio, invites: Array.isArray(b.invites) ? b.invites.map(String).slice(0, 20) : undefined,
+      action === "supprimer" ? undefined : { titre: b.titre, debut: b.debut, fin: b.fin, journee: !!b.journee, lieu: b.lieu ?? null, visio, invites: parHarnes ? undefined : invites,
         retirer: Array.isArray(b.retirer) ? b.retirer.map(String).slice(0, 20) : undefined }, sortie);
 
     if (action === "supprimer") {
       await db.from("evenements").delete().eq("id", ev!.id);
       return json({ ok: true });
     }
+    const deja = ((ev?.invites as string[] | null) ?? []);
     const ligne = {
+      invites: [...new Set([...deja, ...invites])].length ? [...new Set([...deja, ...invites])] : null,
       agenda_id: ag.id, uid: id, externe_id: id, debut: new Date(b.debut).toISOString(), fin: new Date(b.fin).toISOString(), journee: !!b.journee,
       titre: b.titre, lieu: b.lieu ?? null, visio: sortie.visio ?? (visio === null ? null : (ev?.visio as string) ?? null), activite_id: (ev?.activite_id as string) ?? ag.activite_id,
       activite_forcee: b.activite_forcee === undefined ? (ev?.activite_forcee ?? null) : b.activite_forcee,
@@ -63,7 +71,15 @@ Deno.serve(async (req) => {
     if (ev) await db.from("evenements").delete().eq("id", ev.id);
     const { data, error } = await db.from("evenements").upsert(ligne, { onConflict: "agenda_id,uid,debut" }).select().single();
     if (error) throw new Error(error.message);
-    return json({ ok: true, evenement: data });
+    let invitation: unknown = null;
+    if (parHarnes) {
+      const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/invitation-harnes`, { method: "POST",
+        headers: { "Content-Type": "application/json", "x-cle-synchro": Deno.env.get("CLE_SYNCHRO") ?? "" },
+        body: JSON.stringify({ evenement_id: data.id, emails: invites }) });
+      invitation = await r.json().catch(() => ({ erreur: `HTTP ${r.status}` }));
+    }
+    return json({ ok: true, evenement: data, ...(invites.length ? { invites, depuis: parHarnes ? Deno.env.get("IONOS_EMAIL") : "agenda" } : {}),
+      ...(invitation ? { invitation } : {}) });
   } catch (e) {
     return json({ erreur: e instanceof Error ? e.message : String(e) }, 502);
   }

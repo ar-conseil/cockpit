@@ -19,7 +19,7 @@
   <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Playpen+Sans:wght@600;700&family=Montserrat:wght@600;700&family=Barlow+Condensed:wght@700&family=Anton&family=Bodoni+Moda:opsz,wght@6..96,500&display=swap" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Playpen+Sans:wght@600;700&family=Montserrat:wght@600;700&family=Barlow+Condensed:wght@700&family=Anton&family=Bodoni+Moda:opsz,wght@6..96,500&display=swap"></noscript>
-  <link rel="stylesheet" href="assets/style.css?v=20261116b">
+  <link rel="stylesheet" href="assets/style.css?v=20261116c">
 </head>
 <body>
   <div class="coquille" id="nav" hidden>
@@ -118,6 +118,15 @@
           <p class="rdv-visio-info" id="rdv-visio-info"></p>
         </div>
       </div>
+      <div class="rdv-invites" id="rdv-invites">
+        <div class="rdv-invites-champ">
+          <div class="puces-invites" id="rdv-invites-puces"></div>
+          <input id="rdv-invite" type="text" placeholder="Inviter : un nom ou une adresse" autocomplete="off" aria-label="Inviter"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="rdv-invites-sugg">
+        </div>
+        <ul class="rdv-suggestions" id="rdv-invites-sugg" role="listbox" hidden></ul>
+        <p class="rdv-visio-info" id="rdv-invites-info"></p>
+      </div>
       <div class="rangee">
         <label class="champ"><span>Agenda</span><select id="rdv-agenda"></select></label>
         <label class="champ"><span>Projet</span><select id="rdv-projet"></select></label>
@@ -134,6 +143,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <script src="assets/config.js"></script>
-  <script src="assets/app.js?v=20261116b"></script>
+  <script src="assets/app.js?v=20261116c"></script>
 </body>
 </html>

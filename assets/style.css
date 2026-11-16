@@ -1310,3 +1310,15 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .puce-etat.victor.ok::before { background: #fff; }
 @keyframes pulsation { 50% { opacity: .25; } }
 .page-recherche .recherche-compris { display: none; }
+
+/* Invités d'un rendez-vous */
+.rdv-invites { position: relative; display: grid; gap: 6px; }
+.rdv-invites-champ { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--filet-fort); background: var(--blanc); }
+.rdv-invites-champ:focus-within { border-color: #7a5cf0; box-shadow: 0 0 0 3px color-mix(in srgb, #7a5cf0 15%, transparent); }
+.rdv-invites-champ input { flex: 1; min-width: 180px; border: 0 !important; box-shadow: none !important; padding: 4px 2px; background: none; outline: none; }
+.puces-invites { display: contents; }
+.puce-invite { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-radius: 999px; font-size: 13px; background: color-mix(in srgb, #7a5cf0 10%, var(--blanc)); color: var(--encre); }
+.puce-invite.deja { padding-right: 10px; background: var(--papier-2); color: var(--encre-2); }
+.puce-invite button { border: 0; background: none; width: 20px; height: 20px; border-radius: 50%; color: var(--encre-3); cursor: pointer; font-size: 15px; line-height: 1; }
+.puce-invite button:hover { background: var(--survol); color: var(--encre); }
+.rdv-suggestions li.sugg-contact::before { background: #204e99; }

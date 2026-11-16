@@ -15,3 +15,5 @@ language sql stable set search_path = public, extensions as $$
   group by email order by count(*) desc limit least(n, 20)
 $$;
 grant execute on function public.contacts_mail(text, int) to authenticated;
+-- Autocomplétion rapide des contacts (index trigrammes sur l'expéditeur)
+create index if not exists tri_mails_de on public.tri_mails using gin (public.norme_recherche(de) extensions.gin_trgm_ops);

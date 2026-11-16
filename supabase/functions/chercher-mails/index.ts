@@ -132,14 +132,19 @@ Deno.serve(async (req) => {
     const { data: u } = await db.auth.getUser((req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""));
     if (!u?.user) return json({ erreur: "non autorisé" }, 401);
   }
-  const demande = String((await req.json().catch(() => ({}))).demande ?? "").trim().slice(0, 400);
+  const corps = await req.json().catch(() => ({}));
+  const demande = String(corps.demande ?? "").trim().slice(0, 400);
+  // Mode rapide (recherche pendant la frappe) : les mots tels quels, sans Claude, une seule boîte si « boite » est donnée
+  const rapide = !!corps.rapide, seule = String(corps.boite ?? "").toLowerCase();
   if (demande.length < 3) return json({ erreur: "Décris le mail recherché." }, 400);
   try {
     const aujourdhui = new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date());
-    const k = await comprendre(demande, aujourdhui);
+    const k: Criteres = rapide
+      ? { mots: demande.toLowerCase().split(/[\s,;:!?«»"]+/).filter((m) => m.length > 1).slice(0, 4), variantes: [], expediteur: null, depuis: null, jusqu: null, pieces: false, boites: [] }
+      : await comprendre(demande, aujourdhui);
     if (!k.mots.length && !k.expediteur) k.mots = demande.split(/\s+/).filter((m) => m.length > 3).slice(0, 3);
     const voulues = new Set(k.boites.map((b) => b.toLowerCase()));
-    const garder = (email: string) => !voulues.size || voulues.has(nom(email).toLowerCase());
+    const garder = (email: string) => (seule ? email.toLowerCase() === seule : true) && (!voulues.size || voulues.has(nom(email).toLowerCase()));
     const { data: comptes } = await db.from("comptes_agenda").select("*").eq("usage", "mail");
     const erreurs: string[] = [];
     const chercher = async (large: boolean) => (await Promise.all([
@@ -150,6 +155,7 @@ Deno.serve(async (req) => {
       Deno.env.get("IONOS_EMAIL") && garder(Deno.env.get("IONOS_EMAIL")!) ? ionos(k, large).catch((e) => { erreurs.push(`Harnes : ${e instanceof Error ? e.message : e}`); return []; }) : Promise.resolve([]),
     ])).flat();
     let res = await chercher(false);
+    if (rapide) return json({ comprise: k, resultats: res.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15), erreurs });
     if (res.length < 3 && (k.mots.length > 1 || k.variantes.length)) {
       const vus = new Set(res.map((r) => r.boite + r.id));
       res = res.concat((await chercher(true)).filter((r) => !vus.has(r.boite + r.id)));

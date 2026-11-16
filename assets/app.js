@@ -1033,76 +1033,138 @@
   }
 
 
-  // ---------- Rechercher un mail : une description libre, Victor cherche dans toutes les boîtes (fonction chercher-mails) ----------
-  function lancerRecherche(demande) {
-    demande = String(demande || "").trim();
-    if (demande.length < 3) return;
-    S.recherche = { demande: demande, etat: "cherche" };
-    if (S.route !== "recherche") location.hash = "recherche"; else dessiner();
-    var r0 = S.recherche;
-    db.functions.invoke("chercher-mails", { body: { demande: demande } }).then(function (r) {
-      if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { throw new Error(j.erreur || r.error.message); });
-      if (r.error) throw r.error;
-      if (S.recherche !== r0) return;
-      S.recherche = { demande: demande, etat: "fini", comprise: r.data.comprise, erreurs: r.data.erreurs || [],
-        resultats: (r.data.resultats || []).map(function (x) { return { boite: x.nom, de: x.de, objet: x.objet, date: x.date, extrait: x.extrait, resume: x.raison || "", ref: { boite: x.boite, id: x.id } }; }) };
-      if (S.route === "recherche") dessiner();
-    }).catch(function (e) {
-      if (S.recherche !== r0) return;
-      S.recherche = { demande: demande, etat: "erreur", message: e.message };
-      if (S.route === "recherche") dessiner();
-    });
+  // ---------- Rechercher un mail, en direct : les résultats suivent la frappe ----------
+  // 1. Tout de suite : les ~65 000 mails déjà triés par Victor (base, fonction chercher_tri, mots dans n'importe quel ordre).
+  // 2. Après une courte pause : chaque boîte interrogée en direct (chercher-mails, mode rapide), résultats ajoutés dès qu'une répond.
+  // 3. Quand on s'arrête (ou Entrée) : Victor comprend la demande et met le plus probable en tête.
+  var R = { q: "", seq: 0, local: [], boites: {}, victor: null, minuteries: [] };
+  function normeTexte(t) { return String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim(); }
+  function boitesARecherche() {
+    var l = (S.comptes || []).filter(function (c) { return c.usage === "mail"; }).map(function (c) { return { email: c.email, cle: c.email }; });
+    var noms = { "arouzier@gmail.com": "Gmail", "camprouziermarechal@gmail.com": "Camp", "a.rouzier@evoa-courtage.fr": "Evoa" };
+    l.forEach(function (x) { x.nom = noms[x.email] || (/palomano/.test(x.email) ? "Palomano" : x.email.split("@")[0]); });
+    l.push({ email: BOITES.harnes.email, nom: "Harnes", cle: BOITES.harnes.email });
+    return l;
+  }
+  function lancerRecherche(q, tout) {
+    q = String(q || "");
+    R.minuteries.forEach(clearTimeout); R.minuteries = [];
+    var seq = ++R.seq, nq = normeTexte(q);
+    R.q = q;
+    if (nq.length < 2) { R.local = []; R.boites = {}; R.victor = null; rendreRecherche(); return; }
+    // 1. archives du tri, presque instantané
+    R.minuteries.push(setTimeout(function () {
+      db.rpc("chercher_tri", { q: q, n: 30 }).then(function (r) {
+        if (seq !== R.seq) return;
+        R.local = (r.data || []).map(function (x) {
+          var bx = BOITES[String(x.boite).toLowerCase()] || {};
+          return { boite: x.boite, de: x.de, objet: x.objet, date: x.recu_le, extrait: x.resume || "", resume: x.dossier && x.dossier !== "Réception" ? "Rangé dans « " + x.dossier + " »" : "",
+            ref: { boite: bx.email || "", id: x.message_id }, source: "archives" };
+        });
+        rendreRecherche();
+      });
+    }, tout ? 0 : 120));
+    // 2. chaque boîte en direct, après une courte pause
+    R.minuteries.push(setTimeout(function () {
+      if (seq !== R.seq) return;
+      R.boites = {};
+      boitesARecherche().forEach(function (b) {
+        R.boites[b.cle] = { nom: b.nom, etat: "cherche", res: [] };
+        db.functions.invoke("chercher-mails", { body: { demande: q, rapide: true, boite: b.email } }).then(function (r) {
+          if (seq !== R.seq) return;
+          var d = r.data || {};
+          R.boites[b.cle] = { nom: b.nom, etat: r.error || d.erreur ? "erreur" : "ok", res: (d.resultats || []).map(function (x) {
+            return { boite: x.nom, de: x.de, objet: x.objet, date: x.date, extrait: x.extrait, resume: "", ref: { boite: x.boite, id: x.id }, source: "direct" };
+          }) };
+          rendreRecherche();
+        });
+      });
+      rendreRecherche();
+    }, tout ? 0 : 650));
+    // 3. Victor, quand la frappe s'arrête (ou tout de suite avec Entrée)
+    R.victor = null;
+    R.minuteries.push(setTimeout(function () {
+      if (seq !== R.seq || nq.length < 3) return;
+      R.victor = { etat: "cherche" }; rendreRecherche();
+      db.functions.invoke("chercher-mails", { body: { demande: q } }).then(function (r) {
+        if (seq !== R.seq) return;
+        var d = r.data || {};
+        R.victor = { etat: r.error || d.erreur ? "erreur" : "ok", comprise: d.comprise, res: (d.resultats || []).map(function (x) {
+          return { boite: x.nom, de: x.de, objet: x.objet, date: x.date, extrait: x.extrait, resume: x.raison || "", ref: { boite: x.boite, id: x.id }, source: "victor" };
+        }) };
+        rendreRecherche();
+      });
+    }, tout ? 0 : 1600));
+    rendreRecherche();
   }
   function dateCourte(d) {
     var x = new Date(d), n = new Date();
     if (memeJour(x, n)) return hm(x);
     return fmt(x, x.getFullYear() === n.getFullYear() ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
   }
+  // Fusion : Victor d'abord (son ordre), puis le reste du plus récent au plus ancien ; un même mail n'apparaît qu'une fois
+  function resultatsFusionnes() {
+    var vus = {}, out = [];
+    var cle = function (m) { return normeTexte(m.objet).slice(0, 80) + "|" + String(m.date || "").slice(0, 15); };
+    var ajouter = function (m) { var k = cle(m); if (vus[k]) { if (m.resume && !vus[k].resume) vus[k].resume = m.resume; return; } vus[k] = m; out.push(m); };
+    var victor = R.victor && R.victor.etat === "ok" ? R.victor.res : [];
+    victor.forEach(ajouter);
+    var reste = R.local.slice();
+    Object.keys(R.boites).forEach(function (k) { reste = reste.concat(R.boites[k].res); });
+    reste.sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")); }).forEach(ajouter);
+    return { liste: out.slice(0, 60), nbVictor: victor.length };
+  }
+  function rendreRecherche() {
+    var zone = document.getElementById("recherche-resultats"), etat = document.getElementById("recherche-etat");
+    if (!zone || !etat) return;
+    var f = resultatsFusionnes(), liste = f.liste;
+    etat.textContent = "";
+    if (normeTexte(R.q).length >= 2) {
+      etat.appendChild(el("span", { class: "puce-etat ok", text: "Archives · " + R.local.length }));
+      Object.keys(R.boites).forEach(function (k) {
+        var b = R.boites[k];
+        etat.appendChild(el("span", { class: "puce-etat " + b.etat, text: b.nom + (b.etat === "ok" ? " · " + b.res.length : b.etat === "erreur" ? " · indisponible" : "") }));
+      });
+      if (R.victor) etat.appendChild(el("span", { class: "puce-etat victor " + R.victor.etat, text: R.victor.etat === "cherche" ? "Victor classe…" : R.victor.etat === "ok" ? "Classé par Victor" : "Victor indisponible" }));
+    }
+    zone.textContent = "";
+    if (normeTexte(R.q).length < 2) return;
+    if (!liste.length) {
+      var encours = Object.keys(R.boites).some(function (k) { return R.boites[k].etat === "cherche"; }) || (R.victor && R.victor.etat === "cherche");
+      zone.appendChild(el("p", { class: "recherche-vide", text: encours ? "Je cherche dans tes boîtes…" : "Aucun mail ne correspond. Essaie un autre mot : le nom de l'expéditeur, un numéro, un mot de l'objet." }));
+      return;
+    }
+    zone.appendChild(el("ol", { class: "recherche-resultats" }, liste.map(function (m, i) {
+      var bx = boiteDe(m), premier = i === 0 && f.nbVictor > 0;
+      return el("li", { class: premier ? "premier" : "" }, [el("button", { type: "button", class: "mail-ligne", style: "--c:" + couleur(bx.projet), onclick: function () { ouvrirMail(i, liste); } }, [
+        premier ? el("span", { class: "recherche-badge", text: "Le plus probable" }) : null,
+        el("span", { class: "mail-de" }, [el("i", { "aria-hidden": "true" }), el("span", { text: m.boite }), el("span", { class: "qui", text: nomSeul(m.de) }), el("time", { text: m.date ? dateCourte(m.date) : "" })]),
+        el("b", { text: m.objet || "(sans objet)" }),
+        m.extrait ? el("span", { class: "recherche-extrait", text: m.extrait }) : null,
+        m.resume ? el("span", { class: "mail-action", text: m.resume }) : null,
+        el("span", { class: "mail-fleche", "aria-hidden": "true", text: "→" })
+      ])]);
+    })));
+  }
   function vueRecherche() {
-    var R = S.recherche || {}, f = document.createDocumentFragment();
-    var champ = el("input", { type: "search", class: "recherche-champ", value: R.demande || "", enterkeyhint: "search", "aria-label": "Mail recherché",
-      placeholder: "Ex. : le devis du plombier reçu cet été, avec le PDF" });
+    var f = document.createDocumentFragment();
+    var champ = el("input", { type: "search", class: "recherche-champ", value: R.q, enterkeyhint: "search", autocomplete: "off", "aria-label": "Mail recherché",
+      placeholder: "Un nom, un mot de l'objet, ou une phrase : « le devis du plombier cet été »" });
+    champ.addEventListener("input", function () { lancerRecherche(champ.value); });
     f.appendChild(el("header", { class: "recherche-tete" }, [
       el("p", { class: "surtitre", text: "Toutes les boîtes · Gmail, Camp, Palomano, Harnes" }),
       el("h1", { text: "Rechercher un mail" }),
-      el("p", { class: "recherche-aide", text: "Décris ce que tu cherches avec tes mots : qui l'a envoyé, de quoi il parle, à peu près quand. Victor fouille toutes tes boîtes et te montre le plus probable en premier." }),
-      el("form", { class: "recherche-form", role: "search", onsubmit: function (ev) { ev.preventDefault(); lancerRecherche(champ.value); } }, [
-        icone("chercher"), champ,
-        el("button", { type: "submit", class: "btn-plein", text: R.etat === "cherche" ? "Recherche…" : "Chercher", disabled: R.etat === "cherche" })
+      el("p", { class: "recherche-aide", text: "Tape : les mails apparaissent aussitôt, puis ceux trouvés en direct dans chaque boîte. Quand tu t'arrêtes, Victor met le plus probable en tête." }),
+      el("form", { class: "recherche-form", role: "search", onsubmit: function (ev) { ev.preventDefault(); lancerRecherche(champ.value, true); } }, [
+        icone("chercher"), champ, el("button", { type: "submit", class: "btn-plein", text: "Chercher" })
       ]),
-      !R.etat ? el("div", { class: "recherche-exemples" }, ["la facture Palo-Franchise de novembre", "le mail d'Arnaud sur la prévoyance des joueurs",
-        "le contrat signé avec Toyota, en pièce jointe", "les avis Google du Camp ce mois-ci"].map(function (t) {
-        return el("button", { type: "button", class: "puce-exemple", text: t, onclick: function () { lancerRecherche(t); } });
+      el("div", { class: "recherche-etat", id: "recherche-etat", "aria-live": "polite" }),
+      !R.q ? el("div", { class: "recherche-exemples" }, ["chaleur tournante", "Arnaud prévoyance", "facture Palo-Franchise", "le contrat signé avec Toyota, en pièce jointe"].map(function (t) {
+        return el("button", { type: "button", class: "puce-exemple", text: t, onclick: function () { champ.value = t; lancerRecherche(t, true); } });
       })) : null
     ]));
-    if (R.etat === "cherche") {
-      f.appendChild(el("div", { class: "recherche-attente", role: "status" }, [
-        el("p", {}, [el("span", { class: "dis-victor-onde envoi", "aria-hidden": "true" }, [el("i"), el("i"), el("i"), el("i")]), "Victor cherche dans toutes tes boîtes…"]),
-        el("div", { class: "lecteur-attente" }, [el("i"), el("i"), el("i"), el("i")])
-      ]));
-    } else if (R.etat === "erreur") {
-      f.appendChild(el("p", { class: "recherche-vide", text: "La recherche n'a pas abouti : " + R.message + ". Réessaie dans un instant." }));
-    } else if (R.etat === "fini") {
-      var res = R.resultats, k = R.comprise || {};
-      var compris = [].concat(k.expediteur ? ["de « " + k.expediteur + " »"] : [], (k.mots || []).length ? ["« " + k.mots.join(" », « ") + " »"] : [],
-        k.depuis || k.jusqu ? [(k.depuis ? "depuis le " + fmt(new Date(k.depuis), { day: "numeric", month: "short", year: "numeric" }) : "") + (k.jusqu ? " jusqu'au " + fmt(new Date(k.jusqu), { day: "numeric", month: "short", year: "numeric" }) : "")] : [],
-        k.pieces ? ["avec pièce jointe"] : [], (k.boites || []).length ? ["dans " + k.boites.join(", ")] : []);
-      f.appendChild(el("p", { class: "recherche-compris", text: (res.length ? res.length + " mail" + (res.length > 1 ? "s" : "") + " trouvé" + (res.length > 1 ? "s" : "") : "Aucun mail trouvé") + (compris.length ? " · " + compris.join(" · ") : "") }));
-      if (!res.length) f.appendChild(el("p", { class: "recherche-vide", text: "Essaie avec d'autres mots : le nom de l'expéditeur, un numéro de facture, ou une période plus large." }));
-      else f.appendChild(el("ol", { class: "recherche-resultats" }, res.map(function (m, i) {
-        var bx = boiteDe(m);
-        return el("li", { class: i === 0 ? "premier" : "" }, [el("button", { type: "button", class: "mail-ligne", style: "--c:" + couleur(bx.projet), onclick: function () { ouvrirMail(i, res); } }, [
-          i === 0 ? el("span", { class: "recherche-badge", text: "Le plus probable" }) : null,
-          el("span", { class: "mail-de" }, [el("i", { "aria-hidden": "true" }), el("span", { text: m.boite }), el("span", { class: "qui", text: nomSeul(m.de) }), el("time", { text: dateCourte(m.date) })]),
-          el("b", { text: m.objet || "(sans objet)" }),
-          m.extrait ? el("span", { class: "recherche-extrait", text: m.extrait }) : null,
-          m.resume ? el("span", { class: "mail-action", text: m.resume }) : null,
-          el("span", { class: "mail-fleche", "aria-hidden": "true", text: "→" })
-        ])]);
-      })));
-      if ((R.erreurs || []).length) f.appendChild(el("p", { class: "recherche-erreurs", text: "Boîtes non lues : " + R.erreurs.join(" ; ") }));
-    }
-    setTimeout(function () { if (!R.etat && document.activeElement === document.body) champ.focus(); }, 0);
+    f.appendChild(el("div", { id: "recherche-resultats" }));
+    setTimeout(function () { rendreRecherche(); if (document.activeElement === document.body) champ.focus(); }, 0);
     return el("div", { class: "page-recherche" }, [f]);
   }
   // ---------- Lecteur de mail : un clic sur un mail à traiter l'ouvre ici (texte brut, lecture seule) ----------
@@ -1169,7 +1231,7 @@
     };
     if (!cle) return echec("Ce mail vient d'un point préparé avant l'ouverture directe : le bouton ci-dessous le retrouve dans " + nomWeb(m) + ". Les prochains points de Victor s'ouvriront ici.");
     if (lecteurCache[cle]) return afficher(lecteurCache[cle]);
-    db.functions.invoke("mail", { body: { boite: m.ref.boite, id: m.ref.id } }).then(function (r) {
+    db.functions.invoke("mail", { body: { boite: m.ref.boite, id: m.ref.id, objet: m.objet, date: m.date } }).then(function (r) {
       if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { if (j.lien) lien.href = j.lien; throw new Error(j.erreur || r.error.message); });
       if (r.error) throw r.error;
       lecteurCache[cle] = r.data; afficher(r.data);

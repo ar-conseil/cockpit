@@ -1299,3 +1299,14 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .demande-fin time { font: 500 12px var(--mono); color: var(--encre-3); }
 .badge-nouveau { padding: 0 7px; border-radius: 6px; font-weight: 600; color: #fff !important; background: linear-gradient(135deg, #204e99, #7a5cf0); }
 @media (max-width: 640px) { .victor-demandes li { grid-template-columns: 1fr auto; } .demande-source { grid-column: 1 / -1; } }
+
+/* Recherche en direct : où en est chaque source */
+.recherche-etat { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; min-height: 26px; }
+.puce-etat { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font: 500 12px var(--sans); color: var(--encre-2); background: var(--papier-2); }
+.puce-etat::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #2f9e62; }
+.puce-etat.cherche::before { background: #7a5cf0; animation: pulsation 1s ease-in-out infinite; }
+.puce-etat.erreur::before { background: var(--rouge); }
+.puce-etat.victor.ok { color: #fff; background: linear-gradient(135deg, #204e99, #7a5cf0); }
+.puce-etat.victor.ok::before { background: #fff; }
+@keyframes pulsation { 50% { opacity: .25; } }
+.page-recherche .recherche-compris { display: none; }

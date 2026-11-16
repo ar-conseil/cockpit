@@ -64,16 +64,20 @@ async function outlook(db: any, c: Compte, id: string) {
 }
 
 // IONOS : le mail est cherché par son Message-ID dans tous les dossiers (la réception d'abord), en lecture seule (EXAMINE, BODY.PEEK).
-async function ionos(id: string) {
+async function ionos(id: string, objet = "", date = "") {
   const { cmd, cite, fermer } = await connexionImap(Deno.env.get("IONOS_IMAP") || "imap.ionos.fr", Deno.env.get("IONOS_EMAIL") ?? "", Deno.env.get("IONOS_MOT_DE_PASSE") ?? "");
   try {
     const dossiers = [...(await cmd('LIST "" "*"')).matchAll(/^\* LIST \(([^)]*)\) (?:"[^"]*"|NIL) (?:"((?:[^"\\]|\\.)*)"|(\S+))\r?$/gm)]
       .filter((x) => !/\\Noselect/i.test(x[1])).map((x) => (x[2] ?? x[3]).replace(/\\(.)/g, "$1"))
       .sort((a, b) => (b.toUpperCase() === "INBOX" ? 1 : 0) - (a.toUpperCase() === "INBOX" ? 1 : 0));
-    const recherche = /^\d+$/.test(id) ? null : `UID SEARCH HEADER Message-ID ${cite("<" + id + ">")}`;
+    // Ancien identifiant (UID, change quand le tri range le mail) : recherche par objet et jour de réception
+    const MOIS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], j = date ? new Date(date) : null;
+    const ascii = objet.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+    const recherche = !/^\d+$/.test(id) ? `UID SEARCH HEADER Message-ID ${cite("<" + id + ">")}`
+      : ascii && j ? `UID SEARCH ON ${j.getUTCDate()}-${MOIS[j.getUTCMonth()]}-${j.getUTCFullYear()} SUBJECT ${cite(ascii)}` : null;
     for (const d of dossiers) {
       await cmd(`EXAMINE ${cite(d)}`);
-      const uid = recherche ? /\* SEARCH ?(\d+)?/.exec(await cmd(recherche))?.[1] : (d.toUpperCase() === "INBOX" ? id : undefined);
+      const uid = recherche ? /\* SEARCH ?(\d+)?/.exec(await cmd(recherche).catch(() => ""))?.[1] : (d.toUpperCase() === "INBOX" ? id : undefined);
       if (!uid) continue;
       const { recu, h, texte } = lireFetch(await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] BODY.PEEK[TEXT]<0.80000>)`));
       return { de: enTete(h["from"] ?? ""), a: enTete(h["to"] ?? ""), cc: enTete(h["cc"] ?? ""), date: recu.toISOString(), objet: enTete(h["subject"] ?? ""),
@@ -97,17 +101,25 @@ Deno.serve(async (req) => {
   if (!id || !boite) return json({ erreur: "mail non précisé" }, 400);
   try {
     if (genre === "ionos") {
-      const m = await ionos(id);
+      const m = await ionos(id, String(b.objet ?? ""), String(b.date ?? ""));
       return m ? json({ boite, ...m }) : json({ erreur: "Ce mail n'est plus dans la boîte (supprimé ?)." }, 404);
     }
     const { data: c } = await db.from("comptes_agenda").select("*").eq("usage", "mail").eq("email", boite).maybeSingle();
     if (!c) return json({ erreur: "Boîte non connectée au cockpit." }, 404);
     // jetonAcces enregistre le jeton renouvelé : on lui passe le client de service
     const compte = c as Compte, lire = genre === "gmail" ? gmail : outlook;
-    const m = await lire(db, compte, id).catch(async (e: { status?: number }) => {
+    let m = await lire(db, compte, id).catch(async (e: { status?: number }) => {
       if (e?.status !== 404 && e?.status !== 400) throw e;
       return null;
     });
+    if (!m && genre === "outlook" && b.objet && b.date) {
+      const jeton = await jetonAcces(db, compte), t = Date.parse(String(b.date));
+      const f = `receivedDateTime ge ${new Date(t - 5 * 60e3).toISOString()} and receivedDateTime le ${new Date(t + 5 * 60e3).toISOString()}`;
+      const r = await appel(jeton, `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(f)}&$select=id,subject&$top=25`, { Prefer: 'IdType="ImmutableId"' }).catch(() => ({}));
+      // deno-lint-ignore no-explicit-any
+      const trouve = (r.value ?? []).find((x: any) => (x.subject ?? "").trim() === String(b.objet).trim()) ?? (r.value ?? [])[0];
+      if (trouve) m = await outlook(db, compte, trouve.id).catch(() => null);
+    }
     return m ? json({ boite, ...m }) : json({ erreur: "Ce mail a été déplacé ou supprimé depuis le point de Victor.",
       lien: genre === "gmail" ? `https://mail.google.com/mail/u/${encodeURIComponent(boite)}/` : "https://outlook.office.com/mail/" }, 404);
   } catch (e) {

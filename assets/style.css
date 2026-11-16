@@ -1324,3 +1324,4 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .rdv-suggestions li.sugg-contact::before { background: #204e99; }
 .lien-externe { font-weight: 600; color: #204e99 !important; text-decoration: none; }
 .lien-externe:hover { text-decoration: underline; }
+.evoalys-bouton { font-size: 16px; padding: 14px 24px; text-decoration: none; background: #204e99 !important; color: #fff !important; }

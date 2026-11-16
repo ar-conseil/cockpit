@@ -1458,7 +1458,29 @@
       }))
     ]);
   }
+  // Evoa : tout se gère dans Evoalys (logiciel du cabinet). L'onglet ne garde qu'un accès direct et les tâches synchronisées.
+  var URL_EVOALYS = "https://app.evoalys.com";
+  function vueEvoalys(a) {
+    var f = document.createDocumentFragment(), iso = isoJour(new Date());
+    var ts = trierTaches(S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }));
+    var dEvoalys = ts.filter(function (t) { return t.externe; }).length;
+    f.appendChild(el("div", { class: "couverture", style: "--couverture:" + couvertureDe(a), "aria-hidden": "true" }));
+    f.appendChild(el("section", { class: "hero-projet evoalys-hero", style: "--c:" + a.couleur }, [
+      el("div", {}, [iconeProjet(a, true), el("p", { class: "surtitre", text: "Evoa Courtage" }), el("h1", { text: "Evoalys" }),
+        el("p", { class: "chapo", text: "Clients, contrats, rendez-vous et tâches du cabinet se gèrent dans Evoalys. Tes tâches y sont reprises ici toutes les 5 minutes : coche-les d'un côté ou de l'autre." })]),
+      el("div", { class: "liens-boutons" }, [
+        el("a", { class: "btn-plein evoalys-bouton", href: URL_EVOALYS, target: "_blank", rel: "noopener", text: "Ouvrir Evoalys ↗" })
+      ])
+    ]));
+    f.appendChild(el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Tes tâches Evoa" }),
+        el("p", { class: "aside", text: ts.length + " ouverte" + (ts.length > 1 ? "s" : "") + (dEvoalys ? " · " + dEvoalys + " venue" + (dEvoalys > 1 ? "s" : "") + " d'Evoalys" : "") })]),
+      listeTaches(ts, { projet: false }, "Aucune tâche Evoa ouverte.")
+    ]));
+    return f;
+  }
   function vueProjet(a) {
+    if (a.id === "evoa-courtage" && !rubriqueActive(a)) return vueEvoalys(a);
     var f = document.createDocumentFragment(), n = new Date(), iso = isoJour(n), rub = rubriqueActive(a);
     var ouvertes = trierTaches(S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }));
     var rdv = prochainRdv(a.id);

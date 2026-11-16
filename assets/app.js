@@ -450,6 +450,7 @@
     if (opts.projet) meta.push(pastilleProjet(t.activite_id));
     if (t.echeance) meta.push(el("span", { class: "carte-date" + (t.statut !== "fait" && j < 0 ? " retard" : ""), text: quand(lireJour(t.echeance)) }));
     if (estNouvelle(t)) meta.push(el("span", { class: "badge-nouveau", text: "Nouveau" }));
+    if (t.lien) meta.push(el("a", { class: "lien-externe", href: t.lien, target: "_blank", rel: "noopener", text: "Evoalys ↗", onclick: function (ev) { ev.stopPropagation(); } }));
     if (t.priorite === "haute") meta.push(el("span", { class: "carte-prio", text: "Prioritaire" }));
     var client = t.client_id && S.clients.filter(function (c) { return c.id === t.client_id; })[0];
     if (client) meta.push(el("span", { text: client.nom }));

@@ -134,3 +134,9 @@ Le relais du Mac ne traite plus que les dictées (presse-papiers, historique). L
 L'appli `victor/` (installée sur l'écran d'accueil) s'abonne avec la cloche « Notifications » (service worker `victor/sw.js`, table `push_abonnements`).
 Clés VAPID : secrets VAPID_PUBLIQUE / VAPID_PRIVEE posés par `outils/notifications-cles.sh` (lancé par Antonin). Envoi : `_partage/notifier.ts`
 (npm:web-push) ; `assistant` notifie à la fin de chaque demande venue de Wispr Flow. Fonction `notifications` : GET clé publique, POST test.
+
+## Evoalys (logiciel du cabinet Evoa) <-> cockpit
+`sync-evoalys` (cron `evoalys`, toutes les 5 min) : tâches d'Antonin dans Evoalys (GET {EVOALYS_URL}/cockpit/taches, en-tête X-Cle-Cockpit =
+secret EVOALYS_CLE ; côté Evoalys : app/cockpit.py, variable COCKPIT_CLE) -> taches (projet evoa-courtage, colonne externe « evoalys:<id> »,
+lien vers Evoalys). Cochées dans les deux sens (externe_fait = état au dernier passage). Tâches Evoa créées dans le cockpit -> Evoalys.
+Clé : outils/evoalys-cle.sh (Supabase + presse-papiers pour Scaleway). Invités de rendez-vous : agenda-ecrire route Harnes vers invitation-harnes.

@@ -1322,3 +1322,5 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .puce-invite button { border: 0; background: none; width: 20px; height: 20px; border-radius: 50%; color: var(--encre-3); cursor: pointer; font-size: 15px; line-height: 1; }
 .puce-invite button:hover { background: var(--survol); color: var(--encre); }
 .rdv-suggestions li.sugg-contact::before { background: #204e99; }
+.lien-externe { font-weight: 600; color: #204e99 !important; text-decoration: none; }
+.lien-externe:hover { text-decoration: underline; }

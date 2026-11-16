@@ -6,6 +6,24 @@
 // arrivent déjà en initiales (Evoalys les remplace avant l'envoi).
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
+
+// Titre d'Evoalys -> titre gardé dans le cockpit : tout nom de personne (client particulier, proche…) en initiales,
+// en plus de ce qu'Evoalys a déjà remplacé. Sans Claude : le titre tel quel.
+async function anonymiser(titres: string[]): Promise<string[]> {
+  if (!titres.length || !Deno.env.get("ANTHROPIC_API_KEY")) return titres;
+  try {
+    const r = await new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") }).messages.create({
+      model: "claude-haiku-5-5", max_tokens: 2000, thinking: { type: "disabled" },
+      system: "Tu reçois des titres de tâches d'un cabinet de courtage, un par ligne. Remplace chaque nom ou prénom de PERSONNE PHYSIQUE (client, proche, salarié) par ses initiales (« Luigi » -> « L. », « Marie Dupont » -> « M. D. »). Ne change rien d'autre : ni les noms de sociétés, d'assureurs ou de produits (Swiss Life, Malakoff, Madelin…), ni les initiales déjà présentes, ni la ponctuation. Rends exactement le même nombre de lignes, dans le même ordre, sans commentaire.",
+      messages: [{ role: "user", content: titres.map((t) => t.replace(/\n/g, " ")).join("\n") }],
+    } as Anthropic.MessageCreateParamsNonStreaming);
+    const lignes = r.content.filter((c) => c.type === "text").map((c) => (c as Anthropic.TextBlock).text).join("").trim().split("\n");
+    return lignes.length === titres.length ? lignes.map((l, i) => l.trim() || titres[i]) : titres;
+  } catch { return titres; }
+}
+const empreinte = async (t: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t))))
+  .map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
 
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { "Content-Type": "application/json" } });
 const PROJET = "evoa-courtage";
@@ -27,21 +45,26 @@ Deno.serve(async (req) => {
   const bilan = { recues: 0, creees: 0, mises_a_jour: 0, cochees_ici: 0, cochees_la_bas: 0, envoyees: 0 };
   try {
     const distantes: any[] = (await evoalys("/cockpit/taches")).taches ?? [];
-    const { data: locales } = await db.from("taches").select("id, titre, echeance, statut, externe, externe_fait, lien").like("externe", "evoalys:%");
+    const { data: locales } = await db.from("taches").select("id, titre, echeance, statut, externe, externe_fait, lien, externe_empreinte").like("externe", "evoalys:%");
     const parExterne = new Map((locales ?? []).map((t: any) => [t.externe, t]));
     bilan.recues = distantes.length;
+    // Titres nouveaux ou changés dans Evoalys : anonymisés en une fois
+    for (const d of distantes) d.empreinte = await empreinte(d.titre);
+    const aRevoir = distantes.filter((d) => { const l: any = parExterne.get(`evoalys:${d.id}`); return !l ? !d.fait : l.externe_empreinte !== d.empreinte; });
+    const propres = await anonymiser(aRevoir.map((d) => d.titre));
+    aRevoir.forEach((d, i) => { d.titre_propre = propres[i]; });
     for (const d of distantes) {
       const ext = `evoalys:${d.id}`, l: any = parExterne.get(ext), lien = `${URL_E}${d.lien || "/"}`;
       const notes = d.client ? `Evoalys · client ${d.client}` : "Evoalys";
       if (!l) {
         if (d.fait) continue;   // déjà faite avant d'arriver : rien à reprendre
-        await db.from("taches").insert({ titre: d.titre, activite_id: PROJET, echeance: d.echeance, priorite: "moyenne", statut: "a-faire",
+        await db.from("taches").insert({ titre: d.titre_propre ?? d.titre, externe_empreinte: d.empreinte, activite_id: PROJET, echeance: d.echeance, priorite: "moyenne", statut: "a-faire",
           notes, externe: ext, externe_fait: false, lien });
         bilan.creees++;
         continue;
       }
       const maj: Record<string, unknown> = {};
-      if (l.titre !== d.titre) maj.titre = d.titre;
+      if (l.externe_empreinte !== d.empreinte) { maj.titre = d.titre_propre ?? d.titre; maj.externe_empreinte = d.empreinte; }
       if ((l.echeance ?? null) !== (d.echeance ?? null)) maj.echeance = d.echeance;
       if (l.lien !== lien) maj.lien = lien;
       const faitIci = l.statut === "fait";

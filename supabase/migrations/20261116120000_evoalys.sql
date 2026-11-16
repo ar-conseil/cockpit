@@ -7,3 +7,6 @@ create table if not exists public.evoalys_sync (
 );
 alter table public.evoalys_sync enable row level security;
 create policy evoalys_sync_lecture on public.evoalys_sync for select to authenticated using (true);
+-- Empreinte du titre reçu d'Evoalys : le titre gardé ici est anonymisé (noms de personnes en initiales), l'empreinte
+-- permet de savoir si Evoalys l'a changé sans garder le titre d'origine.
+alter table public.taches add column if not exists externe_empreinte text;

@@ -14,6 +14,17 @@ const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps
 const NOM = "Antonin Rouzier";
 
 const ics = (t: string) => t.replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+// Heure de Paris au format iCalendar (« 20261117T110000 »), avec le fuseau Europe/Paris décrit dans l'invitation :
+// Outlook, Gmail et Apple affichent alors « heure de Paris » et non l'heure universelle.
+const paris = (iso: string) => {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })
+    .formatToParts(new Date(iso)).reduce((a: Record<string, string>, x) => (a[x.type] = x.value, a), {});
+  return `${p.year}${p.month}${p.day}T${p.hour}${p.minute}${p.second}`;
+};
+const FUSEAU_PARIS = ["BEGIN:VTIMEZONE", "TZID:Europe/Paris", "X-LIC-LOCATION:Europe/Paris",
+  "BEGIN:DAYLIGHT", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200", "TZNAME:CEST", "DTSTART:19700329T020000", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "END:DAYLIGHT",
+  "BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100", "TZNAME:CET", "DTSTART:19701025T030000", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "END:STANDARD",
+  "END:VTIMEZONE"];
 const utc = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 function plier(ligne: string) {             // lignes iCalendar de 75 octets au plus
   const o = new TextEncoder().encode(ligne);
@@ -51,10 +62,10 @@ Deno.serve(async (req) => {
   const lien = ev.visio ?? null, lieu = lien ? (ev.lieu ? `${ev.lieu} · ${lien}` : lien) : (ev.lieu ?? "");
   const description = [lien ? `Rejoindre la visio : ${lien}` : "", `Organisé par ${NOM} (${de})`].filter(Boolean).join("\n");
   const uidInvitation = `${ev.externe_id ?? ev.uid ?? ev.id}-harnes@cockpit`;
-  const lignes = ["BEGIN:VCALENDAR", "PRODID:-//Cockpit Antonin Rouzier//FR", "VERSION:2.0", "CALSCALE:GREGORIAN", `METHOD:${methode}`, "BEGIN:VEVENT",
+  const lignes = ["BEGIN:VCALENDAR", "PRODID:-//Cockpit Antonin Rouzier//FR", "VERSION:2.0", "CALSCALE:GREGORIAN", `METHOD:${methode}`, ...FUSEAU_PARIS, "BEGIN:VEVENT",
     `UID:${uidInvitation}`, `DTSTAMP:${utc(new Date().toISOString())}`,
     ...(ev.journee ? [`DTSTART;VALUE=DATE:${ev.debut.slice(0, 10).replace(/-/g, "")}`, `DTEND;VALUE=DATE:${ev.fin.slice(0, 10).replace(/-/g, "")}`]
-      : [`DTSTART:${utc(ev.debut)}`, `DTEND:${utc(ev.fin)}`]),
+      : [`DTSTART;TZID=Europe/Paris:${paris(ev.debut)}`, `DTEND;TZID=Europe/Paris:${paris(ev.fin)}`]),
     `SUMMARY:${ics(ev.titre ?? "Rendez-vous")}`, ...(lieu ? [`LOCATION:${ics(lieu)}`] : []), `DESCRIPTION:${ics(description)}`,
     ...(lien ? [`URL:${lien}`] : []),
     `ORGANIZER;CN=${NOM}:mailto:${de}`,

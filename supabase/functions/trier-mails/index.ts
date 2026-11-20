@@ -1,5 +1,7 @@
-// Tri des boîtes mail par Victor : chaque mail de la réception est rangé dans un dossier par thème (un par activité,
-// plus Factures & compta, Banque & administratif, Newsletters, Notifications) et marqué comme lu ; les mails qui demandent
+// Tri des boîtes mail par Victor : chaque mail de la réception est classé dans un dossier par thème (un par activité,
+// plus Factures & compta, Banque & administratif, Newsletters, Notifications) et marqué comme lu. Il RESTE 14 jours dans la
+// boîte de réception, étiqueté (libellé Gmail, catégorie Outlook), puis il est rangé dans son dossier (tri_mails.en_reception,
+// ranger_le) : Antonin voit tous ses mails récents dans la réception (sa demande du 20 novembre 2026). Les mails qui demandent
 // une action d'Antonin reçoivent le libellé « 1. À faire » dans Gmail (un drapeau dans Outlook et IONOS) ; les publicités
 // vont à la corbeille (récupérables 30 jours). Dans Gmail, les libellés sont imbriqués : Projets/<activité>,
 // Classement/<thème>, Perso. Jamais d'envoi, de réponse, ni d'effacement définitif. Chaque décision est notée dans tri_mails.
@@ -19,6 +21,8 @@
 //                                    des <jours> derniers jours (30 par défaut) où Antonin n'a pas encore répondu
 //  POST { reclasser: "<dossier du tri>", boite, apercu?, depuis? } -> Outlook : déplace vers les dossiers personnels d'Antonin
 //                                    les mails déjà rangés dans ce dossier du tri qui leur correspondent
+//  POST { restaurer: true, jours?, boite? } -> remet dans la réception les mails rangés par Victor reçus depuis <jours> jours
+//                                    (30 par défaut) ; ils y restent 14 jours à partir de maintenant ; à relancer tant que restant
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.4.0/helpers/zod";
@@ -30,6 +34,7 @@ declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
 const CLE_SYNCHRO = Deno.env.get("CLE_SYNCHRO") ?? "";
 const BUDGET = 90_000, LOT = 100, PAQUET = 25, EXTRAIT = 400, RECENT = 14 * 864e5;
+const DELAI_RECEPTION = 14 * 864e5; // durée pendant laquelle un mail classé reste dans la boîte de réception
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { "Content-Type": "application/json" } });
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const court = (t: string, n = EXTRAIT) => t.replace(/\s+/g, " ").trim().slice(0, n);
@@ -72,16 +77,24 @@ const SEP = " › ";
 const PERSO_EXCLUS = new Set(["sauvegarde", "archive"]);
 type Perso = { chemin: string; exemples: string[] };
 
-type Mail = { ref: string; id: string; fil?: string; de: string; objet: string; recu_le: string; extrait: string; masse: boolean };
+type Mail = { ref: string; id: string; fil?: string; de: string; objet: string; recu_le: string; extrait: string; masse: boolean; categories?: string[] };
+type Ligne = { message_id: string; dossier: string };   // ligne du journal tri_mails
 type Boite = {
   email: string; nom: string; parallele: number; // opérations menées en même temps sur la boîte
 
+  // Mails de la réception pas encore classés (ceux du journal, restés en réception, ne sont pas relus)
   lister(limite: Date, n: number): Promise<Mail[]>;
-  ranger(m: Mail, dossier: string, important: boolean): Promise<void>;
+  // garder : le mail est lu et étiqueté mais reste dans la réception ; sinon il part dans son dossier
+  ranger(m: Mail, dossier: string, important: boolean, garder: boolean): Promise<void>;
+  // Délai de réception passé : les mails encore dans la réception partent dans leur dossier (ceux qu'Antonin a déjà déplacés
+  // ou supprimés ne sont pas touchés). Renvoie les références traitées.
+  archiver(lignes: Ligne[]): Promise<string[]>;
+  // Remet dans la réception les mails rangés par Victor et reçus depuis « depuis »
+  restaurer(depuis: Date, jusqu: Date, finAvant: number): Promise<{ remis: number; restant: boolean }>;
   jeter(m: Mail): Promise<void>;
   compter(): Promise<{ total: number; non_lus: number }>;
   // Rangement groupé (Gmail : une demande par dossier au lieu d'une par mail)
-  rangerLot?(groupes: { dossier: string; important: boolean; mails: Mail[] }[]): Promise<void>;
+  rangerLot?(groupes: { dossier: string; important: boolean; garder: boolean; mails: Mail[] }[]): Promise<void>;
   // Stock Gmail : onglets Promotions (corbeille) et Réseaux sociaux (Notifications) rangés par blocs, sans lire chaque mail
   massif?(limite: Date, finAvant: number): Promise<{ jetes: number; ranges: number; restant: boolean }>;
   // Gmail : libellés « À faire » et tâches du cockpit accordés ; remise en ordre des anciens libellés
@@ -98,9 +111,9 @@ type Boite = {
 
 // Appel d'API qui patiente quand Gmail ou Outlook demandent de ralentir (quota par minute), puis réessaie.
 const pause = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
-async function appelPatient(url: string, jeton: string, options: RequestInit = {}) {
+async function appelPatient(url: string, jeton: string, options: RequestInit = {}, entetes: Record<string, string> = {}) {
   for (let essai = 0; ; essai++) {
-    const r = await fetch(url, { ...options, headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" } });
+    const r = await fetch(url, { ...options, headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json", ...entetes } });
     const t = await r.text(); const j = t ? JSON.parse(t) : {};
     if (r.ok) return j;
     const message = j?.error?.message || `HTTP ${r.status}`;
@@ -109,6 +122,32 @@ async function appelPatient(url: string, jeton: string, options: RequestInit = {
     }
     throw new Error(message);
   }
+}
+
+// Journal du tri : références déjà connues (mails classés, restés ou non en réception), et marquage « en réception » / « rangé »
+async function connus(boite: string, refs: string[]): Promise<Map<string, { dossier: string; en_reception: boolean }>> {
+  const vus = new Map<string, { dossier: string; en_reception: boolean }>();
+  for (let i = 0; i < refs.length; i += 400) {
+    const { data, error } = await db.rpc("tri_connus", { b: boite, refs: refs.slice(i, i + 400) });
+    if (error) throw new Error(`journal du tri : ${error.message}`);
+    for (const l of data ?? []) vus.set(l.message_id, { dossier: l.dossier, en_reception: l.en_reception });
+  }
+  return vus;
+}
+async function marquer(boite: string, refs: string[], reception: boolean, jusqu: Date | null = null) {
+  for (let i = 0; i < refs.length; i += 400) {
+    const { error } = await db.rpc("tri_marquer", { b: boite, refs: refs.slice(i, i + 400), reception, jusqu: jusqu?.toISOString() ?? null });
+    if (error) throw new Error(`journal du tri : ${error.message}`);
+  }
+}
+// Lignes du journal des mails rangés par Victor et reçus depuis « depuis » (pour les remettre en réception), par instant de réception
+async function rangesDepuis(boite: string, depuis: Date) {
+  const { data, error } = await db.from("tri_mails").select("id, message_id, dossier, recu_le").eq("boite", boite).eq("en_reception", false)
+    .neq("dossier", CORBEILLE).gte("recu_le", depuis.toISOString()).order("recu_le").limit(5000);
+  if (error) throw new Error(`journal du tri : ${error.message}`);
+  const parInstant = new Map<number, { id: number; message_id: string; dossier: string }[]>();
+  for (const l of data ?? []) { const t = Math.floor(Date.parse(l.recu_le) / 1000); parInstant.set(t, [...(parInstant.get(t) ?? []), l]); }
+  return { parInstant, dossiers: [...new Set((data ?? []).map((l) => l.dossier as string))] };
 }
 
 // Applique f à chaque élément, par paquets de n en parallèle
@@ -156,12 +195,51 @@ function gmail(email: string, jeton: string): Boite {
     email, nom: nomBoite, parallele: 3,
     async lister(limite, n) {
       const q = `in:inbox before:${Math.floor(limite.getTime() / 1000)}`;
-      const liste = await appel(`/messages?maxResults=${n}&q=${encodeURIComponent(q)}`);
-      return await details(((liste.messages ?? []) as { id: string }[]).map((m) => m.id));
+      const nouveaux: string[] = [];
+      let page = "";
+      do {
+        const liste = await appel(`/messages?maxResults=500&q=${encodeURIComponent(q)}${page ? `&pageToken=${page}` : ""}`);
+        const ids = ((liste.messages ?? []) as { id: string }[]).map((m) => m.id);
+        const vus = await connus(nomBoite, ids.map((id) => `gmail:${id}`));
+        for (const id of ids) if (!vus.has(`gmail:${id}`)) nouveaux.push(id);
+        page = liste.nextPageToken ?? "";
+      } while (page && nouveaux.length < n);
+      return await details(nouveaux.slice(0, n));
     },
-    async ranger(m, dossier, important) {
+    async ranger(m, dossier, important, garder) {
       await appel(`/messages/${m.id}/modify`, { method: "POST", body: JSON.stringify({
-        addLabelIds: await ajouts(dossier, important), removeLabelIds: ["INBOX", "UNREAD"] }) });
+        addLabelIds: await ajouts(dossier, important), removeLabelIds: garder ? ["UNREAD"] : ["INBOX", "UNREAD"] }) });
+    },
+    // Le libellé est déjà posé : ranger = sortir de la réception (sans effet sur un mail déjà archivé ou supprimé par Antonin)
+    async archiver(lignes) {
+      const ids = lignes.map((l) => l.message_id.slice("gmail:".length));
+      for (let i = 0; i < ids.length; i += 500) {
+        const lot = ids.slice(i, i + 500);
+        try { await deplacer(lot, [], ["INBOX"]); }
+        catch { // un mail effacé entre-temps fait échouer le lot : un par un
+          await paquets(lot, 4, (id) => appel(`/messages/${id}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: ["INBOX"] }) }).catch(() => null));
+        }
+      }
+      return lignes.map((l) => l.message_id);
+    },
+    async restaurer(depuis, jusqu, finAvant) {
+      const q = `after:${Math.floor(depuis.getTime() / 1000)} -in:inbox -in:trash -in:spam -in:sent -in:drafts`;
+      let page = "", remis = 0;
+      do {
+        if (Date.now() > finAvant) return { remis, restant: true };
+        const liste = await appel(`/messages?maxResults=500&q=${encodeURIComponent(q)}${page ? `&pageToken=${page}` : ""}`);
+        const ids = ((liste.messages ?? []) as { id: string }[]).map((m) => m.id);
+        const vus = await connus(nomBoite, ids.map((id) => `gmail:${id}`));
+        // seulement ce que Victor a rangé (journal), jamais ce qu'Antonin a archivé lui-même ni les publicités
+        const aRemettre = ids.filter((id) => { const l = vus.get(`gmail:${id}`); return l && l.dossier !== CORBEILLE && !l.en_reception; });
+        if (aRemettre.length) {
+          await deplacer(aRemettre, ["INBOX"], []);
+          await marquer(nomBoite, aRemettre.map((id) => `gmail:${id}`), true, jusqu);
+          remis += aRemettre.length;
+        }
+        page = liste.nextPageToken ?? "";
+      } while (page);
+      return { remis, restant: false };
     },
     async jeter(m) {
       await appel(`/messages/${m.id}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: ["UNREAD"] }) });
@@ -201,7 +279,8 @@ function gmail(email: string, jeton: string): Boite {
     },
     async rangerLot(groupes) {
       for (const g of groupes) {
-        await deplacer(g.mails.map((m) => m.id), g.dossier === PUB ? ["TRASH"] : await ajouts(g.dossier, g.important), ["INBOX", "UNREAD"]);
+        await deplacer(g.mails.map((m) => m.id), g.dossier === PUB ? ["TRASH"] : await ajouts(g.dossier, g.important),
+          g.garder && g.dossier !== PUB ? ["UNREAD"] : ["INBOX", "UNREAD"]);
       }
     },
     // Tâche terminée dans le cockpit -> libellé « À faire » retiré du fil ; libellé retiré (ou fil à la corbeille) -> tâche terminée
@@ -317,7 +396,9 @@ function gmail(email: string, jeton: string): Boite {
 // ---------- Outlook (Microsoft Graph) : dossiers ----------
 function outlook(email: string, jeton: string): Boite {
   const api = "https://graph.microsoft.com/v1.0/me";
-  const appel = (chemin: string, options: RequestInit = {}) => appelPatient(api + chemin, jeton, options);
+  // Identifiants immuables : un mail garde le même identifiant quand il change de dossier (journal du tri, lecture dans le cockpit)
+  const appel = (chemin: string, options: RequestInit = {}) => appelPatient(api + chemin, jeton, options, { Prefer: 'IdType="ImmutableId"' });
+  const nomBoite = PAR_BOITE[email]?.[0] ?? email;
   // Arbre des dossiers : chemin (« Factures › Pansard ») -> dossier ; les dossiers système ne sont pas parcourus
   type Noeud = { id: string; chemin: string; total: number; enfants: number; systeme: boolean };
   let arbre: Promise<Map<string, Noeud>> | null = null;
@@ -356,21 +437,30 @@ function outlook(email: string, jeton: string): Boite {
   };
   let avecEntetes = true;
   const lire = async (dossier: string, requete: string) => {
-    const champs = "id,subject,from,receivedDateTime,bodyPreview" + (avecEntetes ? ",internetMessageHeaders" : "");
+    const champs = "id,subject,from,receivedDateTime,bodyPreview,categories" + (avecEntetes ? ",internetMessageHeaders" : "");
     const url = (c: string) => `/mailFolders/${dossier}/messages?${requete}&$orderby=receivedDateTime desc&$select=${c}`;
     let r;
-    try { r = await appel(url(champs)); } catch { avecEntetes = false; r = await appel(url("id,subject,from,receivedDateTime,bodyPreview")); }
+    try { r = await appel(url(champs)); } catch { avecEntetes = false; r = await appel(url("id,subject,from,receivedDateTime,bodyPreview,categories")); }
     // deno-lint-ignore no-explicit-any
     return (r.value ?? []).map((m: any) => ({
-      ref: `outlook:${m.id}`, id: m.id, objet: m.subject ?? "", recu_le: m.receivedDateTime, extrait: court(m.bodyPreview ?? ""),
+      ref: `outlook:${m.id}`, id: m.id, objet: m.subject ?? "", recu_le: m.receivedDateTime, extrait: court(m.bodyPreview ?? ""), categories: m.categories ?? [],
       de: m.from?.emailAddress ? `${m.from.emailAddress.name ?? ""} <${m.from.emailAddress.address ?? ""}>` : "",
       masse: (m.internetMessageHeaders ?? []).some((h: { name: string; value: string }) =>
         /^list-unsubscribe$/i.test(h.name) || (/^precedence$/i.test(h.name) && /bulk|list/i.test(h.value))),
     })) as Mail[];
   };
   return {
-    email, nom: PAR_BOITE[email]?.[0] ?? email, parallele: 4,
-    lister: (limite, n) => lire("inbox", `$top=${n}&$filter=receivedDateTime lt ${limite.toISOString()}`),
+    email, nom: nomBoite, parallele: 4,
+    async lister(limite, n) {
+      const nouveaux: Mail[] = [];
+      for (let saut = 0; nouveaux.length < n && saut < 3000; saut += 100) {
+        const page = await lire("inbox", `$top=100&$skip=${saut}&$filter=receivedDateTime lt ${limite.toISOString()}`);
+        const vus = await connus(nomBoite, page.map((m) => m.ref));
+        nouveaux.push(...page.filter((m) => !vus.has(m.ref)));
+        if (page.length < 100) break;
+      }
+      return nouveaux.slice(0, n);
+    },
     async listerDossier(chemin, saut, n) {
       const d = (await charger()).get(chemin.toLowerCase());
       return d ? await lire(d.id, `$top=${n}&$skip=${saut}`) : [];
@@ -385,9 +475,49 @@ function outlook(email: string, jeton: string): Boite {
         ((await appel(`/mailFolders/${n.id}/messages?$top=4&$orderby=receivedDateTime desc&$select=from,subject`)).value ?? []).map((m: any) =>
           `${m.from?.emailAddress?.name ?? ""} <${m.from?.emailAddress?.address ?? ""}> « ${court(m.subject ?? "", 60)} »`) }));
     },
-    async ranger(m, dossier, important) {
-      await appel(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ isRead: true, ...(important ? { flag: { flagStatus: "flagged" } } : {}) }) });
-      await appel(`/messages/${m.id}/move`, { method: "POST", body: JSON.stringify({ destinationId: await dossierId(dossier) }) });
+    async ranger(m, dossier, important, garder) {
+      // En réception : une catégorie Outlook au nom du dossier sert d'étiquette (les catégories déjà posées sont gardées)
+      await appel(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ isRead: true, ...(important ? { flag: { flagStatus: "flagged" } } : {}),
+        ...(garder ? { categories: [...new Set([...(m.categories ?? []), dossier])] } : {}) }) });
+      if (!garder) await appel(`/messages/${m.id}/move`, { method: "POST", body: JSON.stringify({ destinationId: await dossierId(dossier) }) });
+    },
+    async archiver(lignes) {
+      const reception = (await appel("/mailFolders/inbox?$select=id")).id as string;
+      const faits = await paquets(lignes, 4, async (l) => {
+        const id = l.message_id.slice("outlook:".length);
+        try {
+          const m = await appel(`/messages/${encodeURIComponent(id)}?$select=parentFolderId`);
+          // déjà déplacé par Antonin : on n'y touche pas
+          if (m.parentFolderId === reception) await appel(`/messages/${encodeURIComponent(id)}/move`, { method: "POST", body: JSON.stringify({ destinationId: await dossierId(l.dossier) }) });
+          return l.message_id;
+        } catch (e) { return /not found|ErrorItemNotFound|HTTP 404/i.test(message(e)) ? l.message_id : null; } // supprimé : plus rien à ranger
+      });
+      return faits.filter((x): x is string => !!x);
+    },
+    async restaurer(depuis, jusqu, finAvant) {
+      const { parInstant, dossiers } = await rangesDepuis(nomBoite, depuis);
+      const carte = await charger();
+      let remis = 0;
+      for (const d of dossiers) {
+        const noeud = carte.get(d.toLowerCase());
+        if (!noeud || noeud.systeme) continue;
+        for (;;) {
+          if (Date.now() > finAvant) return { remis, restant: true };
+          const r = await appel(`/mailFolders/${noeud.id}/messages?$top=100&$filter=receivedDateTime ge ${depuis.toISOString()}&$orderby=receivedDateTime desc&$select=id,receivedDateTime,categories`);
+          // deno-lint-ignore no-explicit-any
+          const trouves = ((r.value ?? []) as any[]).map((m) => ({ m, l: parInstant.get(Math.floor(Date.parse(m.receivedDateTime) / 1000))?.shift() })).filter((x) => x.l);
+          if (!trouves.length) break;
+          await paquets(trouves, 4, async ({ m, l }) => {
+            await appel(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ categories: [...new Set([...(m.categories ?? []), l!.dossier])] }) });
+            await appel(`/messages/${m.id}/move`, { method: "POST", body: JSON.stringify({ destinationId: "inbox" }) });
+            const { error } = await db.from("tri_mails").update({ message_id: `outlook:${m.id}`, en_reception: true, ranger_le: jusqu.toISOString() }).eq("id", l!.id);
+            if (error) throw new Error(`journal du tri : ${error.message}`);
+            remis++;
+          });
+          if ((r.value ?? []).length < 100) break;
+        }
+      }
+      return { remis, restant: false };
     },
     async jeter(m) {
       await appel(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) });
@@ -438,25 +568,74 @@ async function ionos(email: string, mdp: string): Promise<Boite> {
     await cmd(`UID STORE ${uid} +FLAGS.SILENT (\\Deleted)`);
     await cmd(`UID EXPUNGE ${uid}`);
   };
+  const nomBoite = PAR_BOITE[email]?.[0] ?? "Harnes";
   return {
-    email, nom: PAR_BOITE[email]?.[0] ?? "Harnes", parallele: 1, // une seule connexion IMAP
+    email, nom: nomBoite, parallele: 1, // une seule connexion IMAP
     async lister(limite, n) {
       const lendemain = new Date(limite.getTime() + 864e5);
-      const uids = (/\* SEARCH([\d ]*)/.exec(await cmd(`UID SEARCH BEFORE ${lendemain.getUTCDate()}-${MOIS[lendemain.getUTCMonth()]}-${lendemain.getUTCFullYear()}`))?.[1] ?? "")
-        .trim().split(/\s+/).filter(Boolean).slice(0, n); // les plus anciens d'abord
+      const tous = (/\* SEARCH([\d ]*)/.exec(await cmd(`UID SEARCH BEFORE ${lendemain.getUTCDate()}-${MOIS[lendemain.getUTCMonth()]}-${lendemain.getUTCFullYear()}`))?.[1] ?? "")
+        .trim().split(/\s+/).filter(Boolean); // les plus anciens d'abord
+      // Référence stable d'un dossier à l'autre : le Message-ID (l'UID change quand le mail est rangé) ; lus en une fois
+      const refs = new Map<string, string>();
+      for (let i = 0; i < tous.length; i += 400) {
+        const rep = await cmd(`UID FETCH ${tous.slice(i, i + 400).join(",")} (UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])`);
+        for (const bloc of rep.split(/\r\n(?=\* \d+ FETCH )/)) {
+          const uid = /\bUID (\d+)/.exec(bloc)?.[1];
+          if (uid) refs.set(uid, `ionos:${/Message-ID:\s*<([^>\r\n]+)>/i.exec(bloc)?.[1] ?? uid}`);
+        }
+      }
+      const vus = await connus(nomBoite, [...refs.values()]);
+      const uids = tous.filter((u) => !vus.has(refs.get(u) ?? `ionos:${u}`)).slice(0, n);
       const mails: Mail[] = [];
       for (const uid of uids) {
         const { recu, h, texte } = lireFetch(await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT LIST-UNSUBSCRIBE PRECEDENCE CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] BODY.PEEK[TEXT]<0.4000>)`));
         if (recu >= limite) continue;
-        mails.push({ ref: `ionos:${uid}`, id: uid, de: enTete(h["from"] ?? ""), objet: enTete(h["subject"] ?? ""), recu_le: recu.toISOString(),
+        mails.push({ ref: refs.get(uid) ?? `ionos:${uid}`, id: uid, de: enTete(h["from"] ?? ""), objet: enTete(h["subject"] ?? ""), recu_le: recu.toISOString(),
           extrait: court(texte), masse: !!h["list-unsubscribe"] || /bulk|list/i.test(h["precedence"] ?? "") });
       }
       return mails;
     },
-    async ranger(m, nom, important) {
-      const cible = await dossier(nom);
+    async ranger(m, nom, important, garder) {
       await cmd(`UID STORE ${m.id} +FLAGS.SILENT (\\Seen${important ? " \\Flagged" : ""})`);
-      await vers(m.id, cible);
+      if (!garder) await vers(m.id, await dossier(nom));
+    },
+    async archiver(lignes) {
+      const faits: string[] = [];
+      for (const l of lignes) {
+        const ref = l.message_id.slice("ionos:".length);
+        // encore dans la réception ? (sinon Antonin l'a déjà déplacé ou supprimé : on n'y touche pas)
+        const uids = (/\* SEARCH([\d ]*)/.exec(await cmd(/^\d+$/.test(ref) ? `UID SEARCH UID ${ref}` : `UID SEARCH HEADER Message-ID ${cite("<" + ref + ">")}`))?.[1] ?? "")
+          .trim().split(/\s+/).filter(Boolean);
+        for (const uid of uids) await vers(uid, await dossier(l.dossier));
+        faits.push(l.message_id);
+      }
+      return faits;
+    },
+    async restaurer(depuis, jusqu, finAvant) {
+      const { parInstant, dossiers } = await rangesDepuis(nomBoite, depuis);
+      let remis = 0, restant = false;
+      try {
+        for (const d of dossiers) {
+          const exact = existants.get((prefixe + utf7(d)).toLowerCase());
+          if (!exact || exact.toUpperCase() === "INBOX" || exact === corbeille) continue;
+          await cmd(`SELECT ${cite(exact)}`);
+          const uids = (/\* SEARCH([\d ]*)/.exec(await cmd(`UID SEARCH SINCE ${depuis.getUTCDate()}-${MOIS[depuis.getUTCMonth()]}-${depuis.getUTCFullYear()}`))?.[1] ?? "")
+            .trim().split(/\s+/).filter(Boolean);
+          for (const uid of uids) {
+            if (Date.now() > finAvant) { restant = true; break; }
+            const { recu, h } = lireFetch(await cmd(`UID FETCH ${uid} (INTERNALDATE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])`));
+            const l = parInstant.get(Math.floor(recu.getTime() / 1000))?.shift();
+            if (!l) continue; // pas rangé par Victor
+            await vers(uid, "INBOX");
+            const mid = (h["message-id"] ?? "").trim().replace(/^<|>$/g, "");
+            const { error } = await db.from("tri_mails").update({ ...(mid ? { message_id: `ionos:${mid}` } : {}), en_reception: true, ranger_le: jusqu.toISOString() }).eq("id", l.id);
+            if (error) throw new Error(`journal du tri : ${error.message}`);
+            remis++;
+          }
+          if (restant) break;
+        }
+      } finally { await cmd("SELECT INBOX"); }
+      return { remis, restant };
     },
     async jeter(m) {
       await cmd(`UID STORE ${m.id} +FLAGS.SILENT (\\Seen)`);
@@ -648,7 +827,7 @@ async function reclasser(client: Anthropic, ctx: Contexte, b: Boite, perso: Pers
     if (!mails.length) break;
     const vers = (await classer(client, ctx, b, mails, perso)).filter((d) => !tri.has(d.dossier));
     if (corps.apercu) { bilan.apercu = vers.map((d) => ({ de: d.mail.de, objet: d.mail.objet, vers: d.dossier })); bilan.vus = mails.length; break; }
-    await paquets(vers, b.parallele, (d) => b.ranger(d.mail, d.dossier, false));
+    await paquets(vers, b.parallele, (d) => b.ranger(d.mail, d.dossier, false, false));
     for (const d of vers) bilan.deplaces[d.dossier] = (bilan.deplaces[d.dossier] ?? 0) + 1;
     bilan.vus += mails.length;
     saut += mails.length - vers.length; // les mails déplacés quittent le dossier
@@ -692,10 +871,10 @@ async function rattraper(client: Anthropic, ctx: Contexte, b: Boite, corps: Corp
 }
 
 type Corps = { compter?: boolean; apercu?: boolean; forcer?: boolean; n?: number; massif?: boolean; a_faire?: boolean; libelles?: boolean; boite?: string; reclasser?: string; depuis?: number;
-  rattraper?: boolean; jours?: number };
+  rattraper?: boolean; jours?: number; restaurer?: boolean };
 async function travail(corps: Corps) {
   const t0 = Date.now();
-  const special = corps.compter || corps.apercu || corps.a_faire || corps.libelles || corps.reclasser || corps.rattraper;
+  const special = corps.compter || corps.apercu || corps.a_faire || corps.libelles || corps.reclasser || corps.rattraper || corps.restaurer;
   let limite = new Date();
   if (!corps.forcer && !special) {
     const { data: b } = await db.from("briefings").select("jour, mise_a_jour").eq("jour", aujourdhuiParis()).maybeSingle();
@@ -703,7 +882,7 @@ async function travail(corps: Corps) {
     limite = new Date(b.mise_a_jour);
   }
   if (!special) await db.from("tri_mails").delete().lt("trie_le", new Date(Date.now() - 60 * 864e5).toISOString());
-  const ctx = corps.compter || corps.a_faire ? null : await contexte();
+  const ctx = corps.compter || corps.a_faire || corps.restaurer ? null : await contexte();
   const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
   // Les boîtes sont rangées en même temps : chacune a ses propres limites chez Google ou Microsoft
   // deno-lint-ignore no-explicit-any
@@ -721,12 +900,28 @@ async function travail(corps: Corps) {
       if (corps.a_faire) { if (b.aFaire) Object.assign(r, await b.aFaire()); return; }
       if (corps.libelles) { Object.assign(r, await b.libelles!(ctx!, client, !!corps.apercu, t0 + BUDGET)); return; }
       if (corps.rattraper) { Object.assign(r, await rattraper(client, ctx!, b, corps)); return; }
+      if (corps.restaurer) { // mails rangés par Victor remis dans la réception, pour 14 jours à partir de maintenant
+        Object.assign(r, await b.restaurer(new Date(Date.now() - Math.min(corps.jours ?? 30, 60) * 864e5), new Date(Date.now() + DELAI_RECEPTION), t0 + BUDGET));
+        return;
+      }
       const perso = b.personnels ? await b.personnels(ctx!.dossiers) : [];
       if (perso.length) r.dossiers_personnels = perso.length;
       if (corps.reclasser) { Object.assign(r, await reclasser(client, ctx!, b, perso, corps, t0)); return; }
       const avecTaches = !corps.apercu && BOITES_TACHES.has(b.email) && !!b.aFaire;
       if (avecTaches) r.a_faire = await b.aFaire!(); // d'abord accorder les tâches terminées et les libellés retirés
       r.ranges = 0; r.jetes = 0; r.importants = 0; r.restant = false; r.temps = { lister: 0, classer: 0, ranger: 0 };
+      // Délai de réception passé (14 jours) : les mails classés partent dans leur dossier
+      if (!corps.apercu) {
+        const { data: dus, error } = await db.from("tri_mails").select("message_id, dossier").eq("boite", b.nom).eq("en_reception", true)
+          .lt("ranger_le", new Date().toISOString()).order("ranger_le").limit(300);
+        if (error) throw new Error(`journal du tri : ${error.message}`);
+        if (dus?.length) {
+          const faits = await b.archiver(dus as Ligne[]);
+          await marquer(b.nom, faits, false);
+          r.archives = faits.length;
+          if (dus.length === 300) r.restant = true;
+        }
+      }
       if (corps.massif && b.massif) {
         const m = await b.massif(limite, t0 + BUDGET);
         r.jetes += m.jetes; r.ranges += m.ranges;
@@ -744,16 +939,19 @@ async function travail(corps: Corps) {
         r.temps.classer += Date.now() - t1;
         const t2 = Date.now();
         if (corps.apercu) { r.apercu = decisions.map((d) => ({ de: d.mail.de, objet: d.sensible ? "Mail personnel" : d.mail.objet, diffusion: d.mail.masse, dossier: d.dossier, important: d.important, sensible: d.sensible, resume: d.resume })); break; }
+        // Un mail récent reste 14 jours dans la réception (lu, étiqueté) ; un mail plus ancien part tout de suite dans son dossier
+        const garder = (d: (typeof decisions)[number]) => d.dossier !== PUB && Date.now() - Date.parse(d.mail.recu_le) < DELAI_RECEPTION;
         const ligne = (d: (typeof decisions)[number]) => ({ boite: b.nom, message_id: d.mail.ref, de: court(d.mail.de, 200),
+          en_reception: garder(d), ranger_le: garder(d) ? new Date(Date.parse(d.mail.recu_le) + DELAI_RECEPTION).toISOString() : null,
           // Mail de santé ou très personnel : ni l'objet ni le résumé détaillé ne sont gardés dans le cockpit
           objet: d.sensible ? "Mail personnel" : court(d.mail.objet, 300), recu_le: d.mail.recu_le,
           dossier: d.dossier === PUB ? CORBEILLE : d.dossier, important: d.important, resume: d.resume });
         let groupe = false;
         if (b.rangerLot) {
-          const groupes = new Map<string, { dossier: string; important: boolean; mails: Mail[] }>();
+          const groupes = new Map<string, { dossier: string; important: boolean; garder: boolean; mails: Mail[] }>();
           for (const d of decisions) {
-            const cle = d.dossier + "|" + d.important;
-            if (!groupes.has(cle)) groupes.set(cle, { dossier: d.dossier, important: d.important, mails: [] });
+            const cle = d.dossier + "|" + d.important + "|" + garder(d);
+            if (!groupes.has(cle)) groupes.set(cle, { dossier: d.dossier, important: d.important, garder: garder(d), mails: [] });
             groupes.get(cle)!.mails.push(d.mail);
           }
           try { await b.rangerLot([...groupes.values()]); groupe = true; } catch (e) { r.erreur = `rangement groupé : ${message(e)}`; }
@@ -764,14 +962,18 @@ async function travail(corps: Corps) {
           return ligne(d);
         }) : (await paquets(decisions, b.parallele, async (d) => {
           try {
-            if (d.dossier === PUB) { await b.jeter(d.mail); r.jetes++; } else { await b.ranger(d.mail, d.dossier, d.important); r.ranges++; }
+            if (d.dossier === PUB) { await b.jeter(d.mail); r.jetes++; } else { await b.ranger(d.mail, d.dossier, d.important, garder(d)); r.ranges++; }
             if (d.important) r.importants++;
             return ligne(d);
           } catch (e) { r.erreur = `${d.mail.objet.slice(0, 60)} : ${message(e)}`; return null; }
         })).filter((x) => x !== null);
         const faits = journal.length;
         r.temps.ranger += Date.now() - t2;
-        if (journal.length) await db.from("tri_mails").upsert(journal, { onConflict: "boite,message_id", ignoreDuplicates: true });
+        if (journal.length) {
+          // sans journal, un mail resté en réception serait reclassé au tour suivant : l'erreur arrête le tri
+          const { error } = await db.from("tri_mails").upsert(journal, { onConflict: "boite,message_id", ignoreDuplicates: true });
+          if (error) throw new Error(`journal du tri : ${error.message}`);
+        }
         if (avecTaches) {
           const ranges = new Set(journal.map((l) => l.message_id));
           try { r.taches = (r.taches ?? 0) + await creerTaches(ctx!, b, decisions.filter((d) => ranges.has(d.mail.ref))); }
@@ -792,7 +994,7 @@ Deno.serve(async (req) => {
   const corps = await req.json().catch(() => ({}));
   if (!corps.compter && !corps.a_faire && !Deno.env.get("ANTHROPIC_API_KEY")) return json({ erreur: "clé ANTHROPIC_API_KEY manquante (outils/claude-cle.sh)" }, 400);
   const tache = travail(corps).catch((e) => { console.error("Tri :", message(e)); return { erreur: message(e) }; });
-  if (corps.attendre || corps.apercu || corps.compter || corps.libelles || corps.reclasser || corps.rattraper) return json(await tache);
+  if (corps.attendre || corps.apercu || corps.compter || corps.libelles || corps.reclasser || corps.rattraper || corps.restaurer) return json(await tache);
   EdgeRuntime.waitUntil(tache.then((r) => console.log("Tri :", JSON.stringify(r))));
   return json({ lance: true }, 202);
 });

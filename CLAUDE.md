@@ -140,3 +140,11 @@ Clés VAPID : secrets VAPID_PUBLIQUE / VAPID_PRIVEE posés par `outils/notificat
 secret EVOALYS_CLE ; côté Evoalys : app/cockpit.py, variable COCKPIT_CLE) -> taches (projet evoa-courtage, colonne externe « evoalys:<id> »,
 lien vers Evoalys). Cochées dans les deux sens (externe_fait = état au dernier passage). Tâches Evoa créées dans le cockpit -> Evoalys.
 Clé : outils/evoalys-cle.sh (Supabase + presse-papiers pour Scaleway). Invités de rendez-vous : agenda-ecrire route Harnes vers invitation-harnes.
+
+## Tri des boîtes : 14 jours en réception (depuis le 20 novembre 2026)
+Antonin veut voir tous ses mails récents dans la boîte de réception. `trier-mails` ne sort donc plus les mails de la réception au
+classement : il les marque lus et les étiquette (libellé Gmail, catégorie Outlook ; rien de visible sur IONOS), note `en_reception` et
+`ranger_le` (réception + 14 jours) dans `tri_mails`, puis les range dans leur dossier au passage qui suit ce délai (`archiver` ; un mail
+qu'Antonin a déjà déplacé ou supprimé n'est pas touché). Les publicités partent toujours à la corbeille tout de suite.
+Références du journal stables d'un dossier à l'autre : identifiants immuables Outlook, Message-ID pour IONOS.
+`{ restaurer: true, jours }` remet en réception ce que Victor a rangé (fait le 20/11 sur 30 jours : 1 254 mails).

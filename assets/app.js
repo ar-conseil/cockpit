@@ -1061,7 +1061,7 @@
         R.localEtat = r.error ? "erreur" : "ok";
         R.local = (r.data || []).map(function (x) {
           var bx = BOITES[String(x.boite).toLowerCase()] || {};
-          return { boite: x.boite, de: x.de, objet: x.objet, date: x.recu_le, extrait: x.resume || "", resume: x.dossier && x.dossier !== "Réception" ? "Rangé dans « " + x.dossier + " »" : "",
+          return { boite: x.boite, de: x.de, objet: x.objet, date: x.recu_le, extrait: x.resume || "", resume: x.dossier && x.dossier !== "Réception" ? "Classé dans « " + x.dossier + " »" : "",
             ref: { boite: bx.email || "", id: x.message_id }, source: "archives" };
         });
         rendreRecherche();
@@ -2823,7 +2823,7 @@
     var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
     return el("section", { class: "section" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Boîtes connectées" }),
-        el("p", { class: "aside", text: "Chaque matin, Victor lit les boîtes connectées ici (et Harnes, IONOS), puis les range : un dossier par thème, mails marqués comme lus, importants étoilés, publicités à la corbeille (récupérables 30 jours). Il n'envoie jamais rien et n'efface rien définitivement." })]),
+        el("p", { class: "aside", text: "Chaque matin, Victor lit les boîtes connectées ici (et Harnes, IONOS) : mails marqués comme lus et classés par thème, gardés 14 jours dans la réception puis rangés dans leur dossier, importants signalés, publicités à la corbeille (récupérables 30 jours). Il n'envoie jamais rien et n'efface rien définitivement." })]),
       el("div", { class: "liens-boutons rangee" }, [
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Gmail", onclick: function () { connecter("google", "mail"); } }),
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Outlook", onclick: function () { connecter("microsoft", "mail"); } })
@@ -2832,7 +2832,7 @@
         var trie = function (x) { return /gmail\.modify|Mail\.ReadWrite/i.test(x.droits || ""); };
         return el("li", { class: "compte" }, [
           el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
-          el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur || !trie(c) ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : trie(c) ? "Mails · lus et rangés par Victor" : "Lecture seule : reconnectez la boîte pour autoriser le tri" })]),
+          el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur || !trie(c) ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : trie(c) ? "Mails · lus et classés par Victor" : "Lecture seule : reconnectez la boîte pour autoriser le tri" })]),
           trie(c) ? null : el("button", { type: "button", class: "btn-contour petit", text: "Autoriser le tri", onclick: function () { connecter(c.fournisseur, "mail"); } }),
           // Outlook : l'envoi des réponses validées dans la page Réponses demande un droit de plus (Mail.Send)
           trie(c) && c.fournisseur === "microsoft" && !/Mail\.Send/i.test(c.droits || "") ? el("button", { type: "button", class: "btn-contour petit", text: "Autoriser l'envoi",
@@ -2917,9 +2917,9 @@
     var jetes = t ? ((t.par_dossier || []).filter(function (x) { return x.dossier === "Corbeille"; })[0] || { n: 0 }).n : 0;
     f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
       el("div", {}, [icone("mails", "grande"), el("p", { class: "surtitre", text: "Victor" }), el("h1", { text: "Tri des boîtes" }),
-        el("p", { class: "chapo", text: "Chaque matin, après son point, Victor lit les mails arrivés dans vos boîtes et les range : un dossier par activité ou par thème, marqués comme lus. Il étoile les importants (drapeau dans Outlook) et met les publicités à la corbeille, où elles restent récupérables 30 jours." })]),
+        el("p", { class: "chapo", text: "Chaque matin, après son point, Victor lit les mails arrivés dans tes boîtes, les marque comme lus et les classe par activité ou par thème. Chaque mail reste 14 jours dans la boîte de réception, étiqueté, puis part dans son dossier. Les importants sont signalés (« À faire » dans Gmail, drapeau dans Outlook) et les publicités vont à la corbeille, où elles restent récupérables 30 jours." })]),
       t ? el("dl", { class: "hero-chiffres" }, [
-        el("div", {}, [el("dt", { text: "Rangés" }), el("dd", { text: nb(t.total - jetes) }), el("small", { text: "dans un dossier" })]),
+        el("div", {}, [el("dt", { text: "Classés" }), el("dd", { text: nb(t.total - jetes) }), el("small", { text: "lus et étiquetés" })]),
         el("div", {}, [el("dt", { text: "Importants" }), el("dd", { text: nb(t.importants_total) }), el("small", { text: "étoilés" })]),
         el("div", {}, [el("dt", { text: "Publicités" }), el("dd", { text: nb(jetes) }), el("small", { text: "à la corbeille" })])
       ]) : null
@@ -2935,7 +2935,7 @@
       f.appendChild(el("section", { class: "section" }, [
         el("div", { class: "entete" }, [el("h2", { text: "Par boîte" })]),
         el("div", { class: "tableau-defile", style: "--c:var(--encre)" }, [el("table", { class: "affaires tri-boites" }, [
-          el("thead", {}, [el("tr", {}, ["Boîte", "Lus et rangés", "Importants", "Publicités jetées", "Dernier passage"].map(function (x) { return el("th", { scope: "col", text: x }); }))]),
+          el("thead", {}, [el("tr", {}, ["Boîte", "Lus et classés", "Importants", "Publicités jetées", "Dernier passage"].map(function (x) { return el("th", { scope: "col", text: x }); }))]),
           el("tbody", {}, (t.par_boite || []).map(function (b) {
             return el("tr", {}, [el("th", { scope: "row", text: b.boite }), el("td", { text: nb(b.n - b.jetes) }), el("td", { text: nb(b.importants) }),
               el("td", { text: nb(b.jetes) }), el("td", { class: "suite", text: fmt(new Date(b.dernier), { day: "numeric", month: "short" }) + " · " + hm(new Date(b.dernier)) })]);

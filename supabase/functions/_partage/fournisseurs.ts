@@ -83,8 +83,13 @@ export async function jetonAcces(db: any, c: Compte): Promise<string> {
   // Une boîte Outlook se renouvelle avec les droits qu'elle a reçus (sinon Microsoft refuse) : lecture seule, tri, ou tri et envoi.
   const outlookMail = c.usage === "mail" && c.fournisseur === "microsoft";
   const lectureSeule = outlookMail && !peutTrier(c);
-  const j = await demanderJeton(c.fournisseur, { grant_type: "refresh_token", refresh_token: c.refresh_token }, c.usage ?? "agenda",
-    lectureSeule ? SCOPES_MAIL_LECTURE : outlookMail && !peutEnvoyer(c) ? SCOPES_MAIL_SANS_ENVOI : scopes(c.fournisseur, c.usage ?? "agenda"));
+  // Agenda Outlook qui a aussi reçu la lecture des mails (Evoa) : on la garde au renouvellement, pour que Victor lise la boîte
+  const agendaLecteur = c.usage !== "mail" && c.fournisseur === "microsoft" && /Mail\.Read/i.test(c.droits ?? "");
+  const portee = lectureSeule ? SCOPES_MAIL_LECTURE : outlookMail && !peutEnvoyer(c) ? SCOPES_MAIL_SANS_ENVOI
+    : agendaLecteur ? `${MICROSOFT.scopes} Mail.Read` : scopes(c.fournisseur, c.usage ?? "agenda");
+  const champs = { grant_type: "refresh_token", refresh_token: c.refresh_token };
+  const j = await demanderJeton(c.fournisseur, champs, c.usage ?? "agenda", portee)
+    .catch((e) => { if (!agendaLecteur) throw e; return demanderJeton(c.fournisseur, champs, "agenda", MICROSOFT.scopes); });   // l'agenda d'abord
   c.jeton_acces = j.access_token;
   c.jeton_expire_le = new Date(Date.now() + (j.expires_in - 60) * 1000).toISOString();
   const maj: Record<string, string> = { jeton_acces: c.jeton_acces, jeton_expire_le: c.jeton_expire_le };

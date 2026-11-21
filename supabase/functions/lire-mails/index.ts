@@ -1,4 +1,4 @@
-// Mails récents des boîtes connectées pour Victor (comptes_agenda.usage = « mail », plus la boîte IONOS de Harnes
+// Mails récents des boîtes connectées pour Victor (comptes_agenda.usage = « mail », l'agenda Outlook d'Evoa qui a la lecture des mails, plus la boîte IONOS de Harnes
 // par IMAP avec les secrets IONOS_EMAIL / IONOS_MOT_DE_PASSE), en lecture (EXAMINE, BODY.PEEK : rien n'est marqué lu ; le rangement est fait par trier-mails).
 //  POST { depuis: ISO } avec l'en-tête x-cle-synchro -> { boites: [{ email, fournisseur, mails: [{ id, de, a, objet, recu_le, texte }], erreur? }] }
 // Rien n'est stocké : les mails ne font que passer vers la routine du Mac, qui en tire le briefing.
@@ -96,7 +96,11 @@ Deno.serve(async (req) => {
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   const corps = await req.json().catch(() => ({}));
   const depuis = new Date(Math.max(Date.parse(corps.depuis ?? "") || 0, Date.now() - 72 * 3600e3));
-  const { data: comptes } = await db.from("comptes_agenda").select("*").eq("usage", "mail");
+  const { data: tous } = await db.from("comptes_agenda").select("*");
+  // Boîtes connectées pour les mails, plus les agendas Outlook qui ont reçu la lecture des mails (Evoa : lecture seule, jamais rangée)
+  const mailsDe = new Set((tous ?? []).filter((c) => c.usage === "mail").map((c) => c.email.toLowerCase()));
+  const comptes = (tous ?? []).filter((c) => c.usage === "mail"
+    || (c.fournisseur === "microsoft" && /Mail\.Read/i.test(c.droits ?? "") && !mailsDe.has(c.email.toLowerCase())));
   const boites = [];
   for (const c of (comptes ?? []) as Compte[]) {
     try {

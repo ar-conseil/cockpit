@@ -1365,7 +1365,7 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
 .client { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0; border-top: 1px solid var(--filet); }
 .client-lecture { display: none; }
 @media (min-width: 1240px) {
-  .client { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); height: calc(100dvh - 170px); min-height: 520px; }
+  .client { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); height: calc(100dvh - 262px); min-height: 480px; }
   .client > * { overflow-y: auto; overscroll-behavior: contain; }
   .client .client-dossiers { display: none; }
   .boite-choix { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
@@ -1373,7 +1373,7 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
   .client-liste-tete, .boite-cherche { padding-left: 0; }
 }
 @media (min-width: 1560px) {
-  .client { grid-template-columns: 200px minmax(300px, 380px) minmax(0, 1fr); }
+  .client { grid-template-columns: 200px minmax(300px, 380px) minmax(0, 1fr); height: calc(100dvh - 206px); }
   .client .client-dossiers { display: grid; }
   .boite-choix { display: none; }
   .client-liste-tete, .boite-cherche { padding-left: 18px; }

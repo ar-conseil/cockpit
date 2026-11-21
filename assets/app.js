@@ -271,6 +271,9 @@
     taches: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg>',
     agendas: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>',
     chercher: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>',
+    boite: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="3.2" width="12.4" height="9.6" rx="2"/><path d="m2.4 4.6 5.6 4.1 5.6-4.1"/></svg>',
+    tri: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M4.5 8h7M6.5 12h3"/></svg>',
+    reponses: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 4 2.5 7.5l4 3.5"/><path d="M2.8 7.5H9a4.5 4.5 0 0 1 4.5 4.5v.5"/></svg>',
     mails: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 9.5V12a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 14 12V9.5"/><path d="M2 9.5h3.2l.8 1.5h4l.8-1.5H14L12.3 3.7a1.5 1.5 0 0 0-1.4-1.2H5.1a1.5 1.5 0 0 0-1.4 1.2z"/></svg>',
     clients: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.8 13.5c.6-2.4 2.2-3.6 4.2-3.6s3.6 1.2 4.2 3.6"/><circle cx="11.5" cy="6" r="2"/><path d="M11 9.9c1.6 0 2.8 1 3.3 3"/></svg>',
     recos: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.9l-3.4 1.8.7-3.8-2.8-2.7 3.8-.5z"/></svg>',
@@ -299,9 +302,22 @@
     }));
   }
   function lienCote(href, actif, contenu, nb, touche) {
-    var l = el("a", { href: href, class: "cote-lien", title: touche ? "Touche " + touche : null }, contenu.concat([nb ? el("small", { text: String(nb) }) : null]));
+    var nom = (contenu[contenu.length - 1] || {}).textContent || "";
+    var l = el("a", { href: href, class: "cote-lien", "data-nom": nom + (touche ? "  ·  " + touche : ""), "aria-label": nom }, contenu.concat([nb ? el("small", { text: String(nb) }) : null]));
     if (actif) l.setAttribute("aria-current", "page");
     return l;
+  }
+  // Messagerie : quatre pages réunies sous un seul onglet, avec un sélecteur en haut (comme Evoalys)
+  var ROUTES_MAILS = ["boite", "mails", "reponses", "recherche"];
+  function ongletsMails() {
+    var nbR = (S.reponses || []).filter(function (x) { return x.statut === "brouillon"; }).length;
+    return el("div", { class: "onglets-mails" }, [el("nav", { "aria-label": "Messagerie" }, [
+      ["boite", "Boîte de réception", "boite", S.messagerieNonLus], ["mails", "Tri des boîtes", "tri"], ["reponses", "Réponses", "reponses", nbR], ["recherche", "Rechercher", "chercher"]
+    ].map(function (o) {
+      var l = el("a", { href: "#" + o[0] }, [icone(o[2]), el("span", { text: o[1] }), o[3] ? el("small", { text: String(o[3]) }) : null]);
+      if (S.route === o[0]) l.setAttribute("aria-current", "page");
+      return l;
+    }))]);
   }
   function dessinerNav() {
     navProjets.textContent = "";
@@ -313,16 +329,13 @@
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [
       lienCote("#", !S.route, [icone("aujourdhui"), el("span", { text: "Aujourd'hui" })], tachesDuJour(iso).filter(function (t) { return t.statut !== "fait"; }).length, "0"),
       lienCote("#taches", S.route === "taches", [icone("taches"), el("span", { text: "Tâches" })], nbT, "B"),
-      lienCote("#boite", S.route === "boite", [icone("mails"), el("span", { text: "Mails" })], S.messagerieNonLus || 0, "M"),
-      lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })]),
-      lienCote("#mails", S.route === "mails", [icone("mails"), el("span", { text: "Tri des boîtes" })]),
-      lienCote("#recherche", S.route === "recherche", [icone("chercher"), el("span", { text: "Rechercher un mail" })]),
-      lienCote("#reponses", S.route === "reponses", [icone("mails"), el("span", { text: "Réponses" })],
-        (S.reponses || []).filter(function (x) { return x.statut === "brouillon"; }).length)
+      lienCote("#boite", ROUTES_MAILS.indexOf(S.route) >= 0, [icone("boite"), el("span", { text: "Mails" })], S.messagerieNonLus || 0, "M"),
+      lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })])
     ]));
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [el("p", { class: "cote-titre", text: "Projets" })].concat(S.activites.map(function (a, i) {
       var n = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }).length;
       var lien = lienCote("#" + a.id, a.id === S.route && !S.rubrique, [iconeProjet(a), el("span", { text: a.nom })], n, String(i + 1));
+      lien.classList.add("projet"); if (a.id === S.route) lien.classList.add("ouvert");
       if (a.id !== S.route) return lien;
       // Projet ouvert : ses rubriques en sous-menu, pour passer de l'une à l'autre sans descendre dans la page
       return el("div", { class: "cote-projet-ouvert", style: "--c:" + a.couleur }, [lien,
@@ -339,6 +352,23 @@
     var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
     if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
   }
+  // Barre d'icônes (ordinateur) : le nom de chaque lien apparaît à côté au survol
+  (function () {
+    var cote = document.getElementById("cote"), bulle = el("div", { class: "bulle-cote", role: "tooltip" }), etroite = matchMedia("(min-width: 901px)");
+    document.body.appendChild(bulle);
+    var montrer = function (cible) {
+      if (!cible || !etroite.matches) { bulle.classList.remove("visible"); return; }
+      var r = cible.getBoundingClientRect();
+      bulle.textContent = cible.getAttribute("data-nom") || cible.getAttribute("title") || "";
+      bulle.style.top = (r.top + r.height / 2) + "px"; bulle.style.left = (r.right + 12) + "px";
+      bulle.classList.add("visible");
+    };
+    cote.addEventListener("mouseover", function (ev) { montrer(ev.target.closest("[data-nom], .cote-bouton, .cote-bas button")); });
+    cote.addEventListener("mouseleave", function () { bulle.classList.remove("visible"); });
+    cote.addEventListener("scroll", function () { bulle.classList.remove("visible"); });
+    cote.addEventListener("focusin", function (ev) { if (ev.target.matches(":focus-visible")) montrer(ev.target.closest("[data-nom], .cote-bouton, .cote-bas button")); });
+    cote.addEventListener("focusout", function () { bulle.classList.remove("visible"); });
+  })();
   // Menu sur téléphone : la barre latérale glisse par-dessus la page.
   function menu(ouvert) {
     barre.classList.toggle("menu-ouvert", ouvert);
@@ -1187,7 +1217,14 @@
     cle: 0, ouvert: null, cache: {}, imagesOk: {}, contexte: "", projet: null };
   var BOITES_DEFAUT = [{ email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
     { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }];
-  var LARGE = matchMedia("(min-width: 1240px)");
+  var LARGE = matchMedia("(min-width: 1100px)");
+  // Trois volets : la messagerie occupe toute la hauteur de la fenêtre sous l'en-tête
+  function ajusterClient() {
+    var c = document.querySelector(".client"); if (!c) return;
+    if (!LARGE.matches) { c.style.height = ""; return; }
+    c.style.height = Math.max(460, window.innerHeight - (c.getBoundingClientRect().top + window.scrollY) - 14) + "px";
+  }
+  window.addEventListener("resize", function () { ajusterClient(); });
   // Mails de chaque projet : sa boîte, et les dossiers « Projets/… » rangés dans Gmail et Camp (Harnes : dossier « Evoa »)
   var SOURCES_MAIL = {
     "palomano": [{ boite: BOITES.palomano.email }, { boite: BOITES.gmail.email, dossier: "Projets/Palomano" }],
@@ -1580,6 +1617,7 @@
       rendreDossiers(); rendreLecture();
       if (!B.mails.length && B.etat !== "charge") (B.projet ? chargerSource() : chargerBoite()); else rendreBoite();
       if (!B.projet) listeBoites().forEach(function (b, i) { setTimeout(function () { chargerDossiers(b.email); }, i * 150); });
+      ajusterClient();
     }, 0);
     return el("div", { class: "page-boite" + (a ? " page-boite-projet" : "") }, [f]);
   }
@@ -3709,6 +3747,8 @@
     var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
     S.calScroll = defileAvant ? defileAvant.scrollTop : null;
     app.textContent = "";
+    app.classList.toggle("large", S.route === "boite" || (!!a && S.rubrique === "mails"));
+    if (!a && ROUTES_MAILS.indexOf(S.route) >= 0) app.appendChild(ongletsMails());
     app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "boite" ? vueBoite() : S.route === "recherche" ? vueRecherche() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
     var chA = a && CHARTES[a.id];

@@ -1374,7 +1374,7 @@
     if (LARGE.matches) { rendreLecture(); return; }
     if (discret) return;
     if (!lecteurBoite) {
-      lecteurBoite = el("dialog", { class: "lecteur lecteur-boite", "aria-label": "Mail" });
+      lecteurBoite = el("dialog", { class: "lecteur lecteur-mail", "aria-label": "Mail" });
       lecteurBoite.addEventListener("click", function (ev) { if (ev.target === lecteurBoite) lecteurBoite.close(); });
       lecteurBoite.addEventListener("close", function () { B.ouvert = null; rendreBoite(); });
       document.body.appendChild(lecteurBoite);

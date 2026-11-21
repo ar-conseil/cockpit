@@ -1434,7 +1434,7 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
 .lect { display: grid; gap: 14px; padding-top: 14px; }
 .lect-outils { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 0; margin-top: -14px;
   background: color-mix(in srgb, var(--papier) 94%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--filet); }
-.lecteur-boite .lect-outils { background: color-mix(in srgb, var(--blanc) 94%, transparent); top: 60px; }
+.lecteur-mail .lect-outils { background: color-mix(in srgb, var(--blanc) 94%, transparent); top: 60px; }
 .lect-outils .btn-plein, .lect-outils .btn-contour { height: 32px; padding: 0 12px; font-size: 13px; }
 .lect-outils .btn-contour.actif { color: #b87a0b; }
 .lect-sep { width: 1px; height: 20px; background: var(--filet); margin: 0 4px; }
@@ -1464,7 +1464,7 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
 .lect-vide { display: grid; place-items: center; height: 100%; color: var(--encre-3); font-size: 14px; }
 .lect-victor { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-top: 6px; border-top: 1px solid var(--filet); }
 .lect-victor a { text-decoration: none; }
-.lecteur-boite .lect { padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
+.lecteur-mail .lect { padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
 
 /* Rédaction d'un mail */
 .redaction { width: min(760px, 100vw); max-width: 100vw; padding: 0; border: 0; border-radius: 18px; background: var(--blanc); color: var(--encre);

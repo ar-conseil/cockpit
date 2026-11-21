@@ -1340,7 +1340,7 @@
     var titre = document.getElementById("boite-titre"), d = dossierActuel(), type = typeActuel();
     if (titre) titre.textContent = B.q ? "Résultats pour « " + B.q + " »" : B.projet && B.projet.source.dossier ? nomSource(B.projet.source) : B.boite === "tout" ? "Toutes les réceptions" : nomBoite(B.boite) + " · " + (d ? d.nom.split(/\s›\s|\//).pop() : "Boîte de réception");
     var compte = document.getElementById("boite-compte"), nonLus = B.mails.filter(function (m) { return !m.lu; }).length;
-    if (compte) compte.textContent = B.mails.length ? B.mails.length + " mails" + (nonLus && type !== "envoyes" ? " · " + nonLus + " non lu" + (nonLus > 1 ? "s" : "") : "") : "";
+    if (compte) compte.textContent = B.mails.length ? B.mails.length + (B.mails.length > 1 ? " mails" : " mail") + (nonLus && type !== "envoyes" ? " · " + nonLus + " non lu" + (nonLus > 1 ? "s" : "") : "") : "";
     Object.keys(B.erreurs || {}).forEach(function (k) { zone.appendChild(el("p", { class: "boite-erreur", text: nomBoite(k) + " non lue : " + B.erreurs[k] })); });
     if (!B.mails.length) {
       zone.appendChild(B.etat === "erreur" ? el("p", { class: "recherche-vide", text: "Lecture impossible : " + B.message })

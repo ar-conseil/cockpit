@@ -1179,10 +1179,18 @@
     setTimeout(function () { rendreRecherche(); if (document.activeElement === document.body) champ.focus(); }, 0);
     return el("div", { class: "page-recherche" }, [f]);
   }
-  // ---------- Mails : toutes les boîtes dans l'application (fonction messagerie) ----------
-  // Réception de chaque boîte (Gmail perso, Camp, Palomano, Harnes) ou de toutes ensemble, du plus récent au plus ancien ;
-  // lire, répondre, écrire, archiver, corbeille. L'envoi part de la bonne adresse, avec sa signature, et seulement sur clic.
-  var B = { filtre: lirePref("boite-filtre", "tout"), mails: [], suites: {}, etat: "", erreurs: {}, boites: [], cle: 0 };
+  // ---------- Mails : une vraie messagerie pour toutes les boîtes (fonction messagerie) ----------
+  // Gmail perso, Camp, Palomano (Outlook) et Harnes (IONOS) : dossiers, recherche, lecture mise en forme, pièces jointes,
+  // répondre, répondre à tous, transférer, brouillons, déplacer, suivi, corbeille. Rien ne part sans clic sur Envoyer ;
+  // rien n'est effacé définitivement (corbeille, récupérable).
+  var B = { boite: lirePref("boite-filtre", "tout"), dossier: "", q: "", mails: [], suites: {}, etat: "", erreurs: {}, boites: [], dossiers: {},
+    cle: 0, ouvert: null, cache: {}, imagesOk: {} };
+  var BOITES_DEFAUT = [{ email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
+    { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }];
+  var LARGE = matchMedia("(min-width: 1360px)");
+  function listeBoites() { return B.boites.length ? B.boites : BOITES_DEFAUT; }
+  function nomBoite(email) { return (listeBoites().filter(function (x) { return x.email === email; })[0] || { nom: email }).nom; }
+  function couleurBoite(email) { return couleur(boiteDe({ boite: nomBoite(email), ref: { boite: email, id: "" } }).projet); }
   function appelMessagerie(corps) {
     return db.functions.invoke("messagerie", { body: corps }).then(function (r) {
       if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { throw new Error(j.erreur || r.error.message); });
@@ -1193,63 +1201,161 @@
   }
   function versMail(x) {
     return { boite: x.nom, de: x.de, a: x.a, objet: x.objet, date: x.date, extrait: x.extrait, lu: x.lu, important: x.important, pieces: x.pieces,
-      resume: "", ref: { boite: x.boite, id: x.id } };
+      brouillon: x.brouillon, dossier: x.dossier, resume: "", source: "boite", ref: { boite: x.boite, id: x.id } };
   }
+  function courriels(t) { return (String(t || "").match(/[^\s<>,;"']+@[^\s<>,;"']+/g) || []).map(function (x) { return x.toLowerCase(); }); }
+  function miennes() { return listeBoites().map(function (x) { return x.email.toLowerCase(); }); }
+  function taille(n) { return n < 1024 ? n + " o" : n < 1048576 ? Math.round(n / 1024) + " Ko" : (n / 1048576).toFixed(1).replace(".", ",") + " Mo"; }
+
+  // Dossiers de chaque boîte (non lus compris) ; le total des non lus des réceptions va dans le menu
+  function chargerDossiers(email, force) {
+    if (!force && B.dossiers[email]) return Promise.resolve(B.dossiers[email]);
+    return appelMessagerie({ action: "dossiers", boite: email }).then(function (d) {
+      B.dossiers[email] = d.dossiers || []; majNonLus(); rendreDossiers(); return B.dossiers[email];
+    }).catch(function () { return B.dossiers[email] || []; });
+  }
+  function dossiersDe(email) { return B.dossiers[email] || []; }
+  function reception(email) { return dossiersDe(email).filter(function (d) { return d.type === "reception"; })[0] || null; }
+  function dossierActuel() {
+    if (B.boite === "tout") return null;
+    return dossiersDe(B.boite).filter(function (d) { return B.dossier ? d.id === B.dossier : d.type === "reception"; })[0] || null;
+  }
+  function typeActuel() { var d = dossierActuel(); return B.boite === "tout" ? "reception" : d ? d.type : B.dossier ? "perso" : "reception"; }
+  function dossierDuMail(m) {
+    return dossiersDe(m.ref.boite).filter(function (d) { return d.id === m.dossier || (d.type === "reception" && /^inbox$/i.test(m.dossier || "")); })[0] || null;
+  }
+  function compter(m, delta) { var d = dossierDuMail(m); if (d && d.type !== "envoyes" && d.type !== "brouillons") { d.non_lus = Math.max(0, (d.non_lus || 0) + delta); majNonLus(); rendreDossiers(); } }
+  function majNonLus() {
+    var n = 0;
+    Object.keys(B.dossiers).forEach(function (e) { var r = reception(e); if (r) n += r.non_lus || 0; });
+    if (S.messagerieNonLus !== n) { S.messagerieNonLus = n; dessinerNav(); }
+  }
+  function choisir(email, dossier) {
+    B.boite = email; B.dossier = dossier || ""; B.q = ""; B.ouvert = null; ecrirePref("boite-filtre", email);
+    var champ = document.getElementById("boite-q"); if (champ) champ.value = "";
+    rendreDossiers(); rendreLecture(); chargerBoite();
+    if (email !== "tout") chargerDossiers(email);
+  }
+
   function chargerBoite(plus) {
     var cle = ++B.cle;
     if (!plus) { B.mails = []; B.suites = {}; }
     B.etat = "charge"; rendreBoite();
-    appelMessagerie({ action: "lister", boite: B.filtre, suites: plus ? B.suites : {} }).then(function (d) {
+    appelMessagerie({ action: "lister", boite: B.boite, dossier: B.boite === "tout" ? "" : B.dossier, q: B.q, suites: plus ? B.suites : {} }).then(function (d) {
       if (cle !== B.cle) return;
       B.boites = d.boites || B.boites; B.erreurs = d.erreurs || {};
       Object.keys(d.suites || {}).forEach(function (k) { B.suites[k] = d.suites[k]; });
       var vus = {}; B.mails.forEach(function (m) { vus[m.ref.id] = true; });
       B.mails = B.mails.concat((d.mails || []).map(versMail).filter(function (m) { return !vus[m.ref.id]; }))
         .sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")); });
-      if (B.filtre === "tout") { S.messagerieNonLus = B.mails.filter(function (m) { return !m.lu; }).length; dessinerNav(); }
       B.etat = "ok"; rendreBoite();
+      if (!plus && LARGE.matches && !B.ouvert && B.mails.length) ouvrirDansBoite(B.mails[0], true);
     }).catch(function (e) { if (cle !== B.cle) return; B.etat = "erreur"; B.message = e.message; rendreBoite(); });
   }
-  function rangerDepuisAppli(m, quoi) {
+
+  // Ranger : lu, non lu, suivi, archiver, corbeille, remettre en réception, déplacer
+  function rangerDepuisAppli(m, quoi, vers, nomVers) {
+    var sort = quoi === "archiver" || quoi === "corbeille" || quoi === "deplacer" || (quoi === "reception" && (m.source !== "boite" || typeActuel() !== "reception"));
     var i = B.mails.indexOf(m);
-    if (quoi === "archiver" || quoi === "corbeille") { if (i >= 0) B.mails.splice(i, 1); }
-    else m.lu = quoi === "lu";
+    if (quoi === "lu" || quoi === "non_lu") { if (m.lu !== (quoi === "lu")) compter(m, quoi === "lu" ? -1 : 1); m.lu = quoi === "lu"; }
+    if (quoi === "drapeau" || quoi === "sans_drapeau") m.important = quoi === "drapeau";
+    if (sort && i >= 0) {
+      if (!m.lu) compter(m, -1);
+      B.mails.splice(i, 1);
+      if (B.ouvert === m) {
+        var suivant = B.mails[i] || B.mails[i - 1] || null;
+        B.ouvert = null;
+        if (LARGE.matches && suivant) ouvrirDansBoite(suivant); else { fermerLecteurBoite(); rendreLecture(); }
+      }
+    }
     rendreBoite();
-    appelMessagerie({ action: "ranger", boite: m.ref.boite, id: m.ref.id, quoi: quoi }).then(function () {
-      signaler(quoi === "archiver" ? "Archivé : sorti de la réception" : quoi === "corbeille" ? "Mis à la corbeille (récupérable 30 jours)" : quoi === "lu" ? "Marqué comme lu" : "Marqué comme non lu");
-    }).catch(function (e) { signaler("Non rangé : " + e.message); chargerBoite(); });
+    var corps = quoi === "deplacer" ? { action: "deplacer", boite: m.ref.boite, id: m.ref.id, vers: vers, dossier: m.dossier }
+      : { action: "ranger", boite: m.ref.boite, id: m.ref.id, quoi: quoi, dossier: m.dossier };
+    var dit = { archiver: "Archivé", corbeille: "Mis à la corbeille (récupérable)", reception: "Remis dans la réception", non_lu: "Marqué comme non lu",
+      drapeau: "Suivi ajouté", sans_drapeau: "Suivi retiré", deplacer: "Déplacé dans « " + (nomVers || "") + " »" }[quoi];
+    return appelMessagerie(corps).then(function () {
+      if (dit) signaler(dit);
+      if (sort && vers) { var cible = dossiersDe(m.ref.boite).filter(function (d) { return d.id === vers; })[0]; if (cible) cible.total = (cible.total || 0) + 1; }
+    }).catch(function (e) { signaler("Non fait : " + e.message); chargerBoite(); });
   }
+
+  // Colonne des dossiers (ordinateur) et choix compact (téléphone)
+  function rendreDossiers() {
+    var zone = document.getElementById("boite-dossiers"), choix = document.getElementById("boite-choix");
+    var boites = listeBoites();
+    if (zone) {
+      zone.textContent = "";
+      var tout = 0; boites.forEach(function (b) { var r = reception(b.email); if (r) tout += r.non_lus || 0; });
+      zone.appendChild(el("button", { type: "button", class: "dossier-boite", "aria-current": B.boite === "tout" ? "true" : null, onclick: function () { choisir("tout"); } }, [
+        el("i", { class: "dossier-pastille tout", "aria-hidden": "true" }), el("span", { text: "Toutes les réceptions" }), tout ? el("b", { text: String(tout) }) : null]));
+      boites.forEach(function (b) {
+        var r = reception(b.email), ouverte = B.boite === b.email;
+        zone.appendChild(el("button", { type: "button", class: "dossier-boite", "aria-expanded": ouverte ? "true" : "false", style: "--c:" + couleurBoite(b.email),
+          onclick: function () { choisir(b.email, ""); } }, [
+          el("i", { class: "dossier-pastille", "aria-hidden": "true" }), el("span", { text: b.nom }), r && r.non_lus ? el("b", { text: String(r.non_lus) }) : null]));
+        if (!ouverte) return;
+        var liste = dossiersDe(b.email);
+        if (!liste.length) { zone.appendChild(el("p", { class: "dossier-attente", text: "Dossiers…" })); return; }
+        zone.appendChild(el("ul", { class: "dossiers" }, liste.map(function (d) {
+          var segments = d.nom.split(/\s›\s|\//), actif = B.dossier ? B.dossier === d.id : d.type === "reception";
+          return el("li", {}, [el("button", { type: "button", class: "dossier " + d.type, "aria-current": actif ? "true" : null, title: d.nom,
+            style: "--niveau:" + Math.min(segments.length - 1, 3), onclick: function () { choisir(b.email, d.type === "reception" ? "" : d.id); } }, [
+            el("span", { text: segments[segments.length - 1] }), d.non_lus ? el("b", { text: String(d.non_lus) }) : d.type === "brouillons" && d.total ? el("small", { text: String(d.total) }) : null])]);
+        })));
+      });
+    }
+    if (choix) {
+      choix.textContent = "";
+      choix.appendChild(el("nav", { class: "boite-onglets", "aria-label": "Boîtes" }, [{ email: "tout", nom: "Toutes" }].concat(boites).map(function (o) {
+        var r = o.email === "tout" ? null : reception(o.email);
+        return el("button", { type: "button", class: "filtre", style: o.email === "tout" ? "" : "--c:" + couleurBoite(o.email), "aria-pressed": B.boite === o.email ? "true" : "false",
+          onclick: function () { if (B.boite !== o.email) choisir(o.email, ""); } }, [o.nom, r && r.non_lus ? el("b", { class: "filtre-n", text: " " + r.non_lus }) : null]);
+      })));
+      if (B.boite !== "tout") {
+        var sel = el("select", { class: "boite-dossier-choix", "aria-label": "Dossier", onchange: function () { var d = dossiersDe(B.boite).filter(function (x) { return x.id === sel.value; })[0]; choisir(B.boite, d && d.type === "reception" ? "" : sel.value); } },
+          dossiersDe(B.boite).map(function (d) { return el("option", { value: d.id, text: d.nom + (d.non_lus ? " (" + d.non_lus + ")" : "") }); }));
+        var actuel = dossierActuel(); if (actuel) sel.value = actuel.id;
+        if (dossiersDe(B.boite).length) choix.appendChild(sel);
+      }
+    }
+  }
+
+  // Liste des mails du dossier
   function rendreBoite() {
     var zone = document.getElementById("boite-liste"); if (!zone) return;
     zone.textContent = "";
-    var nonLus = B.mails.filter(function (m) { return !m.lu; }).length;
-    var compte = document.getElementById("boite-compte");
-    if (compte) compte.textContent = B.mails.length ? B.mails.length + " mails" + (nonLus ? " · " + nonLus + " non lu" + (nonLus > 1 ? "s" : "") : "") : "";
-    Object.keys(B.erreurs || {}).forEach(function (k) {
-      zone.appendChild(el("p", { class: "boite-erreur", text: "Boîte " + k + " non lue : " + B.erreurs[k] }));
-    });
+    var titre = document.getElementById("boite-titre"), d = dossierActuel(), type = typeActuel();
+    if (titre) titre.textContent = B.q ? "Résultats pour « " + B.q + " »" : B.boite === "tout" ? "Toutes les réceptions" : nomBoite(B.boite) + " · " + (d ? d.nom.split(/\s›\s|\//).pop() : "Boîte de réception");
+    var compte = document.getElementById("boite-compte"), nonLus = B.mails.filter(function (m) { return !m.lu; }).length;
+    if (compte) compte.textContent = B.mails.length ? B.mails.length + " mails" + (nonLus && type !== "envoyes" ? " · " + nonLus + " non lu" + (nonLus > 1 ? "s" : "") : "") : "";
+    Object.keys(B.erreurs || {}).forEach(function (k) { zone.appendChild(el("p", { class: "boite-erreur", text: nomBoite(k) + " non lue : " + B.erreurs[k] })); });
     if (!B.mails.length) {
       zone.appendChild(B.etat === "erreur" ? el("p", { class: "recherche-vide", text: "Lecture impossible : " + B.message })
         : B.etat === "charge" ? el("div", { class: "lecteur-attente" }, [el("i"), el("i"), el("i"), el("i")])
-        : el("p", { class: "recherche-vide", text: "Boîte de réception vide." }));
+        : el("p", { class: "recherche-vide", text: B.q ? "Aucun mail trouvé." : "Aucun mail dans ce dossier." }));
       return;
     }
-    var liste = B.mails;
-    zone.appendChild(el("ol", { class: "boite-mails" }, liste.map(function (m, i) {
-      var bx = boiteDe(m);
-      return el("li", { class: (m.lu ? "" : "non-lu") + (m.important ? " important" : "") }, [
-        el("button", { type: "button", class: "boite-ligne", style: "--c:" + couleur(bx.projet), onclick: function () { ouvrirMail(i, liste); } }, [
+    var envoyes = type === "envoyes" || type === "brouillons";
+    zone.appendChild(el("ol", { class: "boite-mails" }, B.mails.map(function (m) {
+      return el("li", { class: (m.lu ? "" : "non-lu") + (m.important ? " important" : "") + (B.ouvert === m ? " ouvert" : "") }, [
+        el("button", { type: "button", class: "boite-ligne", style: "--c:" + couleurBoite(m.ref.boite), "aria-current": B.ouvert === m ? "true" : null,
+          onclick: function () { ouvrirDansBoite(m); } }, [
           el("span", { class: "boite-point", "aria-label": m.lu ? null : "Non lu" }),
-          el("span", { class: "boite-de" }, [el("b", { text: nomSeul(m.de) || "(expéditeur inconnu)" }), B.filtre === "tout" ? el("span", { class: "boite-nom", text: m.boite }) : null]),
+          el("span", { class: "boite-de" }, [
+            m.brouillon ? el("em", { class: "boite-brouillon", text: "Brouillon" }) : null,
+            el("b", { text: envoyes ? "À : " + (nomSeul(m.a) || "(sans destinataire)") : nomSeul(m.de) || "(expéditeur inconnu)" }),
+            B.boite === "tout" || B.q ? el("span", { class: "boite-nom", text: m.boite }) : null]),
           el("time", { text: m.date ? dateCourte(m.date) : "" }),
-          el("span", { class: "boite-objet", text: (m.important ? "★ " : "") + (m.objet || "(sans objet)") + "" }),
+          el("span", { class: "boite-objet" }, [m.important ? el("span", { class: "boite-suivi", "aria-label": "Suivi", text: "★" }) : null, m.objet || "(sans objet)"]),
           m.extrait || m.pieces ? el("span", { class: "boite-extrait" }, [m.pieces ? el("span", { class: "boite-pj", text: "Pièce jointe" }) : null, m.extrait || ""]) : null
         ]),
         el("div", { class: "boite-actions" }, [
           el("button", { type: "button", class: "btn-icone-mini", title: m.lu ? "Marquer non lu" : "Marquer lu", "aria-label": m.lu ? "Marquer non lu" : "Marquer lu",
             text: m.lu ? "○" : "●", onclick: function () { rangerDepuisAppli(m, m.lu ? "non_lu" : "lu"); } }),
-          el("button", { type: "button", class: "btn-icone-mini", title: "Archiver", "aria-label": "Archiver", text: "⤓", onclick: function () { rangerDepuisAppli(m, "archiver"); } }),
-          el("button", { type: "button", class: "btn-icone-mini", title: "Corbeille", "aria-label": "Mettre à la corbeille", text: "✕", onclick: function () { rangerDepuisAppli(m, "corbeille"); } })
+          el("button", { type: "button", class: "btn-icone-mini", title: m.important ? "Retirer le suivi" : "Suivre", "aria-label": m.important ? "Retirer le suivi" : "Suivre",
+            text: m.important ? "★" : "☆", onclick: function () { rangerDepuisAppli(m, m.important ? "sans_drapeau" : "drapeau"); } }),
+          type !== "archive" ? el("button", { type: "button", class: "btn-icone-mini", title: "Archiver", "aria-label": "Archiver", text: "⤓", onclick: function () { rangerDepuisAppli(m, "archiver"); } }) : null,
+          type !== "corbeille" ? el("button", { type: "button", class: "btn-icone-mini", title: "Corbeille", "aria-label": "Mettre à la corbeille", text: "✕", onclick: function () { rangerDepuisAppli(m, "corbeille"); } }) : null
         ])
       ]);
     })));
@@ -1257,83 +1363,321 @@
     if (reste) zone.appendChild(el("button", { type: "button", class: "btn-contour boite-plus", text: B.etat === "charge" ? "Chargement…" : "Mails plus anciens",
       disabled: B.etat === "charge", onclick: function () { chargerBoite(true); } }));
   }
+
+  // Lecture : volet à droite sur grand écran, feuille plein écran sinon
+  var lecteurBoite = null;
+  function fermerLecteurBoite() { if (lecteurBoite && lecteurBoite.open) lecteurBoite.close(); }
+  function ouvrirDansBoite(m, discret) {
+    B.ouvert = m;
+    rendreBoite();
+    if (m.lu === false) rangerDepuisAppli(m, "lu");
+    if (LARGE.matches) { rendreLecture(); return; }
+    if (discret) return;
+    if (!lecteurBoite) {
+      lecteurBoite = el("dialog", { class: "lecteur lecteur-boite", "aria-label": "Mail" });
+      lecteurBoite.addEventListener("click", function (ev) { if (ev.target === lecteurBoite) lecteurBoite.close(); });
+      lecteurBoite.addEventListener("close", function () { B.ouvert = null; rendreBoite(); });
+      document.body.appendChild(lecteurBoite);
+    }
+    var i = B.mails.indexOf(m);
+    lecteurBoite.textContent = "";
+    lecteurBoite.style.setProperty("--c", couleurBoite(m.ref.boite));
+    var feuille = el("div", { class: "lecteur-feuille" }, [
+      el("header", { class: "lecteur-haut" }, [
+        el("span", { class: "lecteur-boite" }, [el("i", { "aria-hidden": "true" }), m.boite || ""]),
+        el("span", { class: "lecteur-pos", text: (i + 1) + " / " + B.mails.length }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Mail précédent", disabled: i <= 0, text: "↑", onclick: function () { ouvrirDansBoite(B.mails[i - 1]); } }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Mail suivant", disabled: i >= B.mails.length - 1, text: "↓", onclick: function () { ouvrirDansBoite(B.mails[i + 1]); } }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { lecteurBoite.close(); } })
+      ])
+    ]);
+    var zone = el("div", { class: "lect" });
+    feuille.appendChild(zone);
+    lecteurBoite.appendChild(feuille);
+    if (!lecteurBoite.open) lecteurBoite.showModal();
+    feuille.scrollTop = 0;
+    remplirLecture(zone, m);
+  }
+  function rendreLecture() {
+    var zone = document.getElementById("boite-lecture"); if (!zone) return;
+    zone.textContent = "";
+    if (!B.ouvert) { zone.appendChild(el("div", { class: "lect-vide" }, [el("p", { text: B.mails.length ? "Choisis un mail dans la liste." : "" })])); return; }
+    zone.style.setProperty("--c", couleurBoite(B.ouvert.ref.boite));
+    var z = el("div", { class: "lect" }); zone.appendChild(z); zone.scrollTop = 0;
+    remplirLecture(z, B.ouvert);
+  }
+  function remplirLecture(zone, m) {
+    var cle = m.ref.boite + "|" + m.ref.id;
+    zone.textContent = "";
+    zone.appendChild(el("h2", { class: "lect-objet", text: m.objet || "(sans objet)" }));
+    zone.appendChild(el("div", { class: "lecteur-attente", "aria-label": "Chargement" }, [el("i"), el("i"), el("i"), el("i")]));
+    var montrer = function (d) {
+      if (!zone.isConnected || (B.ouvert !== m && !(lecteurBoite && lecteurBoite.open))) return;
+      zone.textContent = "";
+      var type = (dossierDuMail(m) || {}).type || (m.source === "boite" ? typeActuel() : "reception");
+      var dossiers = dossiersDe(m.ref.boite).filter(function (x) { return x.id !== m.dossier && ["reception", "archive", "perso", "indesirables"].indexOf(x.type) >= 0; });
+      var deplacer = el("select", { class: "lect-deplacer", "aria-label": "Déplacer vers un dossier", onchange: function () {
+        var x = dossiers.filter(function (y) { return y.id === deplacer.value; })[0]; if (!x) return;
+        rangerDepuisAppli(m, x.type === "reception" ? "reception" : "deplacer", x.id, x.nom);
+      } }, [el("option", { value: "", text: "Déplacer…" })].concat(dossiers.map(function (x) { return el("option", { value: x.id, text: x.nom }); })));
+      if (!dossiers.length) chargerDossiers(m.ref.boite).then(function (l) { if (l.length && zone.isConnected) montrer(d); });
+      var bouton = function (texte, classe, quand, titre) { return el("button", { type: "button", class: classe, text: texte, title: titre || null, onclick: quand }); };
+      zone.appendChild(el("div", { class: "lect-outils" }, [
+        d.brouillon ? bouton("Reprendre le brouillon", "btn-plein", function () { ecrireMail({ mode: "brouillon", m: m, d: d }); }) : null,
+        !d.brouillon ? bouton("Répondre", "btn-plein", function () { ecrireMail({ mode: "repondre", m: m, d: d }); }) : null,
+        !d.brouillon ? bouton("Répondre à tous", "btn-contour", function () { ecrireMail({ mode: "repondre_tous", m: m, d: d }); }) : null,
+        !d.brouillon ? bouton("Transférer", "btn-contour", function () { ecrireMail({ mode: "transferer", m: m, d: d }); }) : null,
+        el("span", { class: "lect-sep", "aria-hidden": "true" }),
+        type === "archive" || type === "corbeille" || type === "indesirables" || type === "perso"
+          ? bouton("Remettre en réception", "btn-contour", function () { rangerDepuisAppli(m, "reception"); }) : bouton("Archiver", "btn-contour", function () { rangerDepuisAppli(m, "archiver"); }),
+        type !== "corbeille" ? bouton("Corbeille", "btn-contour", function () { rangerDepuisAppli(m, "corbeille"); }, "Récupérable dans la corbeille") : null,
+        dossiers.length ? deplacer : null,
+        bouton(m.important ? "★ Suivi" : "☆ Suivre", "btn-contour" + (m.important ? " actif" : ""), function () { rangerDepuisAppli(m, m.important ? "sans_drapeau" : "drapeau"); montrer(d); }),
+        bouton("Non lu", "btn-contour", function () { rangerDepuisAppli(m, "non_lu"); })
+      ]));
+      zone.appendChild(el("h2", { class: "lect-objet", text: d.objet || m.objet || "(sans objet)" }));
+      var nom = nomSeul(d.de || m.de), initiale = (nom.replace(/[^A-Za-zÀ-ÿ0-9]/g, "")[0] || "?").toUpperCase();
+      var quand = d.date ? new Date(d.date) : null;
+      zone.appendChild(el("div", { class: "lect-de" }, [
+        el("span", { class: "lect-avatar", "aria-hidden": "true", text: initiale }),
+        el("div", { class: "lect-qui" }, [
+          el("b", { text: nom }), el("span", { class: "lect-adresse", text: courriels(d.de || m.de)[0] || "" }),
+          el("span", { class: "lect-dest", text: [d.a ? "À : " + d.a : "", d.cc ? "Cc : " + d.cc : ""].filter(Boolean).join("  ·  ") })
+        ]),
+        quand ? el("time", { class: "lect-date", text: fmt(quand, { weekday: "short", day: "numeric", month: "short", year: quand.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined }) + " " + hm(quand) }) : null
+      ]));
+      if ((d.pieces || []).length) zone.appendChild(el("ul", { class: "lect-pieces" }, d.pieces.map(function (p) {
+        var b = el("button", { type: "button", class: "lect-piece", title: "Télécharger " + p.nom, onclick: function () { telechargerPiece(m, p, b); } }, [
+          el("span", { class: "lect-piece-type", text: (p.nom.split(".").pop() || "").slice(0, 4).toUpperCase() || "FIC" }),
+          el("span", { class: "lect-piece-nom", text: p.nom }), el("small", { text: taille(p.taille || 0) })]);
+        return el("li", {}, [b]);
+      })));
+      if (d.html) {
+        var distantes = /<img[^>]+src\s*=\s*["']?\s*https?:|url\(\s*['"]?https?:|background\s*=\s*["']?https?:/i.test(d.html);
+        var permis = B.imagesOk[cle] || B.imagesOk[courriels(d.de)[0]];
+        if (distantes && !permis) zone.appendChild(el("p", { class: "lect-images" }, [
+          el("span", { text: "Images distantes masquées (elles peuvent signaler à l'expéditeur que tu as ouvert le mail)." }),
+          bouton("Afficher les images", "btn-texte", function () { B.imagesOk[cle] = true; montrer(d); }),
+          bouton("Toujours pour cet expéditeur", "btn-texte", function () { B.imagesOk[courriels(d.de)[0]] = true; montrer(d); })]));
+        zone.appendChild(cadreMail(d, distantes && permis));
+      } else zone.appendChild(el("div", { class: "lecteur-texte lect-texte", text: d.texte || "(mail sans texte)" }));
+      zone.appendChild(el("div", { class: "lect-victor" }, [
+        bouton("Répondre avec Victor", "btn-texte", function () { fermerLecteurBoite(); direAVictor("Réponds à " + nomSeul(m.de) + " au sujet de « " + (m.objet || "") + " » : ", false); }),
+        bouton("En faire une tâche", "btn-texte", function () { fermerLecteurBoite(); direAVictor("Ajoute une tâche : " + (m.objet || ""), false); }),
+        d.lien ? el("a", { class: "btn-texte", href: d.lien, target: "_blank", rel: "noopener", text: "Ouvrir dans " + nomWeb(m) + " ↗" }) : null
+      ]));
+    };
+    if (B.cache[cle]) return montrer(B.cache[cle]);
+    appelMessagerie({ action: "lire", boite: m.ref.boite, id: m.ref.id, dossier: m.dossier }).then(function (d) { B.cache[cle] = d; montrer(d); })
+      .catch(function (e) { if (!zone.isConnected) return; zone.textContent = ""; zone.appendChild(el("p", { class: "lecteur-absent", text: "Lecture impossible : " + e.message })); });
+  }
+  // Le mail tel qu'il a été mis en forme, isolé dans un cadre : pas de script, liens dans un nouvel onglet, images distantes sur demande
+  function cadreMail(d, images) {
+    var html = String(d.html || "").replace(/cid:([^"'\s)>]+)/gi, function (t, c) {
+      var k = c; try { k = decodeURIComponent(c); } catch (e) { /* tel quel */ }
+      return (d.images && (d.images[k] || d.images[c])) || t;
+    });
+    var ext = images ? " https: http:" : "";
+    var tete = '<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'' + ext + '; img-src data:' + ext +
+      '; font-src data:' + ext + '"><base target="_blank"><style>html{background:#fff;color:#1d1c19}body{margin:0;padding:18px 20px;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere;overflow-x:auto}' +
+      'img{max-width:100%;height:auto}pre{white-space:pre-wrap}blockquote{margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex;color:#555}a{color:#3a5bd9}</style>';
+    var doc = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, function (x) { return x + tete; }) : "<!doctype html><html><head>" + tete + "</head><body>" + html + "</body></html>";
+    var f = el("iframe", { class: "lect-cadre", title: "Contenu du mail", sandbox: "allow-same-origin allow-popups allow-popups-to-escape-sandbox", referrerpolicy: "no-referrer" });
+    f.srcdoc = doc;
+    var ajuster = function () { try { var h = f.contentDocument.documentElement.scrollHeight; if (h) f.style.height = h + 4 + "px"; } catch (e) { /* cadre fermé */ } };
+    f.addEventListener("load", function () {
+      ajuster();
+      try { if (window.ResizeObserver) new ResizeObserver(ajuster).observe(f.contentDocument.body); } catch (e) { /* sans suivi */ }
+      setTimeout(ajuster, 400);
+    });
+    return f;
+  }
+  function telechargerPiece(m, p, b) {
+    var avant = b.querySelector(".lect-piece-nom").textContent;
+    b.disabled = true; b.querySelector(".lect-piece-nom").textContent = "Téléchargement…";
+    appelMessagerie({ action: "piece", boite: m.ref.boite, id: m.ref.id, piece: p.id, dossier: m.dossier }).then(function (x) {
+      var bin = atob(x.contenu), o = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) o[i] = bin.charCodeAt(i);
+      var url = URL.createObjectURL(new Blob([o], { type: x.type || "application/octet-stream" }));
+      var a = el("a", { href: url, download: x.nom || p.nom }); document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    }).catch(function (e) { signaler("Pièce non téléchargée : " + e.message); })
+      .then(function () { b.disabled = false; b.querySelector(".lect-piece-nom").textContent = avant; });
+  }
+
   function vueBoite() {
     var f = document.createDocumentFragment();
-    var onglets = [{ email: "tout", nom: "Toutes" }].concat(B.boites.length ? B.boites : [
-      { email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
-      { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }]);
     f.appendChild(el("header", { class: "boite-tete" }, [
-      el("div", {}, [el("p", { class: "surtitre", text: "Boîtes de réception" }), el("h1", { text: "Mails" }), el("p", { class: "boite-compte", id: "boite-compte" })]),
+      el("div", {}, [el("p", { class: "surtitre", text: "Messagerie" }), el("h1", { text: "Mails" })]),
       el("div", { class: "boite-boutons" }, [
-        el("button", { type: "button", class: "btn-contour", text: "Actualiser", onclick: function () { chargerBoite(); } }),
-        el("button", { type: "button", class: "btn-plein", text: "Nouveau message", onclick: function () { ouvrirRedaction({}); } })
+        el("button", { type: "button", class: "btn-plein", text: "Nouveau message", onclick: function () { ecrireMail({ mode: "nouveau" }); } })
       ])
     ]));
-    f.appendChild(el("nav", { class: "boite-onglets", "aria-label": "Boîtes" }, onglets.map(function (o) {
-      var bx = o.email === "tout" ? null : boiteDe({ boite: o.nom, ref: { boite: o.email, id: "" } });
-      return el("button", { type: "button", class: "filtre", style: bx ? "--c:" + couleur(bx.projet) : "", "aria-pressed": B.filtre === o.email ? "true" : "false",
-        onclick: function () { if (B.filtre === o.email) return; B.filtre = o.email; ecrirePref("boite-filtre", o.email); dessiner(); chargerBoite(); } }, [o.nom]);
-    })));
-    f.appendChild(el("div", { id: "boite-liste", "aria-live": "polite" }));
-    setTimeout(function () { if (!B.mails.length && B.etat !== "charge") chargerBoite(); else rendreBoite(); }, 0);
+    f.appendChild(el("div", { class: "boite-choix", id: "boite-choix" }));
+    var champ = el("input", { type: "search", id: "boite-q", value: B.q, placeholder: "Rechercher (expéditeur, objet, texte)", "aria-label": "Rechercher dans les mails", enterkeyhint: "search" });
+    f.appendChild(el("div", { class: "client" }, [
+      el("aside", { class: "client-dossiers", id: "boite-dossiers", "aria-label": "Boîtes et dossiers" }),
+      el("section", { class: "client-liste", "aria-label": "Mails" }, [
+        el("div", { class: "client-liste-tete" }, [
+          el("div", { class: "client-titre" }, [el("h2", { id: "boite-titre" }), el("p", { class: "boite-compte", id: "boite-compte" })]),
+          el("button", { type: "button", class: "btn-icone-mini", title: "Actualiser", "aria-label": "Actualiser", text: "↻", onclick: function () {
+            B.cache = {}; chargerBoite(); (B.boite === "tout" ? listeBoites().map(function (x) { return x.email; }) : [B.boite]).forEach(function (e) { chargerDossiers(e, true); });
+          } })
+        ]),
+        el("form", { class: "boite-cherche", role: "search", onsubmit: function (ev) { ev.preventDefault(); B.q = champ.value.trim(); B.ouvert = null; rendreLecture(); chargerBoite(); } }, [
+          champ, el("button", { type: "submit", class: "btn-contour", text: "Chercher" })]),
+        el("div", { id: "boite-liste", "aria-live": "polite" })
+      ]),
+      el("article", { class: "client-lecture", id: "boite-lecture", "aria-label": "Lecture" })
+    ]));
+    champ.addEventListener("search", function () { if (!champ.value && B.q) { B.q = ""; chargerBoite(); } });
+    setTimeout(function () {
+      rendreDossiers(); rendreLecture();
+      if (!B.mails.length && B.etat !== "charge") chargerBoite(); else rendreBoite();
+      listeBoites().forEach(function (b, i) { setTimeout(function () { chargerDossiers(b.email); }, i * 150); });
+    }, 0);
     return el("div", { class: "page-boite" }, [f]);
   }
 
-  // Rédaction : nouveau message ou réponse, depuis une boîte choisie ; signature de la boîte ajoutée à l'envoi
+  // Rédaction : nouveau, répondre, répondre à tous, transférer, brouillon repris ; signature de la boîte ajoutée ;
+  // pièces jointes (glisser ou choisir) ; brouillon enregistré dans la boîte ; envoi seulement sur clic.
   var redaction = null;
-  function ouvrirRedaction(o) {
-    if (!redaction) { redaction = el("dialog", { class: "redaction", "aria-label": "Nouveau message" }); document.body.appendChild(redaction); }
-    var m = o.reponse, boites = B.boites.length ? B.boites : [{ email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
-      { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }];
+  function ouvrirRedaction(o) { return ecrireMail(o && o.reponse ? { mode: "repondre", m: o.reponse } : o || {}); }
+  function ecrireMail(o) {
+    if (!redaction) {
+      redaction = el("dialog", { class: "redaction", "aria-label": "Message" });
+      redaction.addEventListener("cancel", function (ev) { if (redaction.quitter) { ev.preventDefault(); redaction.quitter(); } });
+      document.body.appendChild(redaction);
+    }
+    var mode = o.mode || "nouveau", m = o.m || null, d = o.d || {}, boites = listeBoites(), moi = miennes();
     var de = el("select", { "aria-label": "Envoyer depuis" }, boites.map(function (x) { return el("option", { value: x.email, text: x.nom + " · " + x.email }); }));
-    de.value = m ? m.ref.boite : (B.filtre !== "tout" ? B.filtre : boites[0].email);
-    var adresse = m ? (/<([^>]+)>/.exec(m.de || "") || [null, m.de || ""])[1] : "";
-    var a = el("input", { type: "text", value: adresse, placeholder: "Destinataire (plusieurs : séparés par une virgule)", "aria-label": "À", list: "redaction-contacts", autocomplete: "off" });
-    var cc = el("input", { type: "text", placeholder: "Copie (facultatif)", "aria-label": "Copie", list: "redaction-contacts", autocomplete: "off" });
-    var objet = el("input", { type: "text", value: m ? (/^re\s*:/i.test(m.objet || "") ? m.objet : "Re: " + (m.objet || "")) : "", placeholder: "Objet", "aria-label": "Objet" });
+    de.value = m ? m.ref.boite : (B.boite !== "tout" ? B.boite : boites[0].email);
+    var expediteur = courriels(d.de || (m && m.de))[0] || "";
+    var pasMoi = function (l) { return l.filter(function (x, i) { return moi.indexOf(x) < 0 && l.indexOf(x) === i; }); };
+    var versA = [], versCc = [];
+    if (mode === "repondre") versA = moi.indexOf(expediteur) >= 0 ? courriels(d.a || (m && m.a)) : [expediteur];
+    if (mode === "repondre_tous") { versA = pasMoi([expediteur].concat(courriels(d.a || (m && m.a)))); versCc = pasMoi(courriels(d.cc)).filter(function (x) { return versA.indexOf(x) < 0; }); }
+    if (mode === "brouillon") { versA = courriels(d.a); versCc = courriels(d.cc); }
+    var objetOrigine = d.objet || (m && m.objet) || "";
+    var objetInitial = mode === "repondre" || mode === "repondre_tous" ? (/^\s*(re|rép|réf)\s*:/i.test(objetOrigine) ? objetOrigine : "Re: " + objetOrigine)
+      : mode === "transferer" ? (/^\s*(tr|fwd?)\s*:/i.test(objetOrigine) ? objetOrigine : "Tr : " + objetOrigine) : mode === "brouillon" ? objetOrigine : "";
+    var champ = function (val, place, label) { return el("input", { type: "text", value: val, placeholder: place, "aria-label": label, list: "redaction-contacts", autocomplete: "off" }); };
+    var a = champ(versA.join(", "), "Destinataires (séparés par une virgule)", "À");
+    var cc = champ(versCc.join(", "), "Copie", "Cc"), cci = champ("", "Copie cachée", "Cci");
+    var objet = el("input", { type: "text", value: objetInitial, placeholder: "Objet", "aria-label": "Objet" });
     var texte = el("textarea", { rows: "12", placeholder: "Ton message… (la signature de la boîte est ajoutée automatiquement)", "aria-label": "Message" });
-    var contacts = el("datalist", { id: "redaction-contacts" });
-    var info = el("p", { class: "redaction-info" });
-    var majInfo = function () { info.textContent = "Signée avec ta signature " + (boites.filter(function (x) { return x.email === de.value; })[0] || {}).nom + ". Rien ne part avant ton clic sur Envoyer."; };
-    de.addEventListener("change", majInfo); majInfo();
+    if (mode === "brouillon") texte.value = d.texte || "";
+    var contacts = el("datalist", { id: "redaction-contacts" }), info = el("p", { class: "redaction-info" });
+    var pieces = [], listePieces = el("ul", { class: "redaction-pieces" });
+    var fichier = el("input", { type: "file", multiple: true, hidden: true, onchange: function () { ajouterFichiers(fichier.files); fichier.value = ""; } });
+    var brouillonId = null, pret = Promise.resolve(), change = false;
+    if (mode === "brouillon" && m) pret = appelMessagerie({ action: "brouillon_de", boite: m.ref.boite, id: m.ref.id, dossier: m.dossier })
+      .then(function (r) { brouillonId = r.brouillon_id || null; }).catch(function () { brouillonId = null; });
+    var lignesCc = el("div", { class: "redaction-cc", hidden: !versCc.length }, [
+      el("label", { class: "redaction-champ" }, [el("span", { text: "Cc" }), cc]),
+      el("label", { class: "redaction-champ" }, [el("span", { text: "Cci" }), cci])]);
+    var majInfo = function (t) {
+      info.textContent = t || ("Signé avec ta signature " + nomBoite(de.value) + ". " + (mode === "transferer" && (d.pieces || []).length ? "Les pièces jointes du mail d'origine partent avec. " : "")
+        + (mode === "brouillon" && (d.pieces || []).length ? "Les pièces jointes du brouillon ne sont pas reprises : ajoute-les de nouveau. " : "") + "Rien ne part avant ton clic sur Envoyer.");
+    };
+    de.addEventListener("change", function () { majInfo(); });
+    majInfo();
+    function rendrePieces() {
+      listePieces.textContent = "";
+      (mode === "transferer" ? d.pieces || [] : []).forEach(function (p) { listePieces.appendChild(el("li", { class: "origine" }, [el("span", { text: p.nom }), el("small", { text: taille(p.taille || 0) })])); });
+      pieces.forEach(function (p, i) {
+        listePieces.appendChild(el("li", {}, [el("span", { text: p.nom }), el("small", { text: taille(p.taille) }),
+          el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Retirer " + p.nom, text: "×", onclick: function () { pieces.splice(i, 1); change = true; rendrePieces(); } })]));
+      });
+    }
+    function ajouterFichiers(liste) {
+      Array.prototype.forEach.call(liste || [], function (f) {
+        var total = pieces.reduce(function (s, p) { return s + p.taille; }, 0) + f.size;
+        if (total > 15 * 1048576) { signaler("Pièces jointes limitées à 15 Mo au total"); return; }
+        var lecture = new FileReader();
+        lecture.onload = function () { pieces.push({ nom: f.name, type: f.type || "application/octet-stream", taille: f.size, contenu: String(lecture.result).split(",")[1] || "" }); change = true; rendrePieces(); };
+        lecture.readAsDataURL(f);
+      });
+    }
+    rendrePieces();
     var minuterie = null;
-    [a, cc].forEach(function (champ) {
-      champ.addEventListener("input", function () {
+    [a, cc, cci].forEach(function (c) {
+      c.addEventListener("input", function () {
         clearTimeout(minuterie);
-        var q = champ.value.split(",").pop().trim();
+        var q = c.value.split(",").pop().trim();
         if (q.length < 2) return;
         minuterie = setTimeout(function () {
           db.rpc("contacts_mail", { q: q, n: 8 }).then(function (r) {
             contacts.textContent = "";
-            var avant = champ.value.split(",").slice(0, -1).map(function (x) { return x.trim(); }).filter(Boolean);
+            var avant = c.value.split(",").slice(0, -1).map(function (x) { return x.trim(); }).filter(Boolean);
             (r.data || []).forEach(function (x) { contacts.appendChild(el("option", { value: avant.concat([x.email]).join(", "), text: x.nom || x.email })); });
           });
         }, 160);
       });
     });
+    var corps = function (action) {
+      return { action: action, boite: de.value, mode: mode === "brouillon" ? "nouveau" : mode, origine: m && mode !== "nouveau" && mode !== "brouillon" ? m.ref.id : null,
+        dossier: m ? m.dossier : "", a: a.value, cc: cc.value, cci: cci.value, objet: objet.value, texte: texte.value,
+        pieces: pieces.map(function (p) { return { nom: p.nom, type: p.type, contenu: p.contenu }; }), brouillon_id: brouillonId };
+    };
     var envoyer = el("button", { type: "submit", class: "btn-plein", text: "Envoyer" });
-    redaction.textContent = "";
-    redaction.appendChild(el("form", { class: "redaction-form", onsubmit: function (ev) {
+    var garder = el("button", { type: "button", class: "btn-contour", text: "Enregistrer le brouillon" });
+    var occupe = function (oui) { envoyer.disabled = oui; garder.disabled = oui; };
+    function enregistrer(puisFermer) {
+      occupe(true); garder.textContent = "Enregistrement…";
+      return pret.then(function () { return appelMessagerie(corps("brouillon")); }).then(function (r) {
+        brouillonId = r.brouillon_id || brouillonId; change = false;
+        majInfo("Brouillon enregistré dans " + nomBoite(de.value) + " à " + hm(new Date()) + ".");
+        if (typeActuel() === "brouillons") chargerBoite();
+        if (puisFermer) fermer();
+      }).catch(function (e) { majInfo("Brouillon non enregistré : " + e.message); })
+        .then(function () { occupe(false); garder.textContent = "Enregistrer le brouillon"; });
+    }
+    function fermer() { redaction.quitter = null; redaction.close(); }
+    redaction.quitter = function () {
+      if (change && (texte.value.trim() || a.value.trim() || pieces.length)) {
+        if (confirm("Garder ce message dans les brouillons ?")) { enregistrer(true); return; }
+      }
+      fermer();
+    };
+    var form = el("form", { class: "redaction-form", onsubmit: function (ev) {
       ev.preventDefault();
-      if (!a.value.trim() || !texte.value.trim()) { info.textContent = "Il manque le destinataire ou le message."; return; }
-      envoyer.disabled = true; envoyer.textContent = "Envoi…";
-      appelMessagerie({ action: "envoyer", boite: de.value, a: a.value, cc: cc.value, objet: objet.value, texte: texte.value, repondre_a: m ? m.ref.id : null })
-        .then(function () { redaction.close(); signaler("Envoyé depuis " + de.value); })
-        .catch(function (e) { envoyer.disabled = false; envoyer.textContent = "Envoyer"; info.textContent = "Non envoyé : " + e.message; });
+      if (!courriels(a.value + "," + cc.value + "," + cci.value).length) { majInfo("Il manque le destinataire."); a.focus(); return; }
+      if (!texte.value.trim() && !pieces.length && mode !== "transferer") { majInfo("Le message est vide."); texte.focus(); return; }
+      if (!objet.value.trim() && !confirm("Envoyer sans objet ?")) return;
+      occupe(true); envoyer.textContent = "Envoi…";
+      pret.then(function () { return appelMessagerie(corps("envoyer")); }).then(function () {
+        fermer(); signaler("Envoyé depuis " + nomBoite(de.value));
+        if (["brouillons", "envoyes"].indexOf(typeActuel()) >= 0) chargerBoite();
+      }).catch(function (e) { occupe(false); envoyer.textContent = "Envoyer"; majInfo("Non envoyé : " + e.message); });
     } }, [
-      el("header", { class: "redaction-haut" }, [el("b", { text: m ? "Répondre" : "Nouveau message" }),
-        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { redaction.close(); } })]),
+      el("header", { class: "redaction-haut" }, [
+        el("b", { text: { nouveau: "Nouveau message", repondre: "Répondre", repondre_tous: "Répondre à tous", transferer: "Transférer", brouillon: "Brouillon" }[mode] }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { redaction.quitter(); } })]),
       el("label", { class: "redaction-champ" }, [el("span", { text: "De" }), de]),
-      el("label", { class: "redaction-champ" }, [el("span", { text: "À" }), a]),
-      el("label", { class: "redaction-champ" }, [el("span", { text: "Cc" }), cc]),
+      el("div", { class: "redaction-champ" }, [el("span", { text: "À" }), a,
+        el("button", { type: "button", class: "btn-texte redaction-voir-cc", text: "Cc / Cci", onclick: function (ev) { lignesCc.hidden = !lignesCc.hidden; ev.currentTarget.blur(); if (!lignesCc.hidden) cc.focus(); } })]),
+      lignesCc,
       el("label", { class: "redaction-champ" }, [el("span", { text: "Objet" }), objet]),
-      texte, contacts, info,
+      texte, listePieces, contacts, info, fichier,
       el("footer", { class: "redaction-pied" }, [
-        el("button", { type: "button", class: "btn-texte", text: "Annuler", onclick: function () { redaction.close(); } }), envoyer])
-    ]));
+        el("button", { type: "button", class: "btn-contour", text: "Joindre un fichier", onclick: function () { fichier.click(); } }),
+        el("span", { class: "redaction-espace" }), garder, envoyer])
+    ]);
+    garder.addEventListener("click", function () { enregistrer(false); });
+    form.addEventListener("input", function () { change = true; });
+    form.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); form.requestSubmit(); } });
+    form.addEventListener("dragover", function (ev) { ev.preventDefault(); form.classList.add("depot"); });
+    form.addEventListener("dragleave", function () { form.classList.remove("depot"); });
+    form.addEventListener("drop", function (ev) { ev.preventDefault(); form.classList.remove("depot"); ajouterFichiers(ev.dataTransfer && ev.dataTransfer.files); });
+    redaction.textContent = "";
+    redaction.appendChild(form);
+    fermerLecteurBoite();
     redaction.showModal();
-    (m ? texte : a).focus();
+    (mode === "nouveau" || mode === "transferer" ? a : texte).focus();
+    if (mode !== "nouveau" && mode !== "brouillon") texte.setSelectionRange(0, 0);
   }
+  LARGE.addEventListener("change", function () { if (S.route === "boite") { fermerLecteurBoite(); rendreLecture(); } });
 
   // ---------- Application AR CONSEIL : installation (téléphone, ordinateur), programme de fond, logo 3D de la connexion ----------
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () { /* sans programme de fond : le site marche quand même */ });

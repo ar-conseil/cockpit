@@ -43,22 +43,34 @@ export async function connexionImap(hote: string, utilisateur: string, motDePass
       const m = fin.exec(tampon);
       if (m) { const rep = tampon.slice(0, m.index + m[0].length); tampon = tampon.slice(m.index + m[0].length); return { rep, m }; }
       const lu = await conn.read(buf);
-      if (lu === null) throw new Error("connexion IMAP fermée");
+      if (lu === null) throw new Error("connexion IMAP fermée" + (tampon.trim() ? ` (${tampon.trim().slice(-160)})` : ""));
       tampon += dec.decode(buf.subarray(0, lu), { stream: true });
     }
   };
   const cmd = async (c: string) => {
     const tag = "V" + (++n);
-    await conn.write(enc.encode(`${tag} ${c}\r\n`));
+    const o = enc.encode(`${tag} ${c}\r\n`);
+    for (let ecrit = 0; ecrit < o.length;) ecrit += await conn.write(o.subarray(ecrit));   // écriture complète, même longue
     const { rep, m } = await lire(new RegExp(`(^|\r\n)${tag} (OK|NO|BAD)[^\r\n]*\r\n`));
     if (m[2] !== "OK") throw new Error(`IMAP : ${m[0].trim().replace(/^V\d+ /, "")}`);
     return rep;
+  };
+  // APPEND en littéral synchronisé (IONOS refuse les littéraux non synchronisés de plus de 4 Ko)
+  const ajouter = async (dossier: string, drapeaux: string, message: string) => {
+    const tag = "V" + (++n), o = enc.encode(message);
+    const ecrire = async (x: Uint8Array) => { for (let e = 0; e < x.length;) e += await conn.write(x.subarray(e)); };
+    await ecrire(enc.encode(`${tag} APPEND ${cite(dossier)} (${drapeaux}) {${o.length}}\r\n`));
+    const { m: suite } = await lire(new RegExp(`(^|\r\n)(\\+[^\r\n]*|${tag} (?:NO|BAD)[^\r\n]*)\r\n`));
+    if (!suite[2].startsWith("+")) throw new Error(`IMAP : ${suite[2].replace(/^V\d+ /, "")}`);
+    await ecrire(o); await ecrire(enc.encode("\r\n"));
+    const { m } = await lire(new RegExp(`(^|\r\n)${tag} (OK|NO|BAD)[^\r\n]*\r\n`));
+    if (m[2] !== "OK") throw new Error(`IMAP : ${m[0].trim().replace(/^V\d+ /, "")}`);
   };
   const cite = (s: string) => '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
   try { await lire(/\r\n/); await cmd(`LOGIN ${cite(utilisateur)} ${cite(motDePasse)}`); }
   catch (e) { try { conn.close(); } catch { /* déjà fermée */ } throw e; }
   const fermer = async () => { await cmd("LOGOUT").catch(() => null); try { conn.close(); } catch { /* déjà fermée */ } };
-  return { cmd, cite, fermer };
+  return { cmd, cite, fermer, ajouter };
 }
 
 // Lecture d'un FETCH (une seule réponse) : date, drapeaux, en-têtes demandés et début du texte décodé.

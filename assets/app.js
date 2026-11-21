@@ -1195,7 +1195,6 @@
     "camp-rouzier-marechal": [{ boite: BOITES.camp.email }, { boite: BOITES.gmail.email, dossier: "Projets/Camp" }],
     "berkay": [{ boite: BOITES.gmail.email, dossier: "Projets/Berkay" }],
     "wealthy": [{ boite: BOITES.gmail.email, dossier: "Projets/Wealthy" }, { boite: BOITES.camp.email, dossier: "Projets/Wealthy" }],
-    "evoa-courtage": [{ boite: BOITES.gmail.email, dossier: "Projets/Evoa" }, { boite: BOITES.harnes.email, dossier: "Evoa" }],
     "perso": [{ boite: BOITES.gmail.email }]
   };
   function sourcesMail(a) { return SOURCES_MAIL[a.id] || []; }
@@ -1549,8 +1548,6 @@
         })) : el("p", { class: "boite-source-seule", text: sources[0] ? nomSource(sources[0]) : "" }),
         el("button", { type: "button", class: "btn-plein", text: "Nouveau message", onclick: function () { ecrireMail({ mode: "nouveau" }); } })
       ]));
-      if (a.id === "evoa-courtage") f.appendChild(el("p", { class: "boite-note" }, ["La boîte a.rouzier@evoa-courtage.fr n'est pas encore branchée : ici, les mails Evoa rangés dans Gmail et Harnes. ",
-        el("a", { href: "#mails", text: "Brancher la boîte Evoa" })]));
     } else {
       contexteBoite(null);
       f.appendChild(el("header", { class: "boite-tete" }, [
@@ -2059,8 +2056,7 @@
       el("div", {}, [iconeProjet(a, true), el("p", { class: "surtitre", text: "Evoa Courtage" }), el("h1", { text: "Evoalys" }),
         el("p", { class: "chapo", text: "Clients, contrats, rendez-vous et tâches du cabinet se gèrent dans Evoalys. Tes tâches y sont reprises ici toutes les 5 minutes : coche-les d'un côté ou de l'autre." })]),
       el("div", { class: "liens-boutons" }, [
-        el("a", { class: "btn-plein evoalys-bouton", href: URL_EVOALYS, target: "_blank", rel: "noopener", text: "Ouvrir Evoalys ↗" }),
-        el("a", { class: "btn-contour", href: "#evoa-courtage/mails", text: "Mails Evoa" })
+        el("a", { class: "btn-plein evoalys-bouton", href: URL_EVOALYS, target: "_blank", rel: "noopener", text: "Ouvrir Evoalys ↗" })
       ])
     ]));
     f.appendChild(el("section", { class: "section" }, [

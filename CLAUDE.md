@@ -158,3 +158,8 @@ de connexion (image fixe si pas de 3D). Téléphone : barre d'onglets en bas (Au
 Page Mails (#boite) : fonction `messagerie` (lister la réception de chaque boîte ou de toutes, ranger : lu, non lu, archiver, corbeille via
 _partage/ranger.ts, envoyer depuis la bonne boîte avec sa signature HTML ; Outlook demande Mail.Send). Les mails restent hors d'Evoalys
 (logiciel partagé avec l'équipe Evoa).
+
+## Mails : messagerie complète (fonction `messagerie`, page `#boite`)
+- Actions : `dossiers`, `lister` (dossier, q, suites), `lire` (HTML, images intégrées, pièces), `piece`, `ranger` (lu, non_lu, drapeau, sans_drapeau, archiver, corbeille, reception), `deplacer`, `brouillon_de`, `brouillon`, `envoyer` (mode nouveau / repondre / repondre_tous / transferer, cc, cci, pièces base64, brouillon_id).
+- Gmail : identifiant de pièce = partId (les attachmentId changent à chaque lecture). Outlook : notre texte entre `#ar-conseil-texte` et `#ar-conseil-fin` pour qu'un brouillon de réponse ré-enregistré garde la citation ; pièces déjà présentes non rajoutées. Harnes : APPEND en littéral synchronisé (IONOS coupe au-delà de 4 Ko sinon), écritures IMAP/SMTP complètes en boucle.
+- Écran : 3 volets dès 1240 px (colonne des dossiers à partir de 1560 px, liste déroulante en dessous), feuille de lecture sinon. Mail HTML dans un iframe sandbox sans script, images distantes bloquées jusqu'au clic. La feuille s'appelle `.lecteur-mail` (`.lecteur-boite` est déjà la pastille du lecteur).

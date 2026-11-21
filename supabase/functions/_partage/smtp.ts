@@ -1,5 +1,5 @@
 // Envoi d'un mail par SMTP (TLS, port 465, AUTH LOGIN) : boîte IONOS de Harnes (secrets IONOS_EMAIL / IONOS_MOT_DE_PASSE).
-// Utilisé seulement pour les invitations d'agenda qu'Antonin demande (fonction invitation-harnes).
+// Utilisé pour les invitations d'agenda (invitation-harnes) et les envois de la messagerie d'AR CONSEIL.
 const enc = new TextEncoder(), dec = new TextDecoder();
 
 export async function envoyerSmtp(hote: string, utilisateur: string, motDePasse: string, de: string, a: string[], message: string) {
@@ -16,7 +16,8 @@ export async function envoyerSmtp(hote: string, utilisateur: string, motDePasse:
     }
   };
   const cmd = async (ligne: string, attendu: number[]) => {
-    await conn.write(enc.encode(ligne + "\r\n"));
+    const o = enc.encode(ligne + "\r\n");
+    for (let ecrit = 0; ecrit < o.length;) ecrit += await conn.write(o.subarray(ecrit));   // écriture complète (pièces jointes)
     const r = await lire();
     if (!attendu.includes(r.code)) throw new Error(`SMTP : ${r.texte.split("\r\n").pop()}`);
     return r;

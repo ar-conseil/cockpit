@@ -121,6 +121,9 @@ select cron.schedule('evoalys', '*/5 * * * *', \$\$ select net.http_post(url := 
     headers := jsonb_build_object('Content-Type', 'application/json',
       'x-cle-synchro', (select decrypted_secret from vault.decrypted_secrets where name = 'cle_synchro')),
     body := '{}'::jsonb, timeout_milliseconds := 60000) \$\$);
+-- Journal des tâches planifiées : gardé 7 jours (sinon il grossit sans fin et entame les 500 Mo de l'offre gratuite)
+select cron.unschedule('menage-cron') where exists (select 1 from cron.job where jobname = 'menage-cron');
+select cron.schedule('menage-cron', '23 3 * * *', \$\$ delete from cron.job_run_details where end_time < now() - interval '7 days' \$\$);
 select cron.unschedule('menage-evenements') where exists (select 1 from cron.job where jobname = 'menage-evenements');
 select cron.schedule('menage-evenements', '17 3 * * *', \$\$ delete from public.evenements where fin < now() - interval '90 days' \$\$);
 SQL

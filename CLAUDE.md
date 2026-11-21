@@ -148,3 +148,13 @@ classement : il les marque lus et les étiquette (libellé Gmail, catégorie Out
 qu'Antonin a déjà déplacé ou supprimé n'est pas touché). Les publicités partent toujours à la corbeille tout de suite.
 Références du journal stables d'un dossier à l'autre : identifiants immuables Outlook, Message-ID pour IONOS.
 `{ restaurer: true, jours }` remet en réception ce que Victor a rangé (fait le 20/11 sur 30 jours : 1 254 mails).
+
+## Application AR CONSEIL (21 novembre 2026)
+Le cockpit s'appelle AR CONSEIL et s'installe comme une application (manifest.webmanifest, sw.js à la racine : notifications, aucune
+mise en cache ; bouton « Installer l'app » en bas de la barre latérale ; iPhone : Partager › Sur l'écran d'accueil).
+Logo : A et R liés, chrome poli et barre de verre dégradée, rendu en 3D par three.js (outils/logo3d, assemblé en assets/ar-conseil-3d.js
+par construire.sh) ; icônes PNG = captures de ce rendu (assets/marque/icone-*.png, via Chrome sans écran) ; scène animée sur la page
+de connexion (image fixe si pas de 3D). Téléphone : barre d'onglets en bas (Aujourd'hui, Tâches, Mails, Victor, Plus).
+Page Mails (#boite) : fonction `messagerie` (lister la réception de chaque boîte ou de toutes, ranger : lu, non lu, archiver, corbeille via
+_partage/ranger.ts, envoyer depuis la bonne boîte avec sa signature HTML ; Outlook demande Mail.Send). Les mails restent hors d'Evoalys
+(logiciel partagé avec l'équipe Evoa).

@@ -303,7 +303,7 @@
   }
   function lienCote(href, actif, contenu, nb, touche) {
     var nom = (contenu[contenu.length - 1] || {}).textContent || "";
-    var l = el("a", { href: href, class: "cote-lien", "data-nom": nom + (touche ? "  ·  " + touche : ""), "aria-label": nom }, contenu.concat([nb ? el("small", { text: String(nb) }) : null]));
+    var l = el("a", { href: href, class: "cote-lien", "data-nom": nom, "data-touche": touche || null, "aria-label": nom }, contenu.concat([nb ? el("small", { text: String(nb) }) : null]));
     if (actif) l.setAttribute("aria-current", "page");
     return l;
   }
@@ -359,7 +359,9 @@
     var montrer = function (cible) {
       if (!cible || !etroite.matches) { bulle.classList.remove("visible"); return; }
       var r = cible.getBoundingClientRect();
-      bulle.textContent = cible.getAttribute("data-nom") || cible.getAttribute("title") || "";
+      var touche = cible.getAttribute("data-touche") || ((/touche (\w)\)/i.exec(cible.getAttribute("title") || "") || [])[1]);
+      bulle.textContent = cible.getAttribute("data-nom") || (cible.getAttribute("title") || "").replace(/\s*\(touche \w\)/i, "");
+      if (touche) bulle.appendChild(el("kbd", { text: touche }));
       bulle.style.top = (r.top + r.height / 2) + "px"; bulle.style.left = (r.right + 12) + "px";
       bulle.classList.add("visible");
     };

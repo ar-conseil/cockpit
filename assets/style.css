@@ -1582,3 +1582,4 @@ main#app.large { --marge: clamp(16px, 2.2vw, 30px); }
 .page-boite .boite-tete .surtitre { display: none; }
 .page-boite .boite-tete h1 { font-size: 28px; }
 .page-boite-projet { padding-top: 4px; }
+.bulle-cote kbd { margin-left: 8px; padding: 0 5px; border-radius: 4px; font: 600 10.5px/16px var(--mono); background: color-mix(in srgb, var(--papier) 22%, transparent); }

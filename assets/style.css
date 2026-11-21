@@ -1325,3 +1325,80 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .lien-externe { font-weight: 600; color: #204e99 !important; text-decoration: none; }
 .lien-externe:hover { text-decoration: underline; }
 .evoalys-bouton { font-size: 16px; padding: 14px 24px; text-decoration: none; background: #204e99 !important; color: #fff !important; }
+
+/* ---------- Application AR CONSEIL ---------- */
+img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block; box-shadow: 0 4px 12px -6px rgb(30 20 80 / .6); }
+.espace-nom b { letter-spacing: .06em; }
+.installer { color: #6a4fe0 !important; font-weight: 600; }
+
+/* Connexion : logo 3D (image fixe, remplacée par la scène 3D sur ordinateur) */
+.logo-3d { position: relative; width: 176px; height: 176px; margin: 0 0 18px; border-radius: 40px; overflow: hidden;
+  background: radial-gradient(120% 120% at 22% 16%, #3a2f86 0%, #1b2140 42%, #0b0d16 100%); box-shadow: 0 30px 60px -30px rgb(40 20 120 / .7); }
+.logo-3d img { width: 100%; height: 100%; display: block; transition: opacity .6s; }
+.logo-3d-toile { position: absolute; inset: 0; width: 100%; height: 100%; }
+.logo-3d.anime img { opacity: 0; }
+.form-connexion h1 { letter-spacing: .04em; }
+
+/* Téléphone : barre d'onglets en bas */
+.nav-bas { display: none; }
+@media (max-width: 900px) {
+  .nav-bas { position: fixed; z-index: 35; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr);
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)); background: color-mix(in srgb, var(--papier) 88%, transparent);
+    backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); border-top: 1px solid var(--filet); }
+  .nav-bas a, .nav-bas button { display: grid; justify-items: center; gap: 3px; padding: 6px 0; border: 0; background: none; color: var(--encre-3);
+    font: 500 11px var(--sans); text-decoration: none; border-radius: 12px; -webkit-tap-highlight-color: transparent; }
+  .nav-bas svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .nav-bas a[aria-current="page"] { color: var(--encre); }
+  .nav-bas a[aria-current="page"] svg { stroke: #6a4fe0; }
+  .nav-bas #nav-bas-victor svg { stroke: #6a4fe0; }
+  main { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)) !important; }
+  .ajout-mobile { display: none !important; }
+  .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important; }
+}
+
+/* ---------- Mails ---------- */
+.page-boite { max-width: 1000px; padding-top: clamp(24px, 5vh, 52px); }
+.boite-tete { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 14px; }
+.boite-tete h1 { margin: 4px 0 4px; font: 650 clamp(30px, 4vw, 42px)/1.05 var(--sans); letter-spacing: -.03em; }
+.boite-compte { margin: 0; font-size: 13.5px; color: var(--encre-3); min-height: 20px; }
+.boite-boutons { display: flex; gap: 8px; }
+.boite-onglets { display: flex; gap: 6px; margin: 18px 0 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.boite-onglets .filtre { flex: none; }
+.boite-mails { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--filet); }
+.boite-mails li { position: relative; border-bottom: 1px solid var(--filet); }
+.boite-ligne { width: 100%; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; grid-template-areas: "p de date" "p objet objet" "p extrait extrait";
+  gap: 1px 10px; padding: 12px 120px 12px 8px; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; border-radius: 10px; }
+.boite-ligne:hover { background: var(--survol); }
+.boite-point { grid-area: p; align-self: center; width: 8px; height: 8px; border-radius: 50%; background: transparent; }
+.non-lu .boite-point { background: #6a4fe0; }
+.boite-de { grid-area: de; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.boite-de b { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.non-lu .boite-de b, .non-lu .boite-objet { font-weight: 700; }
+.boite-nom { flex: none; font-size: 11.5px; font-weight: 600; color: var(--c); }
+.boite-ligne time { grid-area: date; font: 500 12px var(--mono); color: var(--encre-3); }
+.boite-objet { grid-area: objet; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boite-extrait { grid-area: extrait; font-size: 13px; color: var(--encre-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boite-pj { display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 5px; font-size: 11px; background: var(--papier-2); color: var(--encre-2); }
+.boite-actions { position: absolute; right: 6px; top: 50%; translate: 0 -50%; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.boite-mails li:hover .boite-actions, .boite-actions:focus-within { opacity: 1; }
+.boite-plus { display: block; margin: 18px auto; }
+.boite-erreur { margin: 6px 0; font-size: 13px; color: var(--rouge); }
+@media (max-width: 640px) {
+  .boite-ligne { padding-right: 8px; }
+  .boite-actions { display: none; }
+  .boite-boutons .btn-contour { display: none; }
+}
+
+/* Rédaction d'un mail */
+.redaction { width: min(720px, 100vw); max-width: 100vw; padding: 0; border: 0; border-radius: 18px; background: var(--blanc); color: var(--encre);
+  box-shadow: 0 40px 90px -40px rgb(15 15 15 / .55); }
+.redaction::backdrop { background: rgb(20 20 18 / .3); backdrop-filter: blur(2px); }
+.redaction-form { display: grid; gap: 0; }
+.redaction-haut { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--filet); }
+.redaction-champ { display: grid; grid-template-columns: 64px 1fr; align-items: center; padding: 4px 18px; border-bottom: 1px solid var(--filet); }
+.redaction-champ span { font-size: 13px; color: var(--encre-3); }
+.redaction-champ input, .redaction-champ select { border: 0 !important; box-shadow: none !important; background: none; padding: 9px 0; font: 14px var(--sans); color: var(--encre); outline: none; }
+.redaction textarea { min-height: 240px; border: 0; padding: 16px 18px; font: 15px/1.55 var(--sans); background: none; color: var(--encre); resize: vertical; outline: none; }
+.redaction-info { margin: 0; padding: 0 18px 8px; font-size: 12.5px; color: var(--encre-3); }
+.redaction-pied { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--filet); }
+@media (max-width: 640px) { .redaction { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; margin: 0; } .redaction textarea { min-height: 40vh; } }

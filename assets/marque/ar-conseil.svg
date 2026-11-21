@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AR CONSEIL">
+  <!-- Logo AR CONSEIL : ligature A-R (la jambe droite du A devient le fût du R), barre du A en dégradé Victor -->
+  <defs>
+    <linearGradient id="fond" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1c2133"/><stop offset="1" stop-color="#0c0e15"/></linearGradient>
+    <radialGradient id="halo" cx=".22" cy=".18" r=".75"><stop offset="0" stop-color="#7a5cf0" stop-opacity=".42"/><stop offset=".55" stop-color="#204e99" stop-opacity=".12"/><stop offset="1" stop-color="#204e99" stop-opacity="0"/></radialGradient>
+    <linearGradient id="trait" gradientUnits="userSpaceOnUse" x1="160" y1="0" x2="300" y2="0"><stop offset="0" stop-color="#4f8cff"/><stop offset=".55" stop-color="#9a7bff"/><stop offset="1" stop-color="#ff8f9c"/></linearGradient>
+    <linearGradient id="lettre" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d9dbe6"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#fond)"/>
+  <rect width="512" height="512" rx="112" fill="url(#halo)"/>
+  <g fill="none" stroke="url(#lettre)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M116 388 L208 128 L300 388"/>
+    <path d="M300 388 V128 H350 A76 76 0 0 1 350 280 H300"/>
+    <path d="M342 280 L410 388"/>
+  </g>
+  <path d="M168 280 H300" fill="none" stroke="url(#trait)" stroke-width="36" stroke-linecap="round"/>
+</svg>

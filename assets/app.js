@@ -1,4 +1,4 @@
-/* Cockpit d'Antonin : lit et écrit dans Supabase (projets, agendas synchronisés, tâches, clients, suivis).
+/* AR CONSEIL (le cockpit d'Antonin, installable comme application) : lit et écrit dans Supabase (projets, agendas synchronisés, tâches, clients, suivis).
    Accueil (#) : l'heure, la journée en frise horizontale et les quatre projets côte à côte.
    Page projet (#palomano, ...) : tâches, agenda, clients et suivis, chiffres, notes.
    Clavier : 0 accueil, 1 à 9 projets, N nouvelle tâche, ← → jour précédent / suivant, T aujourd'hui. */
@@ -305,11 +305,15 @@
   }
   function dessinerNav() {
     navProjets.textContent = "";
+    document.querySelectorAll("#nav-bas a[data-route]").forEach(function (a) {
+      if (a.dataset.route === (S.route || "")) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
     var iso = isoJour(new Date());
     var nbT = S.taches.filter(function (t) { return t.statut !== "fait" && t.echeance && t.echeance <= iso; }).length;
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [
       lienCote("#", !S.route, [icone("aujourdhui"), el("span", { text: "Aujourd'hui" })], tachesDuJour(iso).filter(function (t) { return t.statut !== "fait"; }).length, "0"),
       lienCote("#taches", S.route === "taches", [icone("taches"), el("span", { text: "Tâches" })], nbT, "B"),
+      lienCote("#boite", S.route === "boite", [icone("mails"), el("span", { text: "Mails" })], S.messagerieNonLus || 0, "M"),
       lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })]),
       lienCote("#mails", S.route === "mails", [icone("mails"), el("span", { text: "Tri des boîtes" })]),
       lienCote("#recherche", S.route === "recherche", [icone("chercher"), el("span", { text: "Rechercher un mail" })]),
@@ -329,9 +333,9 @@
     // Fil d'Ariane de la barre du haut
     var fil = document.getElementById("fil"), a = activite(S.route);
     fil.textContent = "";
-    fil.append(el("a", { href: "#", text: "Cockpit" }), el("span", { class: "fil-sep", text: "/" }),
+    fil.append(el("a", { href: "#", text: "AR CONSEIL" }), el("span", { class: "fil-sep", text: "/" }),
       a ? (S.rubrique ? el("a", { class: "fil-page", href: "#" + a.id }, [iconeProjet(a), a.nom]) : el("span", { class: "fil-page" }, [iconeProjet(a), a.nom]))
-        : el("span", { class: "fil-page", text: S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : "Aujourd'hui" }));
+        : el("span", { class: "fil-page", text: S.route === "boite" ? "Mails" : S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : "Aujourd'hui" }));
     var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
     if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
   }
@@ -343,6 +347,10 @@
   document.getElementById("ouvrir-menu").addEventListener("click", function () { menu(true); });
   document.getElementById("fermer-menu").addEventListener("click", function () { menu(false); });
   document.getElementById("voile").addEventListener("click", function () { menu(false); });
+  document.getElementById("nav-bas-menu").addEventListener("click", function () { menu(true); });
+  document.getElementById("nav-bas-victor").addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" }); var c = document.getElementById("dis-victor-champ"); c.focus();
+  });
   navProjets.addEventListener("click", function (ev) { if (ev.target.closest("a")) menu(false); });
 
   // ---------- Tâches ----------
@@ -1171,6 +1179,190 @@
     setTimeout(function () { rendreRecherche(); if (document.activeElement === document.body) champ.focus(); }, 0);
     return el("div", { class: "page-recherche" }, [f]);
   }
+  // ---------- Mails : toutes les boîtes dans l'application (fonction messagerie) ----------
+  // Réception de chaque boîte (Gmail perso, Camp, Palomano, Harnes) ou de toutes ensemble, du plus récent au plus ancien ;
+  // lire, répondre, écrire, archiver, corbeille. L'envoi part de la bonne adresse, avec sa signature, et seulement sur clic.
+  var B = { filtre: lirePref("boite-filtre", "tout"), mails: [], suites: {}, etat: "", erreurs: {}, boites: [], cle: 0 };
+  function appelMessagerie(corps) {
+    return db.functions.invoke("messagerie", { body: corps }).then(function (r) {
+      if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { throw new Error(j.erreur || r.error.message); });
+      if (r.error) throw r.error;
+      if (r.data && r.data.erreur) throw new Error(r.data.erreur);
+      return r.data;
+    });
+  }
+  function versMail(x) {
+    return { boite: x.nom, de: x.de, a: x.a, objet: x.objet, date: x.date, extrait: x.extrait, lu: x.lu, important: x.important, pieces: x.pieces,
+      resume: "", ref: { boite: x.boite, id: x.id } };
+  }
+  function chargerBoite(plus) {
+    var cle = ++B.cle;
+    if (!plus) { B.mails = []; B.suites = {}; }
+    B.etat = "charge"; rendreBoite();
+    appelMessagerie({ action: "lister", boite: B.filtre, suites: plus ? B.suites : {} }).then(function (d) {
+      if (cle !== B.cle) return;
+      B.boites = d.boites || B.boites; B.erreurs = d.erreurs || {};
+      Object.keys(d.suites || {}).forEach(function (k) { B.suites[k] = d.suites[k]; });
+      var vus = {}; B.mails.forEach(function (m) { vus[m.ref.id] = true; });
+      B.mails = B.mails.concat((d.mails || []).map(versMail).filter(function (m) { return !vus[m.ref.id]; }))
+        .sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")); });
+      if (B.filtre === "tout") { S.messagerieNonLus = B.mails.filter(function (m) { return !m.lu; }).length; dessinerNav(); }
+      B.etat = "ok"; rendreBoite();
+    }).catch(function (e) { if (cle !== B.cle) return; B.etat = "erreur"; B.message = e.message; rendreBoite(); });
+  }
+  function rangerDepuisAppli(m, quoi) {
+    var i = B.mails.indexOf(m);
+    if (quoi === "archiver" || quoi === "corbeille") { if (i >= 0) B.mails.splice(i, 1); }
+    else m.lu = quoi === "lu";
+    rendreBoite();
+    appelMessagerie({ action: "ranger", boite: m.ref.boite, id: m.ref.id, quoi: quoi }).then(function () {
+      signaler(quoi === "archiver" ? "Archivé : sorti de la réception" : quoi === "corbeille" ? "Mis à la corbeille (récupérable 30 jours)" : quoi === "lu" ? "Marqué comme lu" : "Marqué comme non lu");
+    }).catch(function (e) { signaler("Non rangé : " + e.message); chargerBoite(); });
+  }
+  function rendreBoite() {
+    var zone = document.getElementById("boite-liste"); if (!zone) return;
+    zone.textContent = "";
+    var nonLus = B.mails.filter(function (m) { return !m.lu; }).length;
+    var compte = document.getElementById("boite-compte");
+    if (compte) compte.textContent = B.mails.length ? B.mails.length + " mails" + (nonLus ? " · " + nonLus + " non lu" + (nonLus > 1 ? "s" : "") : "") : "";
+    Object.keys(B.erreurs || {}).forEach(function (k) {
+      zone.appendChild(el("p", { class: "boite-erreur", text: "Boîte " + k + " non lue : " + B.erreurs[k] }));
+    });
+    if (!B.mails.length) {
+      zone.appendChild(B.etat === "erreur" ? el("p", { class: "recherche-vide", text: "Lecture impossible : " + B.message })
+        : B.etat === "charge" ? el("div", { class: "lecteur-attente" }, [el("i"), el("i"), el("i"), el("i")])
+        : el("p", { class: "recherche-vide", text: "Boîte de réception vide." }));
+      return;
+    }
+    var liste = B.mails;
+    zone.appendChild(el("ol", { class: "boite-mails" }, liste.map(function (m, i) {
+      var bx = boiteDe(m);
+      return el("li", { class: (m.lu ? "" : "non-lu") + (m.important ? " important" : "") }, [
+        el("button", { type: "button", class: "boite-ligne", style: "--c:" + couleur(bx.projet), onclick: function () { ouvrirMail(i, liste); } }, [
+          el("span", { class: "boite-point", "aria-label": m.lu ? null : "Non lu" }),
+          el("span", { class: "boite-de" }, [el("b", { text: nomSeul(m.de) || "(expéditeur inconnu)" }), B.filtre === "tout" ? el("span", { class: "boite-nom", text: m.boite }) : null]),
+          el("time", { text: m.date ? dateCourte(m.date) : "" }),
+          el("span", { class: "boite-objet", text: (m.important ? "★ " : "") + (m.objet || "(sans objet)") + "" }),
+          m.extrait || m.pieces ? el("span", { class: "boite-extrait" }, [m.pieces ? el("span", { class: "boite-pj", text: "Pièce jointe" }) : null, m.extrait || ""]) : null
+        ]),
+        el("div", { class: "boite-actions" }, [
+          el("button", { type: "button", class: "btn-icone-mini", title: m.lu ? "Marquer non lu" : "Marquer lu", "aria-label": m.lu ? "Marquer non lu" : "Marquer lu",
+            text: m.lu ? "○" : "●", onclick: function () { rangerDepuisAppli(m, m.lu ? "non_lu" : "lu"); } }),
+          el("button", { type: "button", class: "btn-icone-mini", title: "Archiver", "aria-label": "Archiver", text: "⤓", onclick: function () { rangerDepuisAppli(m, "archiver"); } }),
+          el("button", { type: "button", class: "btn-icone-mini", title: "Corbeille", "aria-label": "Mettre à la corbeille", text: "✕", onclick: function () { rangerDepuisAppli(m, "corbeille"); } })
+        ])
+      ]);
+    })));
+    var reste = Object.keys(B.suites).some(function (k) { return B.suites[k]; });
+    if (reste) zone.appendChild(el("button", { type: "button", class: "btn-contour boite-plus", text: B.etat === "charge" ? "Chargement…" : "Mails plus anciens",
+      disabled: B.etat === "charge", onclick: function () { chargerBoite(true); } }));
+  }
+  function vueBoite() {
+    var f = document.createDocumentFragment();
+    var onglets = [{ email: "tout", nom: "Toutes" }].concat(B.boites.length ? B.boites : [
+      { email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
+      { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }]);
+    f.appendChild(el("header", { class: "boite-tete" }, [
+      el("div", {}, [el("p", { class: "surtitre", text: "Boîtes de réception" }), el("h1", { text: "Mails" }), el("p", { class: "boite-compte", id: "boite-compte" })]),
+      el("div", { class: "boite-boutons" }, [
+        el("button", { type: "button", class: "btn-contour", text: "Actualiser", onclick: function () { chargerBoite(); } }),
+        el("button", { type: "button", class: "btn-plein", text: "Nouveau message", onclick: function () { ouvrirRedaction({}); } })
+      ])
+    ]));
+    f.appendChild(el("nav", { class: "boite-onglets", "aria-label": "Boîtes" }, onglets.map(function (o) {
+      var bx = o.email === "tout" ? null : boiteDe({ boite: o.nom, ref: { boite: o.email, id: "" } });
+      return el("button", { type: "button", class: "filtre", style: bx ? "--c:" + couleur(bx.projet) : "", "aria-pressed": B.filtre === o.email ? "true" : "false",
+        onclick: function () { if (B.filtre === o.email) return; B.filtre = o.email; ecrirePref("boite-filtre", o.email); dessiner(); chargerBoite(); } }, [o.nom]);
+    })));
+    f.appendChild(el("div", { id: "boite-liste", "aria-live": "polite" }));
+    setTimeout(function () { if (!B.mails.length && B.etat !== "charge") chargerBoite(); else rendreBoite(); }, 0);
+    return el("div", { class: "page-boite" }, [f]);
+  }
+
+  // Rédaction : nouveau message ou réponse, depuis une boîte choisie ; signature de la boîte ajoutée à l'envoi
+  var redaction = null;
+  function ouvrirRedaction(o) {
+    if (!redaction) { redaction = el("dialog", { class: "redaction", "aria-label": "Nouveau message" }); document.body.appendChild(redaction); }
+    var m = o.reponse, boites = B.boites.length ? B.boites : [{ email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
+      { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }];
+    var de = el("select", { "aria-label": "Envoyer depuis" }, boites.map(function (x) { return el("option", { value: x.email, text: x.nom + " · " + x.email }); }));
+    de.value = m ? m.ref.boite : (B.filtre !== "tout" ? B.filtre : boites[0].email);
+    var adresse = m ? (/<([^>]+)>/.exec(m.de || "") || [null, m.de || ""])[1] : "";
+    var a = el("input", { type: "text", value: adresse, placeholder: "Destinataire (plusieurs : séparés par une virgule)", "aria-label": "À", list: "redaction-contacts", autocomplete: "off" });
+    var cc = el("input", { type: "text", placeholder: "Copie (facultatif)", "aria-label": "Copie", list: "redaction-contacts", autocomplete: "off" });
+    var objet = el("input", { type: "text", value: m ? (/^re\s*:/i.test(m.objet || "") ? m.objet : "Re: " + (m.objet || "")) : "", placeholder: "Objet", "aria-label": "Objet" });
+    var texte = el("textarea", { rows: "12", placeholder: "Ton message… (la signature de la boîte est ajoutée automatiquement)", "aria-label": "Message" });
+    var contacts = el("datalist", { id: "redaction-contacts" });
+    var info = el("p", { class: "redaction-info" });
+    var majInfo = function () { info.textContent = "Signée avec ta signature " + (boites.filter(function (x) { return x.email === de.value; })[0] || {}).nom + ". Rien ne part avant ton clic sur Envoyer."; };
+    de.addEventListener("change", majInfo); majInfo();
+    var minuterie = null;
+    [a, cc].forEach(function (champ) {
+      champ.addEventListener("input", function () {
+        clearTimeout(minuterie);
+        var q = champ.value.split(",").pop().trim();
+        if (q.length < 2) return;
+        minuterie = setTimeout(function () {
+          db.rpc("contacts_mail", { q: q, n: 8 }).then(function (r) {
+            contacts.textContent = "";
+            var avant = champ.value.split(",").slice(0, -1).map(function (x) { return x.trim(); }).filter(Boolean);
+            (r.data || []).forEach(function (x) { contacts.appendChild(el("option", { value: avant.concat([x.email]).join(", "), text: x.nom || x.email })); });
+          });
+        }, 160);
+      });
+    });
+    var envoyer = el("button", { type: "submit", class: "btn-plein", text: "Envoyer" });
+    redaction.textContent = "";
+    redaction.appendChild(el("form", { class: "redaction-form", onsubmit: function (ev) {
+      ev.preventDefault();
+      if (!a.value.trim() || !texte.value.trim()) { info.textContent = "Il manque le destinataire ou le message."; return; }
+      envoyer.disabled = true; envoyer.textContent = "Envoi…";
+      appelMessagerie({ action: "envoyer", boite: de.value, a: a.value, cc: cc.value, objet: objet.value, texte: texte.value, repondre_a: m ? m.ref.id : null })
+        .then(function () { redaction.close(); signaler("Envoyé depuis " + de.value); })
+        .catch(function (e) { envoyer.disabled = false; envoyer.textContent = "Envoyer"; info.textContent = "Non envoyé : " + e.message; });
+    } }, [
+      el("header", { class: "redaction-haut" }, [el("b", { text: m ? "Répondre" : "Nouveau message" }),
+        el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { redaction.close(); } })]),
+      el("label", { class: "redaction-champ" }, [el("span", { text: "De" }), de]),
+      el("label", { class: "redaction-champ" }, [el("span", { text: "À" }), a]),
+      el("label", { class: "redaction-champ" }, [el("span", { text: "Cc" }), cc]),
+      el("label", { class: "redaction-champ" }, [el("span", { text: "Objet" }), objet]),
+      texte, contacts, info,
+      el("footer", { class: "redaction-pied" }, [
+        el("button", { type: "button", class: "btn-texte", text: "Annuler", onclick: function () { redaction.close(); } }), envoyer])
+    ]));
+    redaction.showModal();
+    (m ? texte : a).focus();
+  }
+
+  // ---------- Application AR CONSEIL : installation (téléphone, ordinateur), programme de fond, logo 3D de la connexion ----------
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () { /* sans programme de fond : le site marche quand même */ });
+  var invitationInstall = null, installee = window.navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  var boutonInstall = document.getElementById("installer");
+  window.addEventListener("beforeinstallprompt", function (ev) { ev.preventDefault(); invitationInstall = ev; if (boutonInstall) boutonInstall.hidden = false; });
+  if (boutonInstall && !installee && /iPhone|iPad|iPod/.test(navigator.userAgent)) boutonInstall.hidden = false;
+  if (boutonInstall) boutonInstall.addEventListener("click", function () {
+    if (invitationInstall) { invitationInstall.prompt(); invitationInstall.userChoice.then(function () { invitationInstall = null; boutonInstall.hidden = true; }); return; }
+    alert("Pour installer AR CONSEIL sur l'iPhone : touche Partager (le carré avec une flèche) en bas de Safari, puis « Sur l'écran d'accueil ».");
+  });
+  window.addEventListener("appinstalled", function () { if (boutonInstall) boutonInstall.hidden = true; signaler("AR CONSEIL est installé"); });
+  function logoConnexion3D() {
+    var cadre = document.getElementById("logo-3d");
+    if (!cadre || cadre.dataset.lance || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    cadre.dataset.lance = "1";
+    var s = document.createElement("script");
+    s.src = "assets/ar-conseil-3d.js?v=20261121a";
+    s.onload = function () {
+      try {
+        var toile = document.createElement("canvas"); toile.className = "logo-3d-toile";
+        cadre.appendChild(toile);
+        window.ARConseil3D.decor(toile, {});
+        cadre.classList.add("anime");
+      } catch (e) { /* sans 3D : l'image fixe reste */ }
+    };
+    document.head.appendChild(s);
+  }
+
   // ---------- Lecteur de mail : un clic sur un mail à traiter l'ouvre ici (texte brut, lecture seule) ----------
   var lecteur = null, lecteurIndex = 0, lecteurCache = {}, lecteurListe = [];
   function ouvrirMail(i, liste) {
@@ -1207,7 +1399,10 @@
       m.action || m.resume ? el("p", { class: "lecteur-victor" }, [el("span", { text: "Victor" }), m.action || m.resume]) : null,
       corps,
       el("footer", { class: "lecteur-pied" }, [
-        el("button", { type: "button", class: "btn-plein", text: "Répondre avec Victor", onclick: function () {
+        m.ref && m.ref.boite ? el("button", { type: "button", class: "btn-plein", text: "Répondre", onclick: function () { lecteur.close(); ouvrirRedaction({ reponse: m }); } }) : null,
+        m.ref && m.ref.boite ? el("button", { type: "button", class: "btn-contour", text: "Archiver", title: "Sortir de la réception", onclick: function () { lecteur.close(); rangerDepuisAppli(m, "archiver"); } }) : null,
+        m.ref && m.ref.boite ? el("button", { type: "button", class: "btn-contour", text: "Corbeille", onclick: function () { lecteur.close(); rangerDepuisAppli(m, "corbeille"); } }) : null,
+        el("button", { type: "button", class: m.ref && m.ref.boite ? "btn-contour" : "btn-plein", text: "Répondre avec Victor", onclick: function () {
           lecteur.close(); direAVictor("Réponds à " + nomSeul(m.de) + " au sujet de « " + (m.objet || "") + " » : ", false);
         } }),
         el("button", { type: "button", class: "btn-contour", text: "En faire une tâche", onclick: function () {
@@ -1218,6 +1413,7 @@
     ]));
     if (!lecteur.open) lecteur.showModal();
     lecteur.querySelector(".lecteur-feuille").scrollTop = 0;
+    if (m.lu === false && m.ref) { m.lu = true; db.functions.invoke("messagerie", { body: { action: "ranger", boite: m.ref.boite, id: m.ref.id, quoi: "lu" } }); rendreBoite(); }
     var afficher = function (d) {
       if (lecteurIndex !== i) return;
       meta.textContent = "";
@@ -2169,7 +2365,7 @@
     signaler("Préparation du fichier Excel…");
     return Promise.all([chargerExcelJS(), m.logo ? imageBase64(m.logo) : Promise.resolve(null)]).then(function (r) {
       var ExcelJS = r[0], logo = r[1];
-      var wb = new ExcelJS.Workbook(); wb.creator = "Cockpit AR Conseil"; wb.created = new Date();
+      var wb = new ExcelJS.Workbook(); wb.creator = "AR CONSEIL"; wb.created = new Date();
       var ncol = d.colonnes.length;
       var ws = wb.addWorksheet(d.titre.slice(0, 31), { views: [{ state: "frozen", ySplit: 8, showGridLines: false }],
         pageSetup: { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: .4, right: .4, top: .5, bottom: .6, header: .2, footer: .3 } },
@@ -3113,7 +3309,7 @@
   function dessiner() {
     if (!db) return;
     var a = activite(S.route);
-    if (S.route && !a && S.route !== "agendas" && S.route !== "taches" && S.route !== "mails" && S.route !== "recherche" && S.route !== "reponses") S.route = "";
+    if (S.route && !a && S.route !== "agendas" && S.route !== "boite" && S.route !== "taches" && S.route !== "mails" && S.route !== "recherche" && S.route !== "reponses") S.route = "";
     // Un redessin (temps réel, relecture toutes les 5 min) ne doit pas faire remonter les listes qui défilent.
     var cote = document.querySelector(".cote"), coteScroll = cote ? cote.scrollTop : 0, defilements = memoriserDefilements();
     dessinerNav();
@@ -3121,7 +3317,7 @@
     var y = window.scrollY, defileAvant = document.getElementById("cal-defile");
     S.calScroll = defileAvant ? defileAvant.scrollTop : null;
     app.textContent = "";
-    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "recherche" ? vueRecherche() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
+    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "boite" ? vueBoite() : S.route === "recherche" ? vueRecherche() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
     var chA = a && CHARTES[a.id];
     app.dataset.projet = a ? a.id : "";
@@ -3141,7 +3337,7 @@
       if (c && d.scrollWidth > d.clientWidth) d.scrollLeft = Math.max(0, c.offsetLeft - d.clientWidth / 3);
     });
     var rubT = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
-    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · Cockpit";
+    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "boite" ? "Mails" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · AR CONSEIL";
     var hh = document.getElementById("horloge-haut"), mt = new Date(); hh.textContent = fmt(mt, { weekday: "long", day: "numeric", month: "long" }) + " · " + hm(mt);
     mesurerNav(); suivreRubriques();
   }
@@ -3269,6 +3465,7 @@
 
   function afficherConnexion(texte) {
     barre.hidden = true; app.hidden = true; ecranConnexion.hidden = false;
+    logoConnexion3D();
     message.textContent = texte || "";
     if (canal) { db.removeChannel(canal); canal = null; }
   }

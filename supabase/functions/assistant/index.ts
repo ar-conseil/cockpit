@@ -8,7 +8,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import Anthropic from "npm:@anthropic-ai/sdk@1.4.0";
 import { jetonAcces, type Compte } from "../_partage/fournisseurs.ts";
-import { connexionImap } from "../_partage/mails.ts";
+import { rangerMail as rangerMailPartage } from "../_partage/ranger.ts";
 import { notifier } from "../_partage/notifier.ts";
 
 const URL_SB = Deno.env.get("SUPABASE_URL")!;
@@ -65,54 +65,6 @@ const OUTILS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: { boite: { type: "string" }, id: { type: "string" }, action: { type: "string", enum: ["corbeille", "archiver", "lu", "non_lu"] } }, required: ["boite", "id", "action"] } },
 ];
 
-async function appel(jeton: string, url: string, init: RequestInit = {}) {
-  const r = await fetch(url, { ...init, headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json", ...(init.headers ?? {}) } });
-  const t = await r.text();
-  if (!r.ok) throw new Error(`HTTP ${r.status} ${t.slice(0, 160)}`);
-  return t ? JSON.parse(t) : {};
-}
-
-async function rangerMail(boite: string, id: string, action: string) {
-  const [genre, ...reste] = id.split(":"), mid = reste.join(":");
-  if (genre === "ionos") {
-    const { cmd, cite, fermer } = await connexionImap(Deno.env.get("IONOS_IMAP") || "imap.ionos.fr", Deno.env.get("IONOS_EMAIL") ?? "", Deno.env.get("IONOS_MOT_DE_PASSE") ?? "");
-    try {
-      const lignes = [...(await cmd('LIST "" "*"')).matchAll(/^\* LIST \(([^)]*)\) (?:"[^"]*"|NIL) (?:"((?:[^"\\]|\\.)*)"|(\S+))\r?$/gm)]
-        .map((x) => ({ attr: x[1], nom: (x[2] ?? x[3]).replace(/\\(.)/g, "$1") })).filter((x) => !/\\Noselect/i.test(x.attr));
-      const corbeille = lignes.find((x) => /\\Trash/i.test(x.attr))?.nom ?? lignes.find((x) => /trash|corbeille|papierkorb/i.test(x.nom))?.nom;
-      const archive = lignes.find((x) => /\\Archive/i.test(x.attr))?.nom ?? lignes.find((x) => /archiv/i.test(x.nom))?.nom;
-      for (const d of lignes.map((x) => x.nom)) {
-        await cmd(`SELECT ${cite(d)}`);
-        const uid = /\* SEARCH ?(\d+)?/.exec(await cmd(`UID SEARCH HEADER Message-ID ${cite("<" + mid + ">")}`))?.[1];
-        if (!uid) continue;
-        if (action === "lu" || action === "non_lu") { await cmd(`UID STORE ${uid} ${action === "lu" ? "+" : "-"}FLAGS.SILENT (\\Seen)`); return "fait"; }
-        const cible = action === "corbeille" ? corbeille : archive;
-        if (!cible) throw new Error(`dossier ${action === "corbeille" ? "Corbeille" : "Archives"} introuvable sur IONOS`);
-        if (d === cible) return "déjà fait";
-        try { await cmd(`UID MOVE ${uid} ${cite(cible)}`); } catch {
-          await cmd(`UID COPY ${uid} ${cite(cible)}`); await cmd(`UID STORE ${uid} +FLAGS.SILENT (\\Deleted)`); await cmd(`UID EXPUNGE ${uid}`);
-        }
-        return "fait";
-      }
-      throw new Error("mail introuvable dans la boîte Harnes");
-    } finally { await fermer(); }
-  }
-  const { data: c } = await db.from("comptes_agenda").select("*").eq("usage", "mail").eq("email", boite).maybeSingle();
-  if (!c) throw new Error("boîte non connectée");
-  const jeton = await jetonAcces(db, c as Compte);
-  if (genre === "gmail") {
-    const u = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(mid)}`;
-    if (action === "corbeille") await appel(jeton, `${u}/trash`, { method: "POST" });
-    else await appel(jeton, `${u}/modify`, { method: "POST", body: JSON.stringify(
-      action === "archiver" ? { removeLabelIds: ["INBOX"] } : action === "lu" ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] }) });
-    return "fait";
-  }
-  const u = `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(mid)}`, pref = { Prefer: 'IdType="ImmutableId"' };
-  if (action === "corbeille" || action === "archiver")
-    await appel(jeton, `${u}/move`, { method: "POST", headers: pref, body: JSON.stringify({ destinationId: action === "corbeille" ? "deleteditems" : "archive" }) });
-  else await appel(jeton, u, { method: "PATCH", headers: pref, body: JSON.stringify({ isRead: action === "lu" }) });
-  return "fait";
-}
 
 type Ctx = { auth: string; mails: unknown[]; ouvrir?: string; actions: string[] };
 // Appels aux fonctions mail et chercher-mails : la session de l'utilisateur, sinon (relais Wispr) la clé de synchro interne
@@ -185,7 +137,7 @@ async function outil(nom: string, e: Record<string, unknown>, ctx: Ctx): Promise
       return r.erreur ? r : { de: r.de, a: r.a, date: r.date, objet: r.objet, pieces: r.pieces, texte: String(r.texte ?? "").slice(0, 6000) };
     }
     case "ranger_mail": {
-      const r = await rangerMail(String(e.boite), String(e.id), String(e.action));
+      const r = await rangerMailPartage(db, String(e.boite), String(e.id), String(e.action));
       ctx.actions.push(`mail ${e.action} : ${e.id}`);
       return { resultat: r };
     }

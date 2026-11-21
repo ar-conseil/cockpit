@@ -1,14 +1,22 @@
 {
-  "name": "Cockpit · Antonin Rouzier",
-  "short_name": "Cockpit",
+  "name": "AR CONSEIL",
+  "short_name": "AR CONSEIL",
+  "description": "L'espace de travail d'Antonin Rouzier : journée, tâches, agendas, mails et Victor.",
+  "id": "./",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#0c0e16",
+  "theme_color": "#0c0e16",
   "icons": [
-    { "src": "assets/icone-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "assets/icone-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "assets/marque/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/marque/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/marque/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Mails", "url": "./#boite", "icons": [{ "src": "assets/marque/icone-192.png", "sizes": "192x192" }] },
+    { "name": "Tâches", "url": "./#taches", "icons": [{ "src": "assets/marque/icone-192.png", "sizes": "192x192" }] },
+    { "name": "Victor", "url": "./victor/", "icons": [{ "src": "victor/icone-192.png", "sizes": "192x192" }] }
   ]
 }

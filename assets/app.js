@@ -1187,7 +1187,7 @@
     cle: 0, ouvert: null, cache: {}, imagesOk: {} };
   var BOITES_DEFAUT = [{ email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
     { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }];
-  var LARGE = matchMedia("(min-width: 1360px)");
+  var LARGE = matchMedia("(min-width: 1240px)");
   function listeBoites() { return B.boites.length ? B.boites : BOITES_DEFAUT; }
   function nomBoite(email) { return (listeBoites().filter(function (x) { return x.email === email; })[0] || { nom: email }).nom; }
   function couleurBoite(email) { return couleur(boiteDe({ boite: nomBoite(email), ref: { boite: email, id: "" } }).projet); }

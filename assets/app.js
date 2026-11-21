@@ -1184,10 +1184,22 @@
   // répondre, répondre à tous, transférer, brouillons, déplacer, suivi, corbeille. Rien ne part sans clic sur Envoyer ;
   // rien n'est effacé définitivement (corbeille, récupérable).
   var B = { boite: lirePref("boite-filtre", "tout"), dossier: "", q: "", mails: [], suites: {}, etat: "", erreurs: {}, boites: [], dossiers: {},
-    cle: 0, ouvert: null, cache: {}, imagesOk: {} };
+    cle: 0, ouvert: null, cache: {}, imagesOk: {}, contexte: "", projet: null };
   var BOITES_DEFAUT = [{ email: "arouzier@gmail.com", nom: "Gmail" }, { email: "camprouziermarechal@gmail.com", nom: "Camp" },
     { email: BOITES.palomano.email, nom: "Palomano" }, { email: BOITES.harnes.email, nom: "Harnes" }];
   var LARGE = matchMedia("(min-width: 1240px)");
+  // Mails de chaque projet : sa boîte, et les dossiers « Projets/… » rangés dans Gmail et Camp (Harnes : dossier « Evoa »)
+  var SOURCES_MAIL = {
+    "palomano": [{ boite: BOITES.palomano.email }, { boite: BOITES.gmail.email, dossier: "Projets/Palomano" }],
+    "harnes-volley": [{ boite: BOITES.harnes.email }, { boite: BOITES.gmail.email, dossier: "Projets/Harnes Volley" }, { boite: BOITES.camp.email, dossier: "Projets/Harnes Volley" }],
+    "camp-rouzier-marechal": [{ boite: BOITES.camp.email }, { boite: BOITES.gmail.email, dossier: "Projets/Camp" }],
+    "berkay": [{ boite: BOITES.gmail.email, dossier: "Projets/Berkay" }],
+    "wealthy": [{ boite: BOITES.gmail.email, dossier: "Projets/Wealthy" }, { boite: BOITES.camp.email, dossier: "Projets/Wealthy" }],
+    "evoa-courtage": [{ boite: BOITES.gmail.email, dossier: "Projets/Evoa" }, { boite: BOITES.harnes.email, dossier: "Evoa" }],
+    "perso": [{ boite: BOITES.gmail.email }]
+  };
+  function sourcesMail(a) { return SOURCES_MAIL[a.id] || []; }
+  function nomSource(x) { return x.dossier ? nomBoite(x.boite) + " › " + x.dossier.split("/").pop() : "Boîte " + nomBoite(x.boite); }
   function listeBoites() { return B.boites.length ? B.boites : BOITES_DEFAUT; }
   function nomBoite(email) { return (listeBoites().filter(function (x) { return x.email === email; })[0] || { nom: email }).nom; }
   function couleurBoite(email) { return couleur(boiteDe({ boite: nomBoite(email), ref: { boite: email, id: "" } }).projet); }
@@ -1231,7 +1243,7 @@
     if (S.messagerieNonLus !== n) { S.messagerieNonLus = n; dessinerNav(); }
   }
   function choisir(email, dossier) {
-    B.boite = email; B.dossier = dossier || ""; B.q = ""; B.ouvert = null; ecrirePref("boite-filtre", email);
+    B.boite = email; B.dossier = dossier || ""; B.q = ""; B.ouvert = null; if (!B.projet) ecrirePref("boite-filtre", email);
     var champ = document.getElementById("boite-q"); if (champ) champ.value = "";
     rendreDossiers(); rendreLecture(); chargerBoite();
     if (email !== "tout") chargerDossiers(email);
@@ -1282,11 +1294,12 @@
   // Colonne des dossiers (ordinateur) et choix compact (téléphone)
   function rendreDossiers() {
     var zone = document.getElementById("boite-dossiers"), choix = document.getElementById("boite-choix");
-    var boites = listeBoites();
+    var boites = B.projet ? listeBoites().filter(function (b) { return b.email === B.boite; }) : listeBoites();
+    if (B.projet && B.projet.source.dossier) { if (zone) zone.textContent = ""; if (choix) choix.textContent = ""; return; }
     if (zone) {
       zone.textContent = "";
       var tout = 0; boites.forEach(function (b) { var r = reception(b.email); if (r) tout += r.non_lus || 0; });
-      zone.appendChild(el("button", { type: "button", class: "dossier-boite", "aria-current": B.boite === "tout" ? "true" : null, onclick: function () { choisir("tout"); } }, [
+      if (!B.projet) zone.appendChild(el("button", { type: "button", class: "dossier-boite", "aria-current": B.boite === "tout" ? "true" : null, onclick: function () { choisir("tout"); } }, [
         el("i", { class: "dossier-pastille tout", "aria-hidden": "true" }), el("span", { text: "Toutes les réceptions" }), tout ? el("b", { text: String(tout) }) : null]));
       boites.forEach(function (b) {
         var r = reception(b.email), ouverte = B.boite === b.email;
@@ -1306,7 +1319,7 @@
     }
     if (choix) {
       choix.textContent = "";
-      choix.appendChild(el("nav", { class: "boite-onglets", "aria-label": "Boîtes" }, [{ email: "tout", nom: "Toutes" }].concat(boites).map(function (o) {
+      if (!B.projet) choix.appendChild(el("nav", { class: "boite-onglets", "aria-label": "Boîtes" }, [{ email: "tout", nom: "Toutes" }].concat(boites).map(function (o) {
         var r = o.email === "tout" ? null : reception(o.email);
         return el("button", { type: "button", class: "filtre", style: o.email === "tout" ? "" : "--c:" + couleurBoite(o.email), "aria-pressed": B.boite === o.email ? "true" : "false",
           onclick: function () { if (B.boite !== o.email) choisir(o.email, ""); } }, [o.nom, r && r.non_lus ? el("b", { class: "filtre-n", text: " " + r.non_lus }) : null]);
@@ -1325,7 +1338,7 @@
     var zone = document.getElementById("boite-liste"); if (!zone) return;
     zone.textContent = "";
     var titre = document.getElementById("boite-titre"), d = dossierActuel(), type = typeActuel();
-    if (titre) titre.textContent = B.q ? "Résultats pour « " + B.q + " »" : B.boite === "tout" ? "Toutes les réceptions" : nomBoite(B.boite) + " · " + (d ? d.nom.split(/\s›\s|\//).pop() : "Boîte de réception");
+    if (titre) titre.textContent = B.q ? "Résultats pour « " + B.q + " »" : B.projet && B.projet.source.dossier ? nomSource(B.projet.source) : B.boite === "tout" ? "Toutes les réceptions" : nomBoite(B.boite) + " · " + (d ? d.nom.split(/\s›\s|\//).pop() : "Boîte de réception");
     var compte = document.getElementById("boite-compte"), nonLus = B.mails.filter(function (m) { return !m.lu; }).length;
     if (compte) compte.textContent = B.mails.length ? B.mails.length + " mails" + (nonLus && type !== "envoyes" ? " · " + nonLus + " non lu" + (nonLus > 1 ? "s" : "") : "") : "";
     Object.keys(B.erreurs || {}).forEach(function (k) { zone.appendChild(el("p", { class: "boite-erreur", text: nomBoite(k) + " non lue : " + B.erreurs[k] })); });
@@ -1505,23 +1518,58 @@
       .then(function () { b.disabled = false; b.querySelector(".lect-piece-nom").textContent = avant; });
   }
 
-  function vueBoite() {
-    var f = document.createDocumentFragment();
-    f.appendChild(el("header", { class: "boite-tete" }, [
-      el("div", {}, [el("p", { class: "surtitre", text: "Messagerie" }), el("h1", { text: "Mails" })]),
-      el("div", { class: "boite-boutons" }, [
+  // Entrer dans un contexte (page Mails ou une source d'un projet) : la liste repart de zéro si on change de contexte
+  function contexteBoite(a, i) {
+    var cle = a ? "projet:" + a.id + ":" + i : "page", src = a ? sourcesMail(a)[i] : null;
+    if (B.contexte === cle) return false;
+    B.contexte = cle; B.projet = a ? { a: a, source: src, i: i } : null;
+    B.mails = []; B.suites = {}; B.ouvert = null; B.q = ""; B.erreurs = {}; B.etat = ""; B.cle++;
+    B.boite = src ? src.boite : lirePref("boite-filtre", "tout"); B.dossier = "";
+    return true;
+  }
+  function chargerSource() {
+    var src = B.projet && B.projet.source;
+    if (!src || !src.dossier) { chargerBoite(); if (src) chargerDossiers(src.boite); return; }
+    B.etat = "charge"; rendreBoite();
+    chargerDossiers(src.boite).then(function (l) {
+      var d = l.filter(function (x) { return x.nom === src.dossier || x.id === src.dossier; })[0];
+      if (!d) { B.etat = "erreur"; B.message = "dossier « " + src.dossier + " » introuvable dans " + nomBoite(src.boite); rendreBoite(); return; }
+      B.dossier = d.id; chargerBoite();
+    });
+  }
+  function vueBoite(a) {
+    var f = document.createDocumentFragment(), sources = a ? sourcesMail(a) : [];
+    if (a) {
+      var i = Math.min(+lirePref("mails-" + a.id, "0") || 0, Math.max(0, sources.length - 1));
+      contexteBoite(a, i);
+      f.appendChild(el("div", { class: "boite-sources" }, [
+        sources.length > 1 ? el("nav", { class: "boite-onglets", "aria-label": "Sources des mails du projet" }, sources.map(function (x, j) {
+          return el("button", { type: "button", class: "filtre", style: "--c:" + couleurBoite(x.boite), "aria-pressed": j === B.projet.i ? "true" : "false",
+            onclick: function () { if (j === B.projet.i) return; ecrirePref("mails-" + a.id, String(j)); dessiner(); } }, [nomSource(x)]);
+        })) : el("p", { class: "boite-source-seule", text: sources[0] ? nomSource(sources[0]) : "" }),
         el("button", { type: "button", class: "btn-plein", text: "Nouveau message", onclick: function () { ecrireMail({ mode: "nouveau" }); } })
-      ])
-    ]));
+      ]));
+      if (a.id === "evoa-courtage") f.appendChild(el("p", { class: "boite-note" }, ["La boîte a.rouzier@evoa-courtage.fr n'est pas encore branchée : ici, les mails Evoa rangés dans Gmail et Harnes. ",
+        el("a", { href: "#mails", text: "Brancher la boîte Evoa" })]));
+    } else {
+      contexteBoite(null);
+      f.appendChild(el("header", { class: "boite-tete" }, [
+        el("div", {}, [el("p", { class: "surtitre", text: "Messagerie" }), el("h1", { text: "Mails" })]),
+        el("div", { class: "boite-boutons" }, [
+          el("button", { type: "button", class: "btn-plein", text: "Nouveau message", onclick: function () { ecrireMail({ mode: "nouveau" }); } })
+        ])
+      ]));
+    }
     f.appendChild(el("div", { class: "boite-choix", id: "boite-choix" }));
     var champ = el("input", { type: "search", id: "boite-q", value: B.q, placeholder: "Rechercher (expéditeur, objet, texte)", "aria-label": "Rechercher dans les mails", enterkeyhint: "search" });
-    f.appendChild(el("div", { class: "client" }, [
+    f.appendChild(el("div", { class: "client" + (B.projet ? " en-projet" + (B.projet.source.dossier ? " sans-dossiers" : "") : "") }, [
       el("aside", { class: "client-dossiers", id: "boite-dossiers", "aria-label": "Boîtes et dossiers" }),
       el("section", { class: "client-liste", "aria-label": "Mails" }, [
         el("div", { class: "client-liste-tete" }, [
           el("div", { class: "client-titre" }, [el("h2", { id: "boite-titre" }), el("p", { class: "boite-compte", id: "boite-compte" })]),
           el("button", { type: "button", class: "btn-icone-mini", title: "Actualiser", "aria-label": "Actualiser", text: "↻", onclick: function () {
             B.cache = {}; chargerBoite(); (B.boite === "tout" ? listeBoites().map(function (x) { return x.email; }) : [B.boite]).forEach(function (e) { chargerDossiers(e, true); });
+            if (B.projet) rendreDossiers();
           } })
         ]),
         el("form", { class: "boite-cherche", role: "search", onsubmit: function (ev) { ev.preventDefault(); B.q = champ.value.trim(); B.ouvert = null; rendreLecture(); chargerBoite(); } }, [
@@ -1533,10 +1581,10 @@
     champ.addEventListener("search", function () { if (!champ.value && B.q) { B.q = ""; chargerBoite(); } });
     setTimeout(function () {
       rendreDossiers(); rendreLecture();
-      if (!B.mails.length && B.etat !== "charge") chargerBoite(); else rendreBoite();
-      listeBoites().forEach(function (b, i) { setTimeout(function () { chargerDossiers(b.email); }, i * 150); });
+      if (!B.mails.length && B.etat !== "charge") (B.projet ? chargerSource() : chargerBoite()); else rendreBoite();
+      if (!B.projet) listeBoites().forEach(function (b, i) { setTimeout(function () { chargerDossiers(b.email); }, i * 150); });
     }, 0);
-    return el("div", { class: "page-boite" }, [f]);
+    return el("div", { class: "page-boite" + (a ? " page-boite-projet" : "") }, [f]);
   }
 
   // Rédaction : nouveau, répondre, répondre à tous, transférer, brouillon repris ; signature de la boîte ajoutée ;
@@ -1943,6 +1991,7 @@
     return [
       { id: "taches", nom: "Tâches", icone: "taches" },
       { id: "agenda", nom: "Agenda", icone: "agendas" },
+      sourcesMail(a).length ? { id: "mails", nom: "Mails", icone: "mails" } : null,
       avecClients ? { id: "clients", nom: r.titre_clients || "Clients", icone: "clients" } : null,
       r.recommandations ? { id: "recos", nom: "Recommandations", icone: "recos" } : null,
       r.production ? { id: "production", nom: "Production", icone: "factures" } : null, // Evoa : la production est la facturation
@@ -1975,6 +2024,7 @@
     }
     if (id === "chiffres") { var k = kpisProjet(a)[0]; return k ? k.label + " : " + (typeof k.valeur === "number" ? fmtN.format(k.valeur) : k.valeur) + (k.unite ? " " + k.unite : "") : ""; }
     if (id === "notes") return (a.notes || "").split("\n")[0].slice(0, 70) || "Notes libres du projet";
+    if (id === "mails") return sourcesMail(a).map(nomSource).join(" · ");
     return "";
   }
   function tuilesProjet(a) {
@@ -2009,7 +2059,8 @@
       el("div", {}, [iconeProjet(a, true), el("p", { class: "surtitre", text: "Evoa Courtage" }), el("h1", { text: "Evoalys" }),
         el("p", { class: "chapo", text: "Clients, contrats, rendez-vous et tâches du cabinet se gèrent dans Evoalys. Tes tâches y sont reprises ici toutes les 5 minutes : coche-les d'un côté ou de l'autre." })]),
       el("div", { class: "liens-boutons" }, [
-        el("a", { class: "btn-plein evoalys-bouton", href: URL_EVOALYS, target: "_blank", rel: "noopener", text: "Ouvrir Evoalys ↗" })
+        el("a", { class: "btn-plein evoalys-bouton", href: URL_EVOALYS, target: "_blank", rel: "noopener", text: "Ouvrir Evoalys ↗" }),
+        el("a", { class: "btn-contour", href: "#evoa-courtage/mails", text: "Mails Evoa" })
       ])
     ]));
     f.appendChild(el("section", { class: "section" }, [
@@ -2077,6 +2128,7 @@
     if (rub === "taches") f.appendChild(el("section", { class: "section", id: "s-taches" }, vueT === "tableau"
       ? [enteteTaches, tableauTaches(tachesProjet, { activite: a.id })]
       : [enteteTaches, listeNotion(tachesProjet, {}), champAjout(a.id, null, "+ Ajouter une tâche (sans date)")]));
+    if (rub === "mails") f.appendChild(vueBoite(a));
     if (rub === "agenda") { f.appendChild(sectionFrise); f.appendChild(el("section", { class: "section" }, [blocAgenda])); }
     if (rub === "clients") f.appendChild(sectionClients(a));
     if (rub === "recos") f.appendChild(sectionRecommandations(a));

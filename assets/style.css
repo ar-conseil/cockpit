@@ -1986,3 +1986,19 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
 .redaction-info { margin: 0; padding: 0 18px 8px; font-size: 12.5px; color: var(--encre-3); }
 .redaction-pied { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--filet); }
 @media (max-width: 640px) { .redaction { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; margin: 0; } .redaction textarea { min-height: 40vh; } }
+
+/* Mails dans un projet : sources (boîte, dossiers « Projets/… »), même messagerie */
+.page-boite-projet { padding-top: 4px; }
+.boite-sources { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; margin: 0 0 14px; }
+.boite-sources .boite-onglets { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-width: 0; margin: 0; }
+.boite-sources .filtre { flex: none; }
+.boite-source-seule { margin: 0; font-size: 14px; font-weight: 600; color: var(--encre-2); }
+.boite-note { margin: -4px 0 14px; font-size: 13px; color: var(--encre-3); }
+.boite-note a { color: inherit; }
+.client.sans-dossiers { grid-template-columns: minmax(0, 1fr); }
+.client.sans-dossiers .client-dossiers { display: none !important; }
+@media (min-width: 1240px) {
+  .client.en-projet { height: calc(100dvh - 250px); }
+  .client.sans-dossiers, .client.sans-dossiers.en-projet { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); }
+  .client.sans-dossiers .client-liste-tete, .client.sans-dossiers .boite-cherche { padding-left: 0; }
+}

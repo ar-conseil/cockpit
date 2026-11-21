@@ -1434,7 +1434,8 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
 .lect { display: grid; gap: 14px; padding-top: 14px; }
 .lect-outils { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 0; margin-top: -14px;
   background: color-mix(in srgb, var(--papier) 94%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--filet); }
-.lecteur-mail .lect-outils { background: color-mix(in srgb, var(--blanc) 94%, transparent); top: 60px; }
+.lecteur-mail .lecteur-haut { position: static; }
+.lecteur-mail .lect-outils { background: color-mix(in srgb, var(--blanc) 94%, transparent); }
 .lect-outils .btn-plein, .lect-outils .btn-contour { height: 32px; padding: 0 12px; font-size: 13px; }
 .lect-outils .btn-contour.actif { color: #b87a0b; }
 .lect-sep { width: 1px; height: 20px; background: var(--filet); margin: 0 4px; }
@@ -1473,10 +1474,10 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
 .redaction-form { display: grid; gap: 0; }
 .redaction-form.depot { box-shadow: inset 0 0 0 2px #6a4fe0; border-radius: 18px; }
 .redaction-haut { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--filet); }
-.redaction-champ { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; padding: 4px 18px; border-bottom: 1px solid var(--filet); }
+.redaction-champ { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; padding: 4px 18px; border-bottom: 1px solid var(--filet); }
 .redaction-champ span { font-size: 13px; color: var(--encre-3); }
-.redaction-champ input, .redaction-champ select { grid-column: 2 / -1; border: 0 !important; box-shadow: none !important; background: none; padding: 9px 0; font: 14px var(--sans); color: var(--encre); outline: none; }
-.redaction-champ:has(.redaction-voir-cc) input { grid-column: 2; }
+.redaction-champ input, .redaction-champ select { grid-column: 2; border: 0 !important; box-shadow: none !important; background: none; padding: 9px 0; font: 14px var(--sans); color: var(--encre); outline: none; }
+.redaction-champ.avec-cc { grid-template-columns: 64px minmax(0, 1fr) auto; }
 .redaction-voir-cc { font-size: 12.5px; }
 .redaction textarea { min-height: 260px; border: 0; padding: 16px 18px; font: 15px/1.55 var(--sans); background: none; color: var(--encre); resize: vertical; outline: none; }
 .redaction-pieces { list-style: none; margin: 0; padding: 0 18px 8px; display: flex; flex-wrap: wrap; gap: 6px; }

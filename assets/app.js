@@ -1655,7 +1655,7 @@
         el("b", { text: { nouveau: "Nouveau message", repondre: "Répondre", repondre_tous: "Répondre à tous", transferer: "Transférer", brouillon: "Brouillon" }[mode] }),
         el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Fermer", text: "×", onclick: function () { redaction.quitter(); } })]),
       el("label", { class: "redaction-champ" }, [el("span", { text: "De" }), de]),
-      el("div", { class: "redaction-champ" }, [el("span", { text: "À" }), a,
+      el("div", { class: "redaction-champ avec-cc" }, [el("span", { text: "À" }), a,
         el("button", { type: "button", class: "btn-texte redaction-voir-cc", text: "Cc / Cci", onclick: function (ev) { lignesCc.hidden = !lignesCc.hidden; ev.currentTarget.blur(); if (!lignesCc.hidden) cc.focus(); } })]),
       lignesCc,
       el("label", { class: "redaction-champ" }, [el("span", { text: "Objet" }), objet]),

@@ -352,25 +352,6 @@
     var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
     if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
   }
-  // Barre d'icônes (ordinateur) : le nom de chaque lien apparaît à côté au survol
-  (function () {
-    var cote = document.getElementById("cote"), bulle = el("div", { class: "bulle-cote", role: "tooltip" }), etroite = matchMedia("(min-width: 901px)");
-    document.body.appendChild(bulle);
-    var montrer = function (cible) {
-      if (!cible || !etroite.matches) { bulle.classList.remove("visible"); return; }
-      var r = cible.getBoundingClientRect();
-      var touche = cible.getAttribute("data-touche") || ((/touche (\w)\)/i.exec(cible.getAttribute("title") || "") || [])[1]);
-      bulle.textContent = cible.getAttribute("data-nom") || (cible.getAttribute("title") || "").replace(/\s*\(touche \w\)/i, "");
-      if (touche) bulle.appendChild(el("kbd", { text: touche }));
-      bulle.style.top = (r.top + r.height / 2) + "px"; bulle.style.left = (r.right + 12) + "px";
-      bulle.classList.add("visible");
-    };
-    cote.addEventListener("mouseover", function (ev) { montrer(ev.target.closest("[data-nom], .cote-bouton, .cote-bas button")); });
-    cote.addEventListener("mouseleave", function () { bulle.classList.remove("visible"); });
-    cote.addEventListener("scroll", function () { bulle.classList.remove("visible"); });
-    cote.addEventListener("focusin", function (ev) { if (ev.target.matches(":focus-visible")) montrer(ev.target.closest("[data-nom], .cote-bouton, .cote-bas button")); });
-    cote.addEventListener("focusout", function () { bulle.classList.remove("visible"); });
-  })();
   // Menu sur téléphone : la barre latérale glisse par-dessus la page.
   function menu(ouvert) {
     barre.classList.toggle("menu-ouvert", ouvert);

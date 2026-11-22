@@ -1521,47 +1521,61 @@ img.espace-logo { width: 32px; height: 32px; border-radius: 9px; display: block;
   .client.sans-dossiers .client-liste-tete, .client.sans-dossiers .boite-cherche { padding-left: 0; }
 }
 
-/* ---------- Barre d'icônes (ordinateur), façon Evoalys ---------- */
-.bulle-cote { position: fixed; z-index: 80; translate: 0 -50%; padding: 6px 10px; border-radius: 8px; background: var(--encre); color: var(--papier);
-  font: 500 12.5px/1.2 var(--sans); white-space: pre; pointer-events: none; opacity: 0; transform: translateX(-4px); transition: opacity .12s, transform .12s;
-  box-shadow: 0 8px 24px -10px rgb(0 0 0 / .45); }
-.bulle-cote.visible { opacity: 1; transform: none; }
+/* ---------- Barre d'icônes (ordinateur), façon Evoalys : au survol, le menu complet s'ouvre en fondu par-dessus la page ---------- */
+.bulle-cote { display: none; }
 @media (min-width: 901px) {
-  :root { --l-cote: 76px; }
-  .cote { padding: calc(14px + env(safe-area-inset-top, 0px)) 0 12px; gap: 6px; align-items: center; scrollbar-width: none; }
+  :root { --l-cote: 76px; --l-cote-ouvert: 268px; }
+  .cote { width: var(--l-cote); padding: calc(14px + env(safe-area-inset-top, 0px)) 14px 12px; gap: 6px; align-items: stretch;
+    overflow-x: hidden; scrollbar-width: none; transition: width .3s var(--doux), box-shadow .3s, background .3s; transition-delay: 0s; }
   .cote::-webkit-scrollbar { display: none; }
-  .cote-haut { padding: 0 0 8px; justify-content: center; }
-  .espace-nom, .cote-bouton span, .cote-bouton kbd, .cote-lien > span:not(.icone):not(.icone-projet), .cote-titre, .cote-sous-menu,
-  #etat-synchro, .cote-bas .btn-texte span { display: none; }
+  .cote:hover, .cote:has(:focus-visible) { width: var(--l-cote-ouvert); transition-delay: .12s;
+    background: color-mix(in srgb, var(--cote) 94%, transparent); backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    box-shadow: 1px 0 0 var(--filet), 24px 0 60px -28px rgb(10 10 30 / .45); }
+  /* textes : invisibles en barre étroite, ils apparaissent en fondu quand le menu s'ouvre */
+  .espace-nom, .cote-bouton span, .cote-bouton kbd, .cote-lien > span:not(.icone):not(.icone-projet), #etat-synchro, .cote-bas .btn-texte span {
+    opacity: 0; white-space: nowrap; transition: opacity .16s; transition-delay: 0s; }
+  .cote:hover :is(.espace-nom, .cote-bouton span, .cote-bouton kbd, .cote-lien > span:not(.icone):not(.icone-projet), #etat-synchro, .cote-bas .btn-texte span),
+  .cote:has(:focus-visible) :is(.espace-nom, .cote-bouton span, .cote-bouton kbd, .cote-lien > span:not(.icone):not(.icone-projet), #etat-synchro, .cote-bas .btn-texte span) {
+    opacity: 1; transition: opacity .24s .2s; }
+  .cote-titre, .cote-sous-menu { display: none; }
+  .cote-haut { padding: 0 0 8px 3px; justify-content: flex-start; }
+  .espace { gap: 12px; }
+  .espace-nom b { white-space: nowrap; }
   img.espace-logo { width: 42px; height: 42px; border-radius: 13px; box-shadow: 0 6px 16px -8px rgb(30 20 80 / .7); transition: transform .2s var(--doux); }
   .espace:hover img.espace-logo { transform: scale(1.06); }
-  .cote-actions { display: grid; justify-items: center; gap: 8px; width: 100%; padding: 0 0 12px; margin: 0 0 4px; border-bottom: 0; position: relative; }
-  .cote-actions::after, .cote-groupe + .cote-groupe::before, .cote-bas::before { content: ""; display: block; width: 32px; height: 1px; background: var(--filet-fort); justify-self: center; }
-  .cote-actions::after { position: absolute; bottom: 0; left: calc(50% - 16px); }
-  .cote-bouton, .cote-lien { position: relative; width: 48px; height: 48px; padding: 0; gap: 0; justify-content: center; border-radius: 15px; flex: none; }
+  .cote-actions { display: grid; gap: 8px; padding: 0 0 12px; margin: 0 0 4px; border-bottom: 0; position: relative; }
+  .cote-actions::after, .cote-groupe + .cote-groupe::before, .cote-bas::before { content: ""; display: block; height: 1px; background: var(--filet-fort); }
+  .cote-actions::after { position: absolute; bottom: 0; left: 8px; right: 8px; }
+  .cote-bouton, .cote-lien { position: relative; width: 100%; height: 48px; padding: 0 13px; gap: 13px; justify-content: flex-start; border-radius: 15px; flex: none; overflow: hidden; }
   .cote-bouton svg, .cote-lien .icone svg { width: 21px; height: 21px; stroke-width: 1.6; }
-  .cote-lien .icone { width: 24px; height: 24px; }
+  .cote-lien .icone, .cote-bouton svg { flex: none; }
+  .cote-lien .icone { width: 22px; height: 22px; }
+  .cote-bouton kbd { margin-left: auto; }
   .cote-bouton.principal { background: var(--encre); color: var(--papier); box-shadow: 0 10px 22px -12px rgb(0 0 0 / .6); }
-  .cote-bouton.principal:hover { background: var(--encre); color: var(--papier); transform: translateY(-1px); }
+  .cote-bouton.principal:hover { background: var(--encre); color: var(--papier); }
+  .cote-bouton.principal kbd { background: transparent; color: color-mix(in srgb, var(--papier) 60%, transparent); border-color: color-mix(in srgb, var(--papier) 25%, transparent); }
   .cote-bouton.principal svg { width: 22px; height: 22px; margin: 0; padding: 0; background: none; color: inherit; stroke-width: 2.1; }
-  .cote-liens { display: grid; gap: 10px; justify-items: center; width: 100%; flex: 1; }
-  .cote-groupe { display: grid; gap: 6px; justify-items: center; }
-  .cote-groupe + .cote-groupe::before { margin-bottom: 4px; }
+  .cote-liens { display: grid; gap: 10px; width: 100%; flex: 1; align-content: start; }
+  .cote-groupe { display: grid; gap: 6px; }
+  .cote-groupe + .cote-groupe::before { margin: 0 8px 4px; }
   .cote-projet-ouvert { display: contents; }
   .cote-lien[aria-current="page"], .cote-lien.projet.ouvert { background: color-mix(in srgb, #6a4fe0 13%, var(--blanc)); color: #6a4fe0;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, #6a4fe0 24%, transparent); font-weight: 600; }
-  .cote-lien small { position: absolute; top: 3px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #6a4fe0; color: #fff;
-    font: 650 9.5px/17px var(--mono); text-align: center; box-shadow: 0 0 0 2px var(--cote); }
-  .cote-lien.projet small { display: none; }
-  .cote-lien .icone-projet { width: 30px; height: 30px; border-radius: 9px; font-size: 14px; }
-  .cote-lien.projet:not(.ouvert) .icone-projet { filter: saturate(.85); }
-  .cote-bas { flex-direction: column; gap: 6px; padding: 8px 0 0; margin-top: 6px; border-top: 0; width: 100%; align-items: center; }
-  .cote-bas .direct { width: 48px; height: 30px; justify-content: center; padding: 0; border-radius: 10px; }
+  .cote-lien[aria-current="page"] > span:not(.icone):not(.icone-projet), .cote-lien.projet.ouvert > span:not(.icone-projet) { color: var(--encre); }
+  .cote-lien small { position: absolute; top: 3px; left: 29px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #6a4fe0; color: #fff;
+    font: 650 9.5px/17px var(--mono); text-align: center; box-shadow: 0 0 0 2px var(--cote); transition: left .3s var(--doux), top .3s var(--doux); }
+  .cote:hover .cote-lien small, .cote:has(:focus-visible) .cote-lien small { left: calc(100% - 30px); top: 15px; transition-delay: .12s; }
+  .cote-lien.projet small { opacity: 0; background: transparent; color: var(--encre-3); box-shadow: none; }
+  .cote:hover .cote-lien.projet small, .cote:has(:focus-visible) .cote-lien.projet small { opacity: 1; transition: opacity .24s .2s, left .3s var(--doux) .12s; }
+  .cote-lien .icone-projet { width: 30px; height: 30px; border-radius: 9px; font-size: 14px; margin-left: -4px; }
+  .cote-bas { flex-direction: column; gap: 4px; padding: 8px 0 0; margin-top: 6px; border-top: 0; width: 100%; align-items: stretch; }
+  .cote-bas::before { margin: 0 8px 4px; }
+  .cote-bas .direct { width: 100%; height: 34px; justify-content: flex-start; gap: 13px; padding: 0 0 0 20px; border-radius: 10px; }
   .cote-bas .direct:hover { background: var(--survol); }
-  .cote-bas .btn-texte { display: grid; place-items: center; width: 48px; height: 40px; padding: 0; border-radius: 12px; color: var(--encre-3); }
+  .cote-bas .btn-texte { display: flex; align-items: center; gap: 13px; width: 100%; height: 40px; padding: 0 0 0 14px; border-radius: 12px; color: var(--encre-3); font: 500 14px var(--sans); }
   .cote-bas .btn-texte[hidden] { display: none; }
   .cote-bas .btn-texte:hover { background: var(--survol); color: var(--encre); }
-  .cote-bas .btn-texte svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .cote-bas .btn-texte svg { flex: none; width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 }
 @media (max-width: 900px) { .cote-bas .btn-texte svg { display: none; } }
 
@@ -1582,4 +1596,3 @@ main#app.large { --marge: clamp(16px, 2.2vw, 30px); }
 .page-boite .boite-tete .surtitre { display: none; }
 .page-boite .boite-tete h1 { font-size: 28px; }
 .page-boite-projet { padding-top: 4px; }
-.bulle-cote kbd { margin-left: 8px; padding: 0 5px; border-radius: 4px; font: 600 10.5px/16px var(--mono); background: color-mix(in srgb, var(--papier) 22%, transparent); }

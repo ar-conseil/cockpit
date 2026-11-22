@@ -1276,16 +1276,40 @@ html[data-transition="jour"]::view-transition-new(root) { animation: 240ms ease-
 .wispr-etat { flex: 1; min-width: 200px; font-size: 14px; color: var(--encre-2); }
 
 /* Signatures (page Tri des boîtes) */
-.signatures-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-.signature { display: grid; gap: 8px; align-content: start; padding: 14px; border-radius: 12px; background: var(--papier-2); }
-.signature-boite { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
-.signature-boite b { font-size: 14px; } .signature-boite span { font-size: 12.5px; color: var(--encre-3); }
-.signature textarea { width: 100%; font: 13.5px/1.5 var(--sans); white-space: pre-wrap; background: var(--blanc); }
-.signature .btn-contour { justify-self: start; }
-.signatures-grille { grid-template-columns: 1fr; }
+.sig-boites { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 18px; }
+.sig-adresse { font: 500 12.5px var(--mono); color: var(--encre-3); }
+.sig-editeur { display: grid; gap: 16px; }
+.sig-grille { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.sig-carte { display: grid; gap: 14px; align-content: start; padding: 20px 22px; border: 1px solid var(--filet); border-radius: 16px; background: var(--blanc); min-width: 0; }
+.sig-carte-tete h3, .sig-photo-texte h3 { margin: 0; font: 600 16px var(--sans); letter-spacing: -.01em; }
+.sig-carte-tete p, .sig-photo-texte p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--encre-3); }
+.sig-champs { display: grid; gap: 14px; }
+.sig-deux { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 12px; }
+.sig-case { display: flex; gap: 10px; align-items: center; font-size: 14px; color: var(--encre-2); cursor: pointer; }
+.sig-case input { width: 17px; height: 17px; accent-color: var(--encre); }
+.sig-boite-details { border-top: 1px solid var(--filet); padding-top: 12px; }
+.sig-boite-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--encre-2); }
+.sig-boite-details[open] summary { margin-bottom: 14px; }
+.sig-carte .btn-plein:disabled { opacity: .35; cursor: default; transform: none; box-shadow: none; }
+.sig-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sig-actions .btn-contour { height: 38px; }
+.sig-info { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--encre-3); }
+.sig-texte { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--papier-2); font: 12.5px/1.55 var(--mono); white-space: pre-wrap; color: var(--encre-2); }
+.sig-photo { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 22px; }
+.sig-anneau { width: 92px; height: 92px; padding: 3px; border-radius: 50%; background: linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 45%, #111)); box-sizing: border-box; }
+.sig-anneau img, .sig-anneau span { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid var(--blanc); box-sizing: border-box;
+  background: color-mix(in srgb, var(--c) 10%, #fff); color: var(--c); font: 700 26px var(--sans); }
+.sig-photo-texte { display: grid; gap: 10px; }
+.sig-photo-texte p { margin: 0; }
+.sig-photo label.btn-plein { cursor: pointer; }
+.sig-photo label.attente { opacity: .5; pointer-events: none; }
 .signature-apercu { width: 100%; min-height: 150px; border: 0; border-radius: 10px; background: #fff; box-shadow: 0 0 0 1px var(--filet); }
 .signature-texte summary { cursor: pointer; font-size: 13px; color: var(--encre-2); }
 .signature-texte[open] { display: grid; gap: 8px; }
+.signature-texte textarea { width: 100%; font: 13.5px/1.5 var(--sans); white-space: pre-wrap; background: var(--blanc); }
+.signature-texte .btn-contour { justify-self: start; }
+@media (max-width: 900px) { .sig-grille { grid-template-columns: 1fr; } .sig-carte { padding: 16px; } }
+@media (max-width: 520px) { .sig-photo { grid-template-columns: 1fr; justify-items: start; } }
 
 /* Tes demandes à Victor (page Aujourd'hui) et tâches nouvelles */
 .victor-demandes { display: grid; gap: 4px; padding-top: 14px; border-top: 1px solid var(--filet); }

@@ -3612,36 +3612,337 @@
       if (S.route === "mails" && !enSaisie()) dessiner();
     });
   }
-  // Signatures : Victor les ajoute à ce qu'il rédige depuis chaque boîte (brouillons de réponse, invitations)
+  // Signatures : une par boîte, ajoutée par Victor à ce qu'il rédige depuis cette boîte (réponses préparées, invitations, réponses d'absence).
+  // Comme la page Signature d'Evoalys : photo, informations, aperçu en direct, copie pour Outlook (HTML ou image) et JPEG.
+  // Les informations sont dans signatures.infos ; html et texte en sont tirés à l'enregistrement.
   var NOMS_BOITES = { "arouzier@gmail.com": "Gmail", "camprouziermarechal@gmail.com": "Camp", "a.rouzier@evoa-courtage.fr": "Evoa", "antonin.rouzier@harnes-volleyball.fr": "Harnes" };
+  // --- Signatures : la carte mise en forme et la version texte, tirées des informations de chaque boîte (signatures.infos) ---
+  function echapper(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function siteCourt(s) { return String(s || "").replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""); }
+  function lienTel(t) { var c = String(t || "").replace(/[^\d+]/g, ""); return c.charAt(0) === "0" && c.length === 10 ? "+33" + c.slice(1) : c; }
+  var POLICE = "font-family:Arial,Helvetica,sans-serif;", ETROITE = "font-family:'Arial Narrow',Arial,sans-serif;";
+  // o.mentions === false : sans les mentions légales ; o.avis === false : sans le lien d'avis Google (version image)
+  function signatureHtml(i, o) {
+    o = o || {};
+    if (i.modele === "evoalys") return signatureEvoalys(i, o);
+    var c = i.couleur || "#111", e = echapper, lig = POLICE + "font-size:12px;line-height:18px;color:#111;";
+    var texte = '<div style="' + ETROITE + 'font-size:19px;line-height:22px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#111">' + e(i.nom) + "</div>"
+      + (i.fonction ? '<div style="' + POLICE + 'font-size:13px;line-height:18px;color:#5f5b57;padding-top:2px">' + e(i.fonction) + "</div>" : "")
+      + (i.marque ? '<div style="' + ETROITE + "font-size:14px;line-height:19px;font-weight:700;letter-spacing:" + (i.marque_espacement || ".6px") + ";text-transform:uppercase;color:" + c + ';padding-top:6px">' + e(i.marque) + "</div>" : "");
+    var puce = function (l) { return '<span style="color:' + c + ';font-weight:700">' + l + "</span>&nbsp;"; };
+    var contact = [];
+    if (i.telephone) contact.push(puce("T") + '<a href="tel:' + e(lienTel(i.telephone)) + '" style="color:#111;text-decoration:none;">' + e(i.telephone) + "</a>");
+    if (i.contact === "site" && i.site) contact.push(puce("W") + '<a href="' + e(i.site) + '" style="color:#111;text-decoration:none;">' + e(siteCourt(i.site)) + "</a>");
+    else if (i.mail) contact.push(puce("M") + '<a href="mailto:' + e(i.mail) + '" style="color:#111;text-decoration:none;">' + e(i.mail) + "</a>");
+    if (contact.length) texte += '<div style="' + lig + 'padding-top:4px;">' + contact.join("&nbsp;&nbsp; ") + "</div>";
+    (i.lignes || []).forEach(function (l) { if (l) texte += '<div style="' + lig + '"><span style="color:#5f5b57">' + e(l) + "</span></div>"; });
+    if (i.contact !== "site" && i.site) texte += '<div style="' + lig + '"><a href="' + e(i.site) + '" style="color:' + c + ';text-decoration:none;font-weight:700;">' + e(siteCourt(i.site)) + "</a>"
+      + (i.accroche ? '<span style="color:#5f5b57">&nbsp;·&nbsp;' + e(i.accroche) + "</span>" : "") + "</div>";
+    if (o.avis !== false && i.avis && /^https:\/\//.test(i.lien_avis || "")) texte += '<div style="' + lig + '"><a href="' + e(i.lien_avis) + '" style="color:' + c + ';text-decoration:none;font-weight:700;">Laissez-moi votre avis sur Google →</a></div>';
+    var lw = +i.logo_largeur || 100, lh = +i.logo_hauteur || 0;
+    var logo = function (max) {
+      var w = Math.min(lw, max), h = lh ? Math.round(lh * w / lw) : 0;
+      return i.logo ? '<img src="' + e(i.logo) + '" alt="' + e(i.marque || "") + '" width="' + w + '"' + (h ? ' height="' + h + '"' : "") + ' style="display:block;width:' + w + "px;height:" + (h ? h + "px" : "auto") + ";border:0" + (i.logo_arrondi ? ";border-radius:" + i.logo_arrondi + "px" : "") + '">' : "";
+    };
+    var cellules;
+    if (i.photo) cellules = '<td style="padding:0 16px 0 0;vertical-align:middle"><img src="' + e(i.photo) + '" alt="' + e(i.nom) + '" width="84" height="84" style="display:block;width:84px;height:84px;border:0;border-radius:42px"></td>'
+      + '<td style="padding:0 18px 0 16px;border-left:3px solid ' + c + ';vertical-align:middle">' + texte + "</td>"
+      + (i.logo ? '<td style="padding:0 0 0 18px;border-left:1px solid #e6e2dc;vertical-align:middle">' + logo(84) + "</td>" : "");
+    else cellules = (i.logo ? '<td style="padding:0 16px 0 0;border-right:3px solid ' + c + ';vertical-align:middle">' + logo(lw) + "</td>" : "")
+      + '<td style="padding:0 0 0 ' + (i.logo ? 16 : 0) + 'px;vertical-align:middle">' + texte + "</td>";
+    var h = '<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0"><tr>' + cellules + "</tr></table>";
+    if (o.mentions !== false && i.mentions) h += '<div style="' + POLICE + 'font-size:10px;line-height:14px;color:#8a8580;max-width:620px;padding-top:12px">'
+      + i.mentions.split("\n").filter(Boolean).map(function (l) {
+        return e(l).replace(/\b(www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+)/gi, '<a href="https://$1" style="color:#5f5b57;text-decoration:none;">$1</a>');
+      }).join("<br>") + "</div>";
+    return h;
+  }
+  // Modèle Evoalys (boîte Evoa) : la carte de la page Signature d'Evoalys, photo dans un anneau, logo à droite, bandeau d'avis Google
+  var EVO_1 = "#2F5D9F", EVO_2 = "#3D2A6E", EVO_DEGRADE = "background:#2F5D9F;background-image:linear-gradient(135deg,#2F5D9F,#3D2A6E);";
+  function signatureEvoalys(i, o) {
+    o = o || {};
+    var e = echapper, police = "font-family:'Segoe UI',Arial,Helvetica,sans-serif;";
+    var visage = i.avatar || i.photo
+      ? '<img src="' + e(i.avatar || i.photo) + '" width="90" height="90" alt="' + e(i.nom) + '" style="display:block;width:90px;height:90px;border:0;outline:none;border-radius:45px;">'
+      : '<table cellpadding="0" cellspacing="0" border="0" role="presentation"><tr><td width="90" height="90" align="center" valign="middle" bgcolor="' + EVO_1 + '" style="width:90px;height:90px;border-radius:45px;' + EVO_DEGRADE + 'color:#fff;font-size:30px;font-weight:700;' + police + '">' + e(initialesSig(i.nom)) + "</td></tr></table>";
+    var puce = function (l) {
+      return '<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:separate;"><tr><td width="20" height="20" align="center" valign="middle" bgcolor="' + EVO_1 + '" style="width:20px;height:20px;min-width:20px;border-radius:10px;' + EVO_DEGRADE
+        + 'color:#ffffff;font-size:10px;font-weight:700;line-height:20px;mso-line-height-rule:exactly;text-align:center;font-family:Arial,Helvetica,sans-serif;">' + l + "</td></tr></table>";
+    };
+    var lignes = "";
+    if (i.telephone) lignes += '<tr><td style="padding:0 8px 6px 0;vertical-align:middle;">' + puce("T") + '</td><td style="padding:0 0 6px 0;font-size:13px;line-height:20px;vertical-align:middle;"><a href="tel:' + e(lienTel(i.telephone)) + '" style="color:#4F4F51;text-decoration:none;font-weight:600;">' + e(i.telephone) + "</a></td></tr>";
+    if (i.site) lignes += '<tr><td style="padding:0 8px 0 0;vertical-align:middle;">' + puce("W") + '</td><td style="font-size:13px;line-height:20px;vertical-align:middle;"><a href="' + e(i.site) + '" style="color:#4F4F51;text-decoration:none;font-weight:600;">' + e(siteCourt(i.site)) + "</a></td></tr>";
+    var logo = i.logo ? '<td width="132" style="width:132px;padding:20px 22px 20px 6px;vertical-align:middle;border-left:1px solid #e4e7f0;"><a href="' + e(i.site || "#") + '" style="text-decoration:none;"><img src="' + e(i.logo) + '" width="118" alt="' + e(i.marque || "") + '" style="display:block;width:118px;height:auto;border:0;margin-left:14px;"></a></td>' : "";
+    var col = logo ? 4 : 3, avis = "";
+    if (o.avis !== false && i.avis && /^https:\/\//.test(i.lien_avis || "")) avis = '<tr><td colspan="' + col + '" style="padding:0;"><table cellpadding="0" cellspacing="0" border="0" role="presentation" width="100%" style="border-collapse:collapse;"><tr>'
+      + '<td style="background:#f5f7fc;border-top:1px solid #e4e7f0;border-radius:0 0 16px 16px;padding:11px 22px 11px 28px;"><table cellpadding="0" cellspacing="0" border="0" role="presentation" width="100%" style="border-collapse:collapse;"><tr>'
+      + '<td style="font-size:12px;line-height:18px;color:#4F4F51;vertical-align:middle;"><span style="color:#f4b400;font-size:14px;letter-spacing:1px;">&#9733;&#9733;&#9733;&#9733;&#9733;</span>&nbsp;Satisfait de notre accompagnement&nbsp;?</td>'
+      + '<td align="right" style="vertical-align:middle;"><table cellpadding="0" cellspacing="0" border="0" role="presentation" align="right" style="border-collapse:separate;"><tr><td bgcolor="' + EVO_1 + '" style="border-radius:16px;' + EVO_DEGRADE + 'padding:7px 16px;mso-padding-alt:7px 16px;">'
+      + '<a href="' + e(i.lien_avis) + '" style="color:#ffffff;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;font-family:Arial,Helvetica,sans-serif;">Laisser un avis Google</a></td></tr></table></td></tr></table></td></tr></table></td></tr>';
+    var mentions = o.mentions !== false && i.mentions ? '<tr><td style="padding:14px 6px 0 6px;font-size:9.5px;line-height:13.5px;color:#9a9ca6;">' + i.mentions.split("\n").filter(Boolean).map(e).join("<br>") + "</td></tr>" : "";
+    return '<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="' + police + 'color:#4F4F51;border-collapse:separate;width:560px;max-width:560px;">'
+      + '<tr><td style="border:1px solid #e4e7f0;border-radius:16px;background:#ffffff;box-shadow:0 6px 22px rgba(31,87,151,.10);overflow:hidden;padding:0;">'
+      + '<table cellpadding="0" cellspacing="0" border="0" role="presentation" width="100%" style="border-collapse:collapse;"><tr>'
+      + '<td width="6" style="width:6px;min-width:6px;background:' + EVO_1 + ';background-image:linear-gradient(180deg,' + EVO_1 + " 0%," + EVO_2 + ' 100%);border-radius:16px 0 0 0;font-size:0;line-height:0;">&nbsp;</td>'
+      + '<td width="90" style="width:90px;padding:22px 16px 22px 22px;vertical-align:middle;">' + visage + "</td>"
+      + '<td style="padding:20px 12px 20px 4px;vertical-align:middle;"><div style="font-size:20px;line-height:24px;font-weight:700;color:#173F6E;letter-spacing:.2px;">' + e(i.nom) + "</div>"
+      + (i.fonction ? '<div style="font-size:11px;line-height:16px;font-weight:700;color:' + EVO_2 + ';letter-spacing:1.6px;text-transform:uppercase;padding-top:4px;padding-bottom:14px;">' + e(i.fonction) + "</div>" : '<div style="height:12px;line-height:12px;font-size:0;">&nbsp;</div>')
+      + (lignes ? '<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">' + lignes + "</table>" : "")
+      + "</td>" + logo + "</tr>" + avis + "</table></td></tr>" + mentions + "</table>";
+  }
+  // Photo ronde dans un anneau dégradé (PNG transparent) : les messageries n'arrondissent pas toutes les images
+  function avatarAnneau(blob) {
+    return new Promise(function (ok, ko) {
+      var img = new Image(), url = URL.createObjectURL(blob);
+      img.onload = function () {
+        var n = 180, cv = document.createElement("canvas"); cv.width = cv.height = n;
+        var g = cv.getContext("2d"), d = g.createLinearGradient(0, 0, n, n); d.addColorStop(0, EVO_1); d.addColorStop(1, EVO_2);
+        g.fillStyle = d; g.beginPath(); g.arc(n / 2, n / 2, n / 2, 0, 2 * Math.PI); g.fill();
+        g.save(); g.beginPath(); g.arc(n / 2, n / 2, n / 2 - 7, 0, 2 * Math.PI); g.clip();
+        g.drawImage(img, 7, 7, n - 14, n - 14); g.restore();
+        URL.revokeObjectURL(url); cv.toBlob(ok, "image/png");
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); ko(new Error("image illisible")); };
+      img.src = url;
+    });
+  }
+  function signatureTexte(i) {
+    var l = [i.nom, [i.fonction, i.marque].filter(Boolean).join(" · ")];
+    var contact = [i.telephone ? "T " + i.telephone : "", i.contact === "site" && i.site ? siteCourt(i.site) : i.mail || ""].filter(Boolean).join(" · ");
+    l.push(contact);
+    (i.lignes || []).forEach(function (x) { l.push(x); });
+    if (i.contact !== "site" && i.site) l.push(siteCourt(i.site) + (i.accroche ? " · " + i.accroche : ""));
+    var t = l.filter(Boolean).join("\n");
+    return i.mentions ? t + "\n\n" + i.mentions.trim() : t;
+  }
+  function nomBoiteSig(b) { return NOMS_BOITES[b] || (/palomano/.test(b) ? "Palomano" : b); }
+  function initialesSig(nom) { var m = String(nom || "").split(/[\s-]+/).filter(Boolean); return ((m[0] || "?").charAt(0) + (m.length > 1 ? m[m.length - 1].charAt(0) : "")).toUpperCase(); }
+  function lireInfos(x) { var i = {}; Object.keys(x.infos || {}).forEach(function (k) { i[k] = x.infos[k]; }); return i; }
+  // Aperçu dans un cadre isolé (les styles du cockpit ne touchent pas la signature), hauteur ajustée au contenu
+  function cadreSignature(html) {
+    var f = el("iframe", { class: "signature-apercu", title: "Aperçu de la signature", sandbox: "allow-same-origin allow-popups" });
+    f.addEventListener("load", function () { try { f.style.height = (f.contentDocument.body.scrollHeight + 28) + "px"; } catch (e) { /* cadre isolé */ } });
+    f.majHtml = function (h) { f.srcdoc = '<!doctype html><meta charset="utf-8"><base target="_blank"><body style="margin:14px;background:#fff">' + h + "</body>"; };
+    f.majHtml(html);
+    return f;
+  }
+  function copierRiche(html) {
+    var boite = el("div", { style: "position:fixed;left:-10000px;top:0;background:#fff" }); boite.innerHTML = html; document.body.appendChild(boite);
+    var texte = boite.innerText;
+    function ancienne() {
+      var s = getSelection(), r = document.createRange(); r.selectNodeContents(boite); s.removeAllRanges(); s.addRange(r);
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      s.removeAllRanges(); return ok ? Promise.resolve() : Promise.reject(new Error("copie impossible"));
+    }
+    var p = navigator.clipboard && window.ClipboardItem
+      ? navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([texte], { type: "text/plain" }) })]).catch(ancienne)
+      : ancienne();
+    return p.then(function () { boite.remove(); }, function (e) { boite.remove(); throw e; });
+  }
+  function chargerHtml2canvas() {
+    if (window.html2canvas) return Promise.resolve(window.html2canvas);
+    return new Promise(function (ok, ko) {
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload = function () { ok(window.html2canvas); }; s.onerror = function () { ko(new Error("html2canvas indisponible")); };
+      document.head.appendChild(s);
+    });
+  }
+  // La carte (sans mentions ni lien d'avis) dessinée en image, deux fois plus fine qu'affichée
+  function carteEnImage(i) {
+    return chargerHtml2canvas().then(function (h2c) {
+      var boite = el("div", { style: "position:fixed;left:-10000px;top:0;padding:14px;background:#fff;width:max-content" });
+      boite.innerHTML = signatureHtml(i, { mentions: false, avis: false });
+      document.body.appendChild(boite);
+      var imgs = Array.prototype.slice.call(boite.querySelectorAll("img"));
+      return Promise.all(imgs.map(function (im) { im.crossOrigin = "anonymous"; im.src = im.src; return im.complete && im.naturalWidth ? null : new Promise(function (r) { im.onload = im.onerror = r; }); }))
+        .then(function () { return h2c(boite, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false }); })
+        .then(function (c) { boite.remove(); return c; }, function (e) { boite.remove(); throw e; });
+    });
+  }
+  function enBlob(canvas, qualite) { return new Promise(function (ok) { canvas.toBlob(ok, "image/jpeg", qualite || .92); }); }
+  // Dépôt dans le stockage public « signatures », sous un nom unique (une signature déjà collée garde son image)
+  function deposerImage(prefixe, blob) {
+    var png = blob.type === "image/png", nom = prefixe + "-" + Date.now().toString(36) + (png ? ".png" : ".jpg");
+    return db.storage.from("signatures").upload(nom, blob, { contentType: png ? "image/png" : "image/jpeg", cacheControl: "31536000" }).then(verifier)
+      .then(function () { return db.storage.from("signatures").getPublicUrl(nom).data.publicUrl; });
+  }
+  // Photo recadrée au carré et réduite sur l'appareil (une photo de téléphone pèse lourd)
+  function photoCarree(fichier) {
+    return new Promise(function (ok, ko) {
+      var img = new Image(), url = URL.createObjectURL(fichier);
+      img.onload = function () {
+        var c = Math.min(img.naturalWidth, img.naturalHeight), cv = document.createElement("canvas"); cv.width = cv.height = 252;
+        cv.getContext("2d").drawImage(img, (img.naturalWidth - c) / 2, (img.naturalHeight - c) / 2, c, c, 0, 0, 252, 252);
+        URL.revokeObjectURL(url); enBlob(cv, .9).then(ok);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); ko(new Error("image illisible")); };
+      img.src = url;
+    });
+  }
+  function enregistrerSignature(x, infos) {
+    var maj = { infos: infos, html: signatureHtml(infos), texte: signatureTexte(infos), mis_a_jour: new Date().toISOString() };
+    return db.from("signatures").update(maj).eq("boite", x.boite).then(verifier).then(function () { x.infos = maj.infos; x.html = maj.html; x.texte = maj.texte; });
+  }
+  function prefixeSig(x) { return nomBoiteSig(x.boite).toLowerCase().replace(/[^a-z0-9]+/g, "-"); }
+
   function sectionSignatures() {
     if (!S.signatures && !S.signaturesEnCours) {
       S.signaturesEnCours = true;
       db.from("signatures").select("*").order("boite").then(function (r) { S.signaturesEnCours = false; S.signatures = r.data || []; if (S.route === "reglages" && !enSaisie()) dessiner(); });
     }
     var liste = S.signatures || [];
-    return el("section", { class: "section signatures" }, [
-      el("div", { class: "entete" }, [el("h2", { text: "Signatures" }),
-        el("p", { class: "aside", text: "Victor signe avec la signature de la boîte d'où part le message : réponses préparées en brouillon et invitations. Les mails partent avec la version mise en forme ; la version texte sert aux messageries qui n'affichent pas les images." })]),
-      el("div", { class: "signatures-grille" }, liste.map(function (x) {
-        var zone = el("textarea", { class: "notes", rows: String(Math.min(9, x.texte.split("\n").length + 1)), "aria-label": "Signature " + x.boite });
-        zone.value = x.texte;
-        var bouton = el("button", { type: "button", class: "btn-contour petit", text: "Enregistrer", disabled: true, onclick: function () {
-          bouton.disabled = true;
-          db.from("signatures").update({ texte: zone.value.trim(), mis_a_jour: new Date().toISOString() }).eq("boite", x.boite).then(verifier)
-            .then(function () { x.texte = zone.value.trim(); signaler("Signature enregistrée"); });
-        } });
-        zone.addEventListener("input", function () { bouton.disabled = zone.value.trim() === x.texte; });
-        // Aperçu de la signature mise en forme (celle des mails), dans un cadre isolé sans scripts
-        var apercu = x.html ? el("iframe", { class: "signature-apercu", title: "Aperçu de la signature", sandbox: "allow-same-origin allow-popups" }) : null;
-        if (apercu) apercu.srcdoc = '<!doctype html><meta charset="utf-8"><base target="_blank"><body style="margin:14px;background:#fff">' + x.html + "</body>";
-        if (apercu) apercu.addEventListener("load", function () { try { apercu.style.height = (apercu.contentDocument.body.scrollHeight + 28) + "px"; } catch (e) { /* cadre isolé */ } });
-        return el("div", { class: "signature" }, [
-          el("p", { class: "signature-boite" }, [el("b", { text: NOMS_BOITES[x.boite] || (/palomano/.test(x.boite) ? "Palomano" : x.boite) }), el("span", { text: x.boite })]),
-          apercu,
-          el("details", { class: "signature-texte" }, [el("summary", { text: "Version texte (mails sans mise en forme)" }), zone, bouton])]);
-      }))
+    var x = liste.filter(function (s) { return s.boite === S.sigBoite; })[0] || liste[0];
+    var tete = el("div", { class: "entete" }, [el("h2", { text: "Signatures" }),
+      el("p", { class: "aside", text: "Une signature par boîte. Victor l'ajoute à ce qu'il rédige depuis cette boîte (réponses préparées, invitations, réponses d'absence) : modifiez-la ici, les prochains messages partent avec la nouvelle version." })]);
+    if (!x) return el("section", { class: "section signatures" }, [tete, el("p", { class: "vide", text: S.signatures ? "Aucune signature." : "Chargement…" })]);
+    var choix = choixReglage("Boîte", x.boite, liste.map(function (s) { return [s.boite, nomBoiteSig(s.boite)]; }), function (b) { S.sigBoite = b; dessiner(); });
+    var corps = x.infos && (x.infos.modele === "carte" || x.infos.modele === "evoalys") ? editeurSignature(x) : signatureFixe(x);
+    return el("section", { class: "section signatures" }, [tete, el("div", { class: "sig-boites" }, [choix, el("span", { class: "sig-adresse", text: x.boite })]), corps]);
+  }
+  // Palomano : signature en image fournie par l'enseigne ; seule la version texte se modifie
+  function signatureFixe(x) {
+    var zone = el("textarea", { class: "notes", rows: String(Math.min(9, (x.texte || "").split("\n").length + 1)), "aria-label": "Version texte " + x.boite });
+    zone.value = x.texte || "";
+    var bouton = el("button", { type: "button", class: "btn-contour", text: "Enregistrer", disabled: true, onclick: function () {
+      bouton.disabled = true;
+      db.from("signatures").update({ texte: zone.value.trim(), mis_a_jour: new Date().toISOString() }).eq("boite", x.boite).then(verifier)
+        .then(function () { x.texte = zone.value.trim(); signaler("Signature enregistrée"); });
+    } });
+    zone.addEventListener("input", function () { bouton.disabled = zone.value.trim() === x.texte; });
+    return el("div", { class: "sig-carte" }, [
+      el("div", { class: "sig-carte-tete" }, [el("h3", { text: "Aperçu" }), el("p", { text: "Signature en image fournie par " + nomBoiteSig(x.boite) + " : elle se change en remplaçant cette image." })]),
+      x.html ? cadreSignature(x.html) : null,
+      el("details", { class: "signature-texte" }, [el("summary", { text: "Version texte (messageries sans mise en forme)" }), zone, bouton])]);
+  }
+  function editeurSignature(x) {
+    var i0 = lireInfos(x), c = i0.couleur || "#204e99";
+    var cNom = el("input", { type: "text", value: i0.nom || null, maxlength: "120", required: true, autocomplete: "name" });
+    var cFonction = el("input", { type: "text", value: i0.fonction || null, maxlength: "120", placeholder: "ex. Manager général" });
+    var cTel = el("input", { type: "text", inputmode: "tel", value: i0.telephone || null, maxlength: "40", placeholder: "ex. 06 12 34 56 78", autocomplete: "tel" });
+    var cAvis = el("input", { type: "checkbox", checked: !!i0.avis });
+    var cLien = el("input", { type: "url", inputmode: "url", value: i0.lien_avis || null, maxlength: "1000", placeholder: "https://g.page/r/…" });
+    var cMarque = el("input", { type: "text", value: i0.marque || null, maxlength: "80" });
+    var cCouleur = el("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(c) ? c : "#204e99" });
+    var cSite = el("input", { type: "url", inputmode: "url", value: i0.site || null, maxlength: "200", placeholder: "https://…" });
+    var cAccroche = el("input", { type: "text", value: i0.accroche || null, maxlength: "120", placeholder: "ex. Champion de France Élite 2025" });
+    var cLignes = el("textarea", { rows: "2", placeholder: "Une ligne par information (adresse, SIRET, devise…)" }); cLignes.value = (i0.lignes || []).join("\n");
+    var cMentions = el("textarea", { rows: "4", placeholder: "Aucune" }); cMentions.value = i0.mentions || "";
+    var enregistrer = el("button", { type: "submit", class: "btn-plein", text: "Enregistrer", disabled: true });
+    var info = el("p", { class: "sig-info", "aria-live": "polite", text: "« Copier pour Outlook » est le meilleur choix : tout reste cliquable, téléphone compris. Version image : à afficher à sa taille dans Outlook." });
+    function lire() {
+      var i = lireInfos(x);
+      i.nom = cNom.value.trim(); i.fonction = cFonction.value.trim(); i.telephone = cTel.value.trim();
+      i.avis = cAvis.checked; i.lien_avis = cLien.value.trim();
+      i.marque = cMarque.value.trim(); i.couleur = cCouleur.value;
+      var site = cSite.value.trim(); if (site && !/^https?:\/\//i.test(site)) site = "https://" + site;
+      i.site = site; i.accroche = cAccroche.value.trim();
+      i.lignes = cLignes.value.split("\n").map(function (l) { return l.trim(); }).filter(Boolean);
+      i.mentions = cMentions.value.trim();
+      return i;
+    }
+    var depart = JSON.stringify(lire());
+    var apercu = cadreSignature(signatureHtml(i0));
+    var minute = null;
+    function etat() {
+      var i = lire();
+      cLien.closest(".champ-reglage").hidden = !cAvis.checked;
+      enregistrer.disabled = !i.nom || JSON.stringify(i) === depart;
+      clearTimeout(minute);
+      minute = setTimeout(function () { apercu.majHtml(signatureHtml(i)); texteApercu.textContent = signatureTexte(i); }, 150);
+    }
+    var texteApercu = el("pre", { class: "sig-texte", text: signatureTexte(i0) });
+    var form = el("form", { class: "fiche sig-grille", onsubmit: function (ev) {
+      ev.preventDefault();
+      var i = lire(); if (!i.nom) return;
+      if (i.avis && !/^https:\/\//.test(i.lien_avis)) { signaler("Le lien de l'avis Google doit commencer par https://"); cLien.focus(); return; }
+      enregistrer.disabled = true;
+      enregistrerSignature(x, i).then(function () {
+        delete form.dataset.modifiee; depart = JSON.stringify(lire()); signaler("Signature " + nomBoiteSig(x.boite) + " enregistrée"); dessiner();
+      }).catch(function () { enregistrer.disabled = false; });
+    } }, [
+      el("div", { class: "sig-carte" }, [
+        el("div", { class: "sig-carte-tete" }, [el("h3", { text: "Mes informations" }), el("p", { text: "Pour la boîte " + nomBoiteSig(x.boite) + "." })]),
+        el("div", { class: "sig-champs" }, [
+          champReglage("Prénom NOM", cNom),
+          champReglage("Fonction", cFonction),
+          champReglage("Téléphone", cTel),
+          el("label", { class: "sig-case" }, [cAvis, " Afficher le lien « Laissez-moi votre avis sur Google »"]),
+          champReglage("Lien de l'avis Google", cLien),
+          el("details", { class: "sig-boite-details" }, [el("summary", { text: "La boîte : marque, couleur, lignes et mentions" }),
+            el("div", { class: "sig-champs" }, [
+              el("div", { class: "sig-deux" }, [champReglage("Marque", cMarque), champReglage("Couleur", cCouleur)]),
+              champReglage("Site", cSite, i0.contact === "site" ? "Affiché à côté du téléphone." : "Affiché en dernière ligne, avec l'accroche."),
+              i0.contact === "site" ? null : champReglage("Accroche", cAccroche),
+              champReglage("Lignes sous le contact", cLignes),
+              champReglage("Mentions légales", cMentions, "En petit sous la signature.")])]),
+          el("div", {}, [enregistrer])])]),
+      el("div", { class: "sig-carte" }, [
+        el("div", { class: "sig-carte-tete" }, [el("h3", { text: "Aperçu" }), el("p", { text: "Ajoutée aux messages préparés par Victor. Pour Outlook ou Gmail : copiez-la, puis collez-la dans les réglages de signature." })]),
+        apercu,
+        el("div", { class: "sig-actions" }, [
+          el("button", { type: "button", class: "btn-plein", text: "Copier pour Outlook", onclick: function () {
+            copierRiche(signatureHtml(lire())).then(function () { info.textContent = "Copiée. Collez-la dans Outlook › Paramètres › Comptes › Signatures."; },
+              function () { info.textContent = "Copie impossible ici : sélectionnez l'aperçu et copiez-le (Cmd + C)."; });
+          } }),
+          el("button", { type: "button", class: "btn-contour", text: "Copier pour Outlook (version image)", onclick: function (ev) {
+            var b = ev.currentTarget, i = lire(); b.disabled = true; info.textContent = "Préparation de l'image…";
+            carteEnImage(i).then(function (cv) {
+              return enBlob(cv).then(function (blob) { return deposerImage("carte-" + prefixeSig(x), blob); }).then(function (url) {
+                var w = Math.round(cv.width / 2), e = echapper;
+                var h = '<div><a href="' + e(i.site || "#") + '" style="text-decoration:none;"><img src="' + e(url) + '" width="' + w + '" alt="' + e(i.nom + (i.marque ? " – " + i.marque : "")) + '" style="display:block;width:' + w + 'px;max-width:100%;height:auto;border:0;"></a>'
+                  + (i.avis && /^https:\/\//.test(i.lien_avis) ? '<div style="' + POLICE + 'font-size:12px;line-height:18px;padding:6px 0 0 14px"><a href="' + e(i.lien_avis) + '" style="color:' + e(i.couleur) + ';text-decoration:none;font-weight:700;">Laissez-moi votre avis sur Google →</a></div>' : "")
+                  + (i.mentions ? '<div style="' + POLICE + 'font-size:10px;line-height:14px;color:#8a8580;max-width:620px;padding:12px 0 0 14px">' + e(i.mentions).split("\n").filter(Boolean).join("<br>") + "</div>" : "") + "</div>";
+                return copierRiche(h).then(function () { info.textContent = "Version image copiée (" + w + " px de large). Collez-la dans Outlook › Paramètres › Signatures."; });
+              });
+            }).catch(function () { info.textContent = "L'image n'a pas pu être préparée."; }).then(function () { b.disabled = false; });
+          } }),
+          el("button", { type: "button", class: "btn-contour", text: "Télécharger en JPEG", onclick: function (ev) {
+            var b = ev.currentTarget; b.disabled = true;
+            carteEnImage(lire()).then(function (cv) { return enBlob(cv); }).then(function (blob) {
+              var a = el("a", { href: URL.createObjectURL(blob), download: "signature-" + prefixeSig(x) + ".jpg" });
+              document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+            }).catch(function () { info.textContent = "L'image n'a pas pu être préparée."; }).then(function () { b.disabled = false; });
+          } })]),
+        info,
+        el("details", { class: "signature-texte" }, [el("summary", { text: "Version texte (messageries sans mise en forme)" }), texteApercu])])
     ]);
+    form.addEventListener("input", etat); form.addEventListener("change", etat);
+    cLien.closest(".champ-reglage").hidden = !cAvis.checked;
+    return el("div", { class: "sig-editeur" }, [blocPhoto(x, function (photo) { var avant = JSON.parse(depart); avant.photo = photo; depart = JSON.stringify(avant); etat(); }), form]);
+  }
+  function blocPhoto(x, apres) {
+    var i = lireInfos(x), c = i.couleur || "#204e99";
+    var autres = (S.signatures || []).filter(function (s) { return s !== x && s.infos && (s.infos.modele === "carte" || s.infos.modele === "evoalys") && s.infos.photo !== i.photo; });
+    var fichier = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic,image/*", hidden: true });
+    function poser(photo, message, avatar) {
+      var maj = lireInfos(x); maj.photo = photo; maj.avatar = avatar || "";
+      return enregistrerSignature(x, maj).then(function () { apres(photo); bloc.replaceWith(blocPhoto(x, apres)); signaler(message); });
+    }
+    fichier.addEventListener("change", function () {
+      var f = fichier.files[0]; if (!f) return;
+      etiquette.classList.add("attente");
+      photoCarree(f).then(function (blob) {
+        return Promise.all([deposerImage("photo-" + prefixeSig(x), blob), avatarAnneau(blob).then(function (a) { return deposerImage("avatar-" + prefixeSig(x), a); })]);
+      }).then(function (u) { return poser(u[0], "Photo ajoutée à la signature " + nomBoiteSig(x.boite), u[1]); })
+        .catch(function () { etiquette.classList.remove("attente"); signaler("La photo n'a pas pu être ajoutée"); });
+    });
+    var etiquette = el("label", { class: "btn-plein petit" }, [i.photo ? "Changer de photo" : "Ajouter une photo", fichier]);
+    var bloc = el("div", { class: "sig-carte sig-photo" }, [
+      el("span", { class: "sig-anneau", style: "--c:" + c }, [i.photo ? el("img", { src: i.photo, alt: "Ma photo" }) : el("span", { text: initialesSig(i.nom) })]),
+      el("div", { class: "sig-photo-texte" }, [
+        el("h3", { text: "Ma photo" }),
+        el("p", { text: (i.photo ? "Elle s'affiche dans la signature " + nomBoiteSig(x.boite) + "." : i.modele === "evoalys" ? "Sans photo, la signature montre vos initiales." : "Sans photo, la signature montre le logo seul.") + " Sur téléphone, vous pouvez la prendre directement ; elle est recadrée au carré." }),
+        el("div", { class: "sig-actions" }, [etiquette,
+          i.photo ? el("button", { type: "button", class: "btn-contour petit", text: "Retirer", onclick: function () {
+            if (confirm("Retirer la photo de la signature " + nomBoiteSig(x.boite) + " ?")) poser("", "Photo retirée");
+          } }) : null,
+          i.photo && autres.length ? el("button", { type: "button", class: "btn-texte", text: "Mettre aussi sur " + autres.map(function (s) { return nomBoiteSig(s.boite); }).join(", "), onclick: function (ev) {
+            ev.currentTarget.disabled = true;
+            Promise.all(autres.map(function (s) { var m = lireInfos(s); m.photo = i.photo; m.avatar = i.avatar || ""; return enregistrerSignature(s, m); }))
+              .then(function () { bloc.replaceWith(blocPhoto(x, apres)); signaler("Photo ajoutée aux autres signatures"); });
+          } }) : null])])]);
+    return bloc;
   }
   function sectionBoitesMail() {
     var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });

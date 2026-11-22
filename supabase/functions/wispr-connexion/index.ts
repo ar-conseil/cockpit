@@ -8,7 +8,7 @@ const SITE = "https://ar-conseil.github.io/cockpit/";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const json = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status, headers: { ...cors, "Content-Type": "application/json" } });
-const vers = (message: string) => Response.redirect(`${SITE}#agendas?message=${encodeURIComponent(message)}`, 303);
+const vers = (message: string) => Response.redirect(`${SITE}#reglages/victor?message=${encodeURIComponent(message)}`, 303);
 const b64url = (o: Uint8Array) => btoa(String.fromCharCode(...o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 Deno.serve(async (req) => {

@@ -1596,3 +1596,78 @@ main#app.large { --marge: clamp(16px, 2.2vw, 30px); }
 .page-boite .boite-tete .surtitre { display: none; }
 .page-boite .boite-tete h1 { font-size: 28px; }
 .page-boite-projet { padding-top: 4px; }
+
+/* ---------- Thème choisi dans Réglages › Général (sinon il suit l'appareil) ---------- */
+:root[data-theme="dark"] {
+  --papier: #191918; --papier-2: #262624; --blanc: #202020; --cote: #1f1f1e; --encre: #ecebe8; --encre-2: #b5b3ad; --encre-3: #7e7c77;
+  --filet: #2e2e2c; --filet-fort: #3b3a37; --survol: rgba(255, 255, 255, .055); --actif: rgba(255, 255, 255, .085);
+  --rouge: #ef7258; --ok: #6fc28f; color-scheme: dark;
+}
+:root[data-theme="dark"] .carte-tache { box-shadow: 0 0 0 1px rgb(255 255 255 / .07); }
+:root[data-theme="dark"] .col-statut { --fond: #222220; }
+:root[data-theme="dark"] .col-statut.en-cours { --fond: #2a2419; }
+:root[data-theme="dark"] .col-statut.en-revision { --fond: #1b2530; }
+:root[data-theme="dark"] .col-statut.fait { --fond: #1c2720; }
+:root[data-theme="dark"] #s-production { --evoa: #7fa6ea; --evoa-2: #8a7ad6; }
+
+/* ---------- Réglages : en-tête, onglets, lignes de réglage, cartes des projets ---------- */
+.tete-reglages { padding: clamp(22px, 4vh, 38px) 0 4px; display: grid; gap: 6px; }
+.tete-reglages h1 { margin: 0; font: 700 clamp(28px, 3.2vw, 38px)/1.08 var(--serif); letter-spacing: -.03em; }
+.tete-reglages .chapo { margin: 0; max-width: 62ch; color: var(--encre-2); font-size: 15px; line-height: 1.5; }
+.onglets-reglages { justify-content: flex-start; padding-top: 16px; }
+.reglages-sections { display: grid; }
+.liste-reglages { list-style: none; margin: 0; padding: 0; border: 1px solid var(--filet); border-radius: 14px; background: var(--blanc); }
+.ligne-reglage { display: flex; align-items: center; gap: 18px; padding: 16px 18px; border-top: 1px solid var(--filet); }
+.ligne-reglage:first-child { border-top: 0; }
+.ligne-reglage > div { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.ligne-reglage b { font-weight: 600; font-size: 15px; }
+.ligne-reglage span { font-size: 13px; color: var(--encre-3); line-height: 1.45; }
+.ligne-reglage > :last-child:not(div) { flex: none; }
+.ligne-reglage a.btn-contour { display: inline-flex; align-items: center; text-decoration: none; }
+.ligne-reglage .version { font: 500 12px var(--mono); color: var(--encre-3); }
+.choix-reglage { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--papier-2); box-shadow: inset 0 0 0 1px var(--filet); }
+.choix-reglage button { border: 0; background: none; padding: 6px 13px; border-radius: 8px; cursor: pointer; font: 600 13px var(--sans); color: var(--encre-2); transition: background .15s, color .15s, box-shadow .15s; }
+.choix-reglage button:hover { color: var(--encre); }
+.choix-reglage button[aria-checked="true"] { background: var(--blanc); color: var(--encre); box-shadow: 0 1px 2px rgb(0 0 0 / .08), 0 5px 12px -8px rgb(0 0 0 / .3); }
+.cartes-reglage { display: grid; gap: 16px; }
+.carte-reglage { gap: 18px; padding: 20px 22px; border: 1px solid var(--filet); border-radius: 16px; background: var(--blanc);
+  box-shadow: inset 4px 0 0 color-mix(in srgb, var(--c) 70%, transparent); }
+.carte-reglage-tete { display: flex; align-items: center; gap: 12px; }
+.carte-reglage-tete .icone-projet { width: 36px; height: 36px; border-radius: 10px; font-size: 16px; flex: none; }
+.carte-reglage-tete > div:nth-child(2) { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.carte-reglage-tete b { font: 600 17px var(--sans); letter-spacing: -.01em; }
+.carte-reglage-tete small { font: 500 11.5px var(--mono); color: var(--encre-3); }
+.ordre-reglage { display: flex; gap: 4px; }
+.ordre-reglage button:disabled { opacity: .3; cursor: default; }
+.grille-reglage { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 14px 18px; }
+.champ-reglage { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.champ-reglage.large { grid-column: 1 / -1; }
+.champ-reglage .lib { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--encre-3); }
+.champ-reglage .aide { font-size: 12.5px; color: var(--encre-3); line-height: 1.45; }
+.champ-reglage textarea { resize: vertical; line-height: 1.45; }
+.champ-reglage input[type="color"] { width: 100%; height: 38px; padding: 3px; cursor: pointer; }
+.liens-reglage { display: grid; gap: 8px; }
+.liens-reglage:empty { display: none; }
+.lien-reglage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 8px; align-items: center; }
+.ajout-lien { justify-self: start; padding-left: 0; color: var(--encre-2); font-weight: 600; }
+.carte-reglage-pied { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 14px; border-top: 1px solid var(--filet); }
+.carte-reglage-pied .btn-plein:disabled { opacity: .35; cursor: default; transform: none; box-shadow: none; }
+.renvoi-reglages { margin: 40px 0 0; color: var(--encre-3); font-size: 13.5px; }
+.renvoi-reglages a { color: var(--encre); font-weight: 600; }
+@media (max-width: 760px) {
+  .grille-reglage { grid-template-columns: 1fr 1fr; }
+  .grille-reglage > .champ-reglage:first-child { grid-column: 1 / -1; }
+  .ligne-reglage { flex-wrap: wrap; }
+  .ligne-reglage > div { flex-basis: 100%; }
+  .lien-reglage { grid-template-columns: 1fr auto; }
+  .lien-reglage input[type="url"] { grid-column: 1; grid-row: 2; }
+  .lien-reglage button { grid-row: 1 / 3; grid-column: 2; }
+  .carte-reglage { padding: 16px; }
+}
+/* Lien Réglages en bas du menu, comme Installer et Quitter */
+.cote-bas a.btn-texte { display: inline-flex; align-items: center; gap: 8px; }
+@media (min-width: 901px) {
+  .cote-bas a.btn-texte[aria-current="page"] { background: color-mix(in srgb, #6a4fe0 13%, var(--blanc)); color: #6a4fe0; box-shadow: inset 0 0 0 1px color-mix(in srgb, #6a4fe0 24%, transparent); }
+  .cote-bas a.btn-texte[aria-current="page"] span { color: var(--encre); font-weight: 600; }
+}
+@media (max-width: 900px) { .cote-bas a.btn-texte[aria-current="page"] { color: var(--encre); font-weight: 600; } }

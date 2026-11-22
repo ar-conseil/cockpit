@@ -304,6 +304,7 @@
     factures: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.8h9v12.4l-1.8-1.1-1.8 1.1L7.1 13l-1.8 1.2-1.8-1.1z"/><path d="M5.8 5.5h4.4M5.8 8h4.4M5.8 10.5h2.6"/></svg>',
     chiffres: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></svg>',
     notes: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h7l3 3v8H3z"/><path d="M10 2.5v3h3M5.5 8.5h5M5.5 11h3.5"/></svg>',
+    reglages: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></svg>',
     retour: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>',
     fleche: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>'
   };
@@ -353,9 +354,10 @@
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [
       lienCote("#", !S.route, [icone("aujourdhui"), el("span", { text: "Aujourd'hui" })], tachesDuJour(iso).filter(function (t) { return t.statut !== "fait"; }).length, "0"),
       lienCote("#taches", S.route === "taches", [icone("taches"), el("span", { text: "Tâches" })], nbT, "B"),
-      lienCote("#boite", ROUTES_MAILS.indexOf(S.route) >= 0, [icone("boite"), el("span", { text: "Mails" })], S.messagerieNonLus || 0, "M"),
-      lienCote("#agendas", S.route === "agendas", [icone("agendas"), el("span", { text: "Agendas" })])
+      lienCote("#boite", ROUTES_MAILS.indexOf(S.route) >= 0, [icone("boite"), el("span", { text: "Mails" })], S.messagerieNonLus || 0, "M")
     ]));
+    var lr = document.getElementById("lien-reglages");
+    if (lr) { if (S.route === "reglages") lr.setAttribute("aria-current", "page"); else lr.removeAttribute("aria-current"); }
     navProjets.appendChild(el("div", { class: "cote-groupe" }, [el("p", { class: "cote-titre", text: "Projets" })].concat(S.activites.map(function (a, i) {
       var n = S.taches.filter(function (t) { return t.activite_id === a.id && t.statut !== "fait"; }).length;
       var lien = lienCote("#" + a.id, a.id === S.route && !S.rubrique, [iconeProjet(a), el("span", { text: a.nom })], n, String(i + 1));
@@ -372,9 +374,10 @@
     fil.textContent = "";
     fil.append(el("a", { href: "#", text: "AR CONSEIL" }), el("span", { class: "fil-sep", text: "/" }),
       a ? (S.rubrique ? el("a", { class: "fil-page", href: "#" + a.id }, [iconeProjet(a), a.nom]) : el("span", { class: "fil-page" }, [iconeProjet(a), a.nom]))
-        : el("span", { class: "fil-page", text: S.route === "boite" ? "Mails" : S.route === "taches" ? "Tâches" : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : "Aujourd'hui" }));
+        : el("span", { class: "fil-page", text: S.route === "boite" ? "Mails" : S.route === "taches" ? "Tâches" : S.route === "reglages" ? "Réglages" : S.route === "mails" ? "Tri des boîtes" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : "Aujourd'hui" }));
     var rubA = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
     if (rubA) fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: rubA.nom }));
+    if (S.route === "reglages") fil.append(el("span", { class: "fil-sep", text: "/" }), el("span", { class: "fil-page", text: ongletReglages().nom }));
   }
   // Menu sur téléphone : la barre latérale glisse par-dessus la page.
   function menu(ouvert) {
@@ -3489,7 +3492,7 @@
   function sectionSignatures() {
     if (!S.signatures && !S.signaturesEnCours) {
       S.signaturesEnCours = true;
-      db.from("signatures").select("*").order("boite").then(function (r) { S.signaturesEnCours = false; S.signatures = r.data || []; if (S.route === "mails" && !enSaisie()) dessiner(); });
+      db.from("signatures").select("*").order("boite").then(function (r) { S.signaturesEnCours = false; S.signatures = r.data || []; if (S.route === "reglages" && !enSaisie()) dessiner(); });
     }
     var liste = S.signatures || [];
     return el("section", { class: "section signatures" }, [
@@ -3571,7 +3574,7 @@
       el("p", { class: "aside", text: "Vous avez dicté : « " + x.consigne + " »" }),
       zone,
       outlook ? el("p", { class: "aside" }, ["Le cockpit n'a pas encore le droit d'envoyer depuis cette boîte Outlook : enregistrez ici si besoin, puis envoyez le brouillon depuis Outlook (dossier Brouillons), ou ",
-        el("a", { href: "#agendas", text: "autorisez l'envoi" }), " (page Agendas, Boîtes connectées)."]) : null,
+        el("a", { href: "#reglages/boites", text: "autorisez l'envoi" }), " (Réglages › Boîtes mail)."]) : null,
       x.erreur ? el("p", { class: "aside erreur", text: "Dernière erreur : " + x.erreur }) : null,
       el("div", { class: "reponse-actions" }, [
         outlook ? null : envoyer,
@@ -3657,15 +3660,14 @@
       ]));
     }
     if (S.message) f.appendChild(el("p", { class: "bandeau", role: "status", text: S.message }));
-    f.appendChild(sectionBoitesMail());
-    f.appendChild(sectionSignatures());
+    f.appendChild(el("p", { class: "renvoi-reglages" }, ["Boîtes lues par Victor et signatures : ", el("a", { href: "#reglages/boites", text: "Réglages › Boîtes mail" }), "."]));
     return f;
   }
   // ---------- Wispr Flow : notes vocales « Victor, … » lues en ligne (fonctions wispr-connexion, wispr-veille) ----------
   function chargerWispr() {
     if (S.wisprEnCours) return;
     S.wisprEnCours = true;
-    db.rpc("wispr_etat").then(function (r) { S.wisprEnCours = false; S.wispr = r.data || {}; if (S.route === "agendas" && !enSaisie()) dessiner(); });
+    db.rpc("wispr_etat").then(function (r) { S.wisprEnCours = false; S.wispr = r.data || {}; if (S.route === "reglages" && !enSaisie()) dessiner(); });
   }
   function actionWispr(action, bouton) {
     if (action === "deconnecter" && !confirm("Déconnecter Wispr Flow ? Tes notes « Victor, … » n'arriveront plus dans le cockpit.")) return;
@@ -3692,21 +3694,158 @@
       ])
     ]);
   }
-  function vueAgendas() {
-    var f = document.createDocumentFragment();
-    f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
-      el("div", {}, [icone("agendas", "grande"), el("p", { class: "surtitre", text: "Réglages" }), el("h1", { text: "Agendas" }),
-        el("p", { class: "chapo", text: "Connectez vos comptes Google et Outlook pour voir et modifier vos rendez-vous depuis le cockpit. Les changements partent aussitôt dans votre agenda, et ceux faits ailleurs remontent ici chaque minute." })]),
-      el("div", { class: "liens-boutons" }, [
-        el("button", { type: "button", class: "btn-plein", text: "Connecter un compte Google", onclick: function () { connecter("google"); } }),
-        el("button", { type: "button", class: "btn-plein", text: "Connecter Outlook / Microsoft 365", onclick: function () { connecter("microsoft"); } })
+  // ---------- Réglages : tout ce qui se règle dans l'appli, rangé par onglets (comme Evoalys) ----------
+  var ONGLETS_REGLAGES = [
+    { id: "general", nom: "Général", texte: "L'appli sur cet appareil : affichage, préférences et installation." },
+    { id: "projets", nom: "Projets", texte: "Le nom, la couleur, l'objectif d'heures, les mots-clés des rendez-vous et les liens utiles de chaque projet." },
+    { id: "agendas", nom: "Agendas", texte: "Les comptes Google et Outlook dont le cockpit lit et modifie les rendez-vous." },
+    { id: "boites", nom: "Boîtes mail", texte: "Les boîtes que Victor lit et range chaque matin, et depuis lesquelles tu écris dans Mails." },
+    { id: "signatures", nom: "Signatures", texte: "La signature ajoutée aux mails écrits depuis chaque boîte." },
+    { id: "victor", nom: "Victor", texte: "Ton assistant : ce qu'il fait chaque jour, et la dictée par Wispr Flow." }
+  ];
+  function ongletReglages() { return ONGLETS_REGLAGES.filter(function (x) { return x.id === S.rubrique; })[0] || ONGLETS_REGLAGES[0]; }
+  function ligneReglage(titre, texte, controle) {
+    return el("li", { class: "ligne-reglage" }, [el("div", {}, [el("b", { text: titre }), texte ? el("span", { text: texte }) : null]), controle || null]);
+  }
+  function choixReglage(nom, valeur, options, changer) {
+    return el("div", { class: "choix-reglage", role: "radiogroup", "aria-label": nom }, options.map(function (o) {
+      return el("button", { type: "button", role: "radio", "aria-checked": o[0] === valeur ? "true" : "false", onclick: function () { if (o[0] !== valeur) changer(o[0]); } }, [o[1]]);
+    }));
+  }
+  function appliquerTheme(t) {
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  }
+  function sectionGeneral() {
+    var theme = lirePref("theme", "auto"), vueT = lirePref("vue-taches", "tableau");
+    var version = ((document.querySelector('script[src*="app.js"]') || {}).src || "").split("v=")[1] || "";
+    var installable = boutonInstall && !boutonInstall.hidden;
+    return el("div", { class: "reglages-sections" }, [
+      el("section", { class: "section" }, [
+        el("div", { class: "entete" }, [el("h2", { text: "Affichage" })]),
+        el("ul", { class: "liste-reglages" }, [
+          ligneReglage("Thème", "Automatique suit le réglage de l'ordinateur ou du téléphone.",
+            choixReglage("Thème", theme, [["auto", "Automatique"], ["light", "Clair"], ["dark", "Sombre"]], function (v) {
+              ecrirePref("theme", v); appliquerTheme(v); dessiner();
+            })),
+          ligneReglage("Tâches", "La vue ouverte par défaut dans Tâches et dans chaque projet.",
+            choixReglage("Vue des tâches", vueT, [["tableau", "Tableau"], ["liste", "Liste"]], function (v) {
+              ecrirePref("vue-taches", v); ecrirePref("vue-taches-projet", v); signaler("Vue des tâches : " + (v === "liste" ? "liste" : "tableau")); dessiner();
+            }))
+        ])
+      ]),
+      el("section", { class: "section" }, [
+        el("div", { class: "entete" }, [el("h2", { text: "Cet appareil" })]),
+        el("ul", { class: "liste-reglages" }, [
+          ligneReglage("Application", installee ? "AR CONSEIL est installée sur cet appareil." : "Installe AR CONSEIL pour l'ouvrir comme une application, sans navigateur.",
+            installee ? el("span", { class: "puce gagne", text: "Installée" }) : installable
+              ? el("button", { type: "button", class: "btn-contour", text: "Installer l'app", onclick: function () { boutonInstall.click(); } })
+              : el("span", { class: "puce", text: "Depuis Chrome ou Safari" })),
+          ligneReglage("Données", "Relit tout de suite les agendas, les tâches et les mails, sans attendre la prochaine mise à jour.",
+            el("button", { type: "button", class: "btn-contour", text: "Relire maintenant", onclick: function () { document.getElementById("btn-synchro").click(); } })),
+          ligneReglage("Mémoire de l'appareil", "Le cockpit garde une copie des données et des listes de mails pour s'ouvrir vite. À vider si quelque chose semble figé.",
+            el("button", { type: "button", class: "btn-contour", text: "Vider et recharger", onclick: function () {
+              try { localStorage.removeItem(CLE_CACHE); localStorage.removeItem("cockpit-mails-v1"); } catch (e) { /* rien */ }
+              afficheDepuisCache = false; location.reload();
+            } })),
+          ligneReglage("Session", "Ferme le cockpit sur cet appareil. Il faudra te reconnecter.",
+            el("button", { type: "button", class: "btn-texte danger", text: "Se déconnecter", onclick: function () { document.getElementById("deconnexion").click(); } })),
+          version ? ligneReglage("Version", null, el("code", { class: "version", text: version })) : null
+        ])
       ])
-    ]));
-    if (S.message) f.appendChild(el("p", { class: "bandeau", role: "status", text: S.message }));
-    f.appendChild(sectionWispr());
-    f.appendChild(el("section", { class: "section" }, [
-      el("div", { class: "entete" }, [el("h2", { text: "Comptes connectés" })]),
-      el("ul", { class: "agenda" }, S.comptes.filter(function (c) { return c.usage !== "mail"; }).length ? S.comptes.filter(function (c) { return c.usage !== "mail"; }).map(function (c) {
+    ]);
+  }
+  // Projets : nom, couleur, objectif d'heures, mots-clés (rendez-vous rangés tout seuls), liens utiles, ordre dans le menu
+  function champReglage(lib, controle, aide, large) {
+    return el("label", { class: "champ-reglage" + (large ? " large" : "") }, [el("span", { class: "lib", text: lib }), controle, aide ? el("span", { class: "aide", text: aide }) : null]);
+  }
+  function deplacerProjet(i, sens) {
+    var liste = S.activites.slice(), j = i + sens;
+    if (j < 0 || j >= liste.length) return;
+    var x = liste[i]; liste[i] = liste[j]; liste[j] = x;
+    var changes = [];
+    liste.forEach(function (a, k) { if (a.ordre !== k) { a.ordre = k; changes.push(db.from("activites").update({ ordre: k }).eq("id", a.id).then(verifier)); } });
+    S.activites = liste; dessiner();
+    Promise.all(changes).then(function () { signaler("Ordre des projets enregistré"); }).catch(function () { chargerTout().then(dessiner); });
+  }
+  function carteReglageProjet(a, i, n) {
+    var cNom = el("input", { type: "text", value: a.nom, maxlength: "60", required: true });
+    var cCouleur = el("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(a.couleur || "") ? a.couleur : "#6a4fe0" });
+    var cHeures = el("input", { type: "number", min: "0", max: "80", step: "0.5", inputmode: "decimal", value: a.cible_heures == null ? null : String(a.cible_heures), placeholder: "Aucun" });
+    var cDesc = el("textarea", { rows: "2", placeholder: "Une phrase pour situer le projet" }); cDesc.value = a.description || "";
+    var cMots = el("textarea", { rows: "2", placeholder: "Ex. : showroom, fournisseur, salon" }); cMots.value = (a.mots_cles || []).join(", ");
+    var liens = el("div", { class: "liens-reglage" });
+    var enregistrer = el("button", { type: "submit", class: "btn-plein", text: "Enregistrer", disabled: true });
+    function ligneLien(l) {
+      var r = el("div", { class: "lien-reglage" }, [
+        el("input", { type: "text", value: l.label || null, placeholder: "Nom", "aria-label": "Nom du lien" }),
+        el("input", { type: "url", value: l.url || null, placeholder: "https://…", "aria-label": "Adresse du lien" }),
+        el("button", { type: "button", class: "btn-texte danger", text: "Retirer", "aria-label": "Retirer ce lien", onclick: function () { r.remove(); etat(); } })
+      ]);
+      return r;
+    }
+    (a.liens || []).forEach(function (l) { liens.appendChild(ligneLien(l)); });
+    function lire() {
+      return {
+        nom: cNom.value.trim(), description: cDesc.value.trim() || null, couleur: cCouleur.value,
+        cible_heures: cHeures.value === "" ? null : Math.max(0, +cHeures.value || 0),
+        mots_cles: cMots.value.split(/[,;\n]/).map(function (m) { return m.trim(); }).filter(Boolean),
+        liens: Array.prototype.map.call(liens.children, function (r) {
+          var x = r.querySelectorAll("input"), url = x[1].value.trim(), label = x[0].value.trim();
+          if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
+          if (url && !label) { try { label = new URL(url).hostname.replace(/^www\./, ""); } catch (e) { label = url; } }
+          return { label: label, url: url };
+        }).filter(function (l) { return l.url; })
+      };
+    }
+    var depart = JSON.stringify(lire());
+    function etat() { enregistrer.disabled = !cNom.value.trim() || JSON.stringify(lire()) === depart; }
+    var form = el("form", { class: "fiche carte-reglage", style: "--c:" + a.couleur, onsubmit: function (ev) {
+      ev.preventDefault();
+      var maj = lire(); if (!maj.nom) return;
+      enregistrer.disabled = true;
+      db.from("activites").update(maj).eq("id", a.id).then(verifier).then(function () {
+        Object.keys(maj).forEach(function (k) { a[k] = maj[k]; });
+        delete form.dataset.modifiee; signaler(maj.nom + " enregistré"); dessiner();
+      }).catch(function () { enregistrer.disabled = false; });
+    } }, [
+      el("div", { class: "carte-reglage-tete" }, [iconeProjet(a),
+        el("div", {}, [el("b", { text: a.nom }), el("small", { text: "#" + a.id })]),
+        el("div", { class: "ordre-reglage" }, [
+          el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Monter " + a.nom + " dans le menu", title: "Monter dans le menu", disabled: i === 0, text: "↑", onclick: function () { deplacerProjet(i, -1); } }),
+          el("button", { type: "button", class: "btn-icone-mini", "aria-label": "Descendre " + a.nom + " dans le menu", title: "Descendre dans le menu", disabled: i === n - 1, text: "↓", onclick: function () { deplacerProjet(i, 1); } })
+        ])]),
+      el("div", { class: "grille-reglage" }, [
+        champReglage("Nom", cNom),
+        champReglage("Couleur", cCouleur, "Pastille, titres et fond de la page du projet."),
+        champReglage("Heures visées par semaine", cHeures, "Comparées aux heures de rendez-vous de la semaine."),
+        champReglage("Description", cDesc, null, true),
+        champReglage("Mots-clés des rendez-vous", cMots, "Un rendez-vous dont le titre contient l'un de ces mots est rangé dans ce projet. Séparés par des virgules.", true)
+      ]),
+      el("div", { class: "champ-reglage large" }, [el("span", { class: "lib", text: "Liens utiles" }), liens,
+        el("button", { type: "button", class: "btn-texte ajout-lien", text: "+ Ajouter un lien", onclick: function () {
+          var r = ligneLien({}); liens.appendChild(r); r.querySelector("input").focus(); etat();
+        } })]),
+      el("div", { class: "carte-reglage-pied" }, [el("a", { class: "btn-texte", href: "#" + a.id, text: "Ouvrir le projet" }), enregistrer])
+    ]);
+    form.addEventListener("input", etat);
+    return form;
+  }
+  function sectionProjets() {
+    return el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Projets" }), el("p", { class: "aside", text: "Les flèches changent l'ordre dans le menu (et les raccourcis 1, 2, 3…)." })]),
+      el("div", { class: "cartes-reglage" }, S.activites.map(function (a, i) { return carteReglageProjet(a, i, S.activites.length); }))
+    ]);
+  }
+  function sectionComptesAgenda() {
+    var comptes = S.comptes.filter(function (c) { return c.usage !== "mail"; });
+    return el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Comptes connectés" }),
+        el("p", { class: "aside", text: "Les changements faits dans le cockpit partent aussitôt dans ton agenda ; ceux faits ailleurs remontent ici chaque minute." })]),
+      el("div", { class: "liens-boutons rangee" }, [
+        el("button", { type: "button", class: "btn-contour", text: "Connecter un compte Google", onclick: function () { connecter("google"); } }),
+        el("button", { type: "button", class: "btn-contour", text: "Connecter Outlook / Microsoft 365", onclick: function () { connecter("microsoft"); } })
+      ]),
+      el("ul", { class: "agenda" }, comptes.length ? comptes.map(function (c) {
         return el("li", { class: "compte" }, [
           el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
           el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : (c.fournisseur === "google" ? "Google Agenda" : "Outlook / Microsoft 365") + " · lecture et écriture" })]),
@@ -3716,7 +3855,9 @@
           } })
         ]);
       }) : [el("li", { class: "vide", text: "Aucun compte connecté pour l'instant." })])
-    ]));
+    ]);
+  }
+  function sectionAgendasSuivis() {
     var lignes = S.agendas.map(function (g) {
       var compte = S.comptes.filter(function (c) { return c.id === g.compte_id; })[0];
       var projet = el("select", { "aria-label": "Projet par défaut de " + g.nom, onchange: function (ev) {
@@ -3735,12 +3876,44 @@
         el("td", { class: g.derniere_erreur ? "retard" : "suite", text: g.derniere_erreur ? "Erreur : " + g.derniere_erreur : g.derniere_synchro ? (g.nb_evenements || 0) + " RDV · " + hm(new Date(g.derniere_synchro)) : g.actif ? "en attente" : "non suivi" })
       ]);
     });
-    f.appendChild(el("section", { class: "section" }, [
-      el("div", { class: "entete" }, [el("h2", { text: "Agendas suivis" }), el("p", { class: "aside", text: "cochez ceux à afficher ; le projet par défaut range les rendez-vous sans mot-clé" })]),
+    return el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Agendas suivis" }), el("p", { class: "aside", text: "coche ceux à afficher ; le projet par défaut range les rendez-vous sans mot-clé" })]),
       lignes.length ? el("div", { class: "tableau-defile", style: "--c:var(--encre)" }, [el("table", { class: "affaires" }, [
         el("thead", {}, [el("tr", {}, ["", "Agenda", "Compte", "Droits", "Projet par défaut", "Dernière lecture"].map(function (t) { return el("th", { scope: "col", text: t }); }))]),
-        el("tbody", {}, lignes)])]) : el("p", { class: "vide", text: "Aucun agenda : connectez un compte ci-dessus." })
-    ]));
+        el("tbody", {}, lignes)])]) : el("p", { class: "vide", text: "Aucun agenda : connecte un compte ci-dessus." })
+    ]);
+  }
+  function sectionVictor() {
+    return el("section", { class: "section" }, [
+      el("div", { class: "entete" }, [el("h2", { text: "Chaque jour" })]),
+      el("ul", { class: "liste-reglages" }, [
+        ligneReglage("Le point du matin", "Vers 6 h 30, Victor lit tes agendas et tes boîtes connectées, puis publie son point sur Aujourd'hui.",
+          el("a", { class: "btn-contour", href: "#", text: "Aujourd'hui" })),
+        ligneReglage("Le tri des boîtes", "Juste après le point, il classe les mails reçus (ils restent non lus), signale les importants et jette les publicités.",
+          el("a", { class: "btn-contour", href: "#mails", text: "Tri des boîtes" })),
+        ligneReglage("Les mails à faire", "Un mail Gmail étiqueté « 1. À faire » devient une tâche, et la tâche terminée retire l'étiquette.",
+          el("a", { class: "btn-contour", href: "#taches", text: "Tâches" })),
+        ligneReglage("Les réponses dictées", "Victor prépare un brouillon dans le bon fil : rien ne part avant que tu le valides.",
+          el("a", { class: "btn-contour", href: "#reponses", text: "Réponses" }))
+      ])
+    ]);
+  }
+  function vueReglages() {
+    var o = ongletReglages(), f = document.createDocumentFragment();
+    f.appendChild(el("header", { class: "tete-reglages" }, [
+      el("p", { class: "surtitre", text: "Réglages" }), el("h1", { text: o.nom }), el("p", { class: "chapo", text: o.texte })]));
+    f.appendChild(el("div", { class: "onglets-mails onglets-reglages" }, [el("nav", { "aria-label": "Réglages" }, ONGLETS_REGLAGES.map(function (x) {
+      var l = el("a", { href: "#reglages/" + x.id, text: x.nom });
+      if (x.id === o.id) l.setAttribute("aria-current", "page");
+      return l;
+    }))]));
+    if (S.message) f.appendChild(el("p", { class: "bandeau", role: "status", text: S.message }));
+    if (o.id === "general") f.appendChild(sectionGeneral());
+    else if (o.id === "projets") f.appendChild(sectionProjets());
+    else if (o.id === "agendas") { f.appendChild(sectionComptesAgenda()); f.appendChild(sectionAgendasSuivis()); }
+    else if (o.id === "boites") f.appendChild(sectionBoitesMail());
+    else if (o.id === "signatures") f.appendChild(sectionSignatures());
+    else if (o.id === "victor") { f.appendChild(sectionVictor()); f.appendChild(sectionWispr()); }
     return f;
   }
 
@@ -3809,7 +3982,7 @@
   function dessiner() {
     if (!db) return;
     var a = activite(S.route);
-    if (S.route && !a && S.route !== "agendas" && S.route !== "boite" && S.route !== "taches" && S.route !== "mails" && S.route !== "recherche" && S.route !== "reponses") S.route = "";
+    if (S.route && !a && S.route !== "reglages" && S.route !== "boite" && S.route !== "taches" && S.route !== "mails" && S.route !== "recherche" && S.route !== "reponses") S.route = "";
     // Un redessin (temps réel, relecture toutes les 5 min) ne doit pas faire remonter les listes qui défilent.
     var cote = document.querySelector(".cote"), coteScroll = cote ? cote.scrollTop : 0, defilements = memoriserDefilements();
     dessinerNav();
@@ -3819,7 +3992,7 @@
     app.textContent = "";
     app.classList.toggle("large", S.route === "boite" || (!!a && S.rubrique === "mails"));
     if (!a && ROUTES_MAILS.indexOf(S.route) >= 0) app.appendChild(ongletsMails());
-    app.appendChild(a ? vueProjet(a) : S.route === "agendas" ? vueAgendas() : S.route === "mails" ? vueMails() : S.route === "boite" ? vueBoite() : S.route === "recherche" ? vueRecherche() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
+    app.appendChild(a ? vueProjet(a) : S.route === "reglages" ? vueReglages() : S.route === "mails" ? vueMails() : S.route === "boite" ? vueBoite() : S.route === "recherche" ? vueRecherche() : S.route === "reponses" ? vueReponses() : S.route === "taches" ? vueTaches() : vueAccueil());
     document.body.style.setProperty("--projet", a ? a.couleur : "var(--encre)");
     var chA = a && CHARTES[a.id];
     app.dataset.projet = a ? a.id : "";
@@ -3839,7 +4012,7 @@
       if (c && d.scrollWidth > d.clientWidth) d.scrollLeft = Math.max(0, c.offsetLeft - d.clientWidth / 3);
     });
     var rubT = a && rubriquesDe(a).filter(function (x) { return x.id === S.rubrique; })[0];
-    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "agendas" ? "Agendas" : S.route === "mails" ? "Tri des boîtes" : S.route === "boite" ? "Mails" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · AR CONSEIL";
+    document.title = (a ? (rubT ? rubT.nom + " · " : "") + a.nom : S.route === "reglages" ? "Réglages · " + ongletReglages().nom : S.route === "mails" ? "Tri des boîtes" : S.route === "boite" ? "Mails" : S.route === "recherche" ? "Rechercher un mail" : S.route === "reponses" ? "Réponses" : S.route === "taches" ? "Tâches" : "Aujourd'hui") + " · AR CONSEIL";
     var hh = document.getElementById("horloge-haut"), mt = new Date(); hh.textContent = fmt(mt, { weekday: "long", day: "numeric", month: "long" }) + " · " + hm(mt);
     mesurerNav(); suivreRubriques();
   }
@@ -3848,7 +4021,9 @@
     S.route = m ? m[1] : h; S.message = m ? m[2] : "";
     // Pages de projet : #palomano (présentation) ou #palomano/taches, #palomano/factures…
     var morceaux = S.route.split("/"); S.route = morceaux[0]; S.rubrique = morceaux[1] || "";
-    if (m) history.replaceState(null, "", "#" + m[1]);
+    // Anciennes adresses : la page Agendas est devenue l'onglet Agendas des Réglages
+    if (S.route === "agendas") { S.route = "reglages"; S.rubrique = "agendas"; }
+    if (m || h.split("?")[0] === "agendas") history.replaceState(null, "", "#" + (S.route === "reglages" ? "reglages/" + S.rubrique : m[1]));
     S.edition = null; S.voirFaites = false;
     if (!activite(S.route)) { S.ouvert = null; S.factureOuverte = null; }
     avecTransition(function () {
@@ -3955,6 +4130,7 @@
       if (rs[k]) location.hash = S.route + "/" + rs[k].id;
     }
     else if (ev.key === "b" || ev.key === "B") location.hash = "taches";
+    else if (ev.key === ",") location.hash = "reglages";
     else if (ev.key === "f" || ev.key === "F") { ev.preventDefault(); location.hash = "recherche"; }
     else if (ev.key === "t" || ev.key === "T") { location.hash = ""; changerJour(new Date()); }
   });

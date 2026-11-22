@@ -1296,7 +1296,7 @@
       if (B.ouvert === m) {
         var suivant = B.mails[i] || B.mails[i - 1] || null;
         B.ouvert = null;
-        if (LARGE.matches && suivant) ouvrirDansBoite(suivant); else { fermerLecteurBoite(); rendreLecture(); }
+        if (LARGE.matches && suivant) ouvrirDansBoite(suivant, true); else { fermerLecteurBoite(); rendreLecture(); }
       }
     }
     rendreBoite();
@@ -1402,7 +1402,7 @@
   function ouvrirDansBoite(m, discret) {
     B.ouvert = m;
     rendreBoite();
-    if (m.lu === false) rangerDepuisAppli(m, "lu");
+    if (m.lu === false && !discret) rangerDepuisAppli(m, "lu");   // affiché tout seul (premier mail, suivant après rangement) : reste non lu
     if (LARGE.matches) { rendreLecture(); return; }
     if (discret) return;
     if (!lecteurBoite) {

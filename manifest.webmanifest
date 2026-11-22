@@ -2,7 +2,7 @@
   "name": "AR CONSEIL",
   "short_name": "AR CONSEIL",
   "description": "L'espace de travail d'Antonin Rouzier : journée, tâches, agendas, mails et Victor.",
-  "id": "./",
+  "id": "/cockpit/",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",

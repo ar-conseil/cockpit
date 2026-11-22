@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191918" media="(prefers-color-scheme: dark)">
+  <title>AR CONSEIL · Antonin Rouzier</title>
+  <script>try { var t = localStorage.getItem("cockpit.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/marque/icone-180.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/marque/icone-64.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/marque/icone-32.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="AR CONSEIL">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://piuqaqjdegkwwhlwputf.supabase.co" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Playpen+Sans:wght@600;700&family=Montserrat:wght@600;700&family=Barlow+Condensed:wght@700&family=Anton&family=Bodoni+Moda:opsz,wght@6..96,500&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Playpen+Sans:wght@600;700&family=Montserrat:wght@600;700&family=Barlow+Condensed:wght@700&family=Anton&family=Bodoni+Moda:opsz,wght@6..96,500&display=swap"></noscript>
+  <link rel="stylesheet" href="assets/style-apercu.css?v=1">
+</head>
+<body>
+  <div class="coquille" id="nav" hidden>
+    <aside class="cote" id="cote" aria-label="Menu">
+      <div class="cote-haut">
+        <a class="espace" href="#" aria-label="Aujourd'hui"><img class="espace-logo" src="assets/marque/icone-64.png" alt="" width="32" height="32"><span class="espace-nom"><b>AR CONSEIL</b><small>Antonin Rouzier</small></span></a>
+        <button type="button" class="btn-icone fermer-menu" id="fermer-menu" aria-label="Fermer le menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
+      <div class="cote-actions">
+        <button type="button" class="cote-bouton principal" id="btn-ajout" title="Nouvelle tâche (touche N)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span>Nouvelle tâche</span><kbd>N</kbd></button>
+        <button type="button" class="cote-bouton" id="btn-rdv" title="Nouveau rendez-vous (touche R)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8V5.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2H8M2.5 6.5h11M5.5 2v3M10.5 2v3M12 10.5v4M10 12.5h4"/></svg><span>Rendez-vous</span><kbd>R</kbd></button>
+      </div>
+      <nav class="cote-liens" id="projets" aria-label="Navigation"></nav>
+      <div class="cote-bas">
+        <button type="button" class="direct" id="btn-synchro" title="Relire tous les agendas maintenant"><i></i><span id="etat-synchro">En direct</span></button>
+        <a class="btn-texte" id="lien-reglages" href="#reglages" title="Réglages (touche ,)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></svg><span>Réglages</span></a>
+        <button type="button" class="btn-texte installer" id="installer" hidden title="Installer AR CONSEIL comme une application"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v7.5M4.8 7 8 10.2 11.2 7M3 13h10"/></svg><span>Installer l'app</span></button>
+        <button type="button" class="btn-texte" id="deconnexion" title="Se déconnecter"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v5.5"/><path d="M4.6 4.2a5 5 0 1 0 6.8 0"/></svg><span>Quitter</span></button>
+      </div>
+    </aside>
+    <div class="voile" id="voile"></div>
+    <!-- Téléphone : barre d'onglets en bas, comme une application -->
+    <nav class="nav-bas" id="nav-bas" aria-label="Navigation principale">
+      <a href="#" data-route=""><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg><span>Aujourd'hui</span></a>
+      <a href="#taches" data-route="taches"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg><span>Tâches</span></a>
+      <a href="#boite" data-route="boite"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg><span>Mails</span></a>
+      <button type="button" id="nav-bas-victor"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg><span>Victor</span></button>
+      <button type="button" id="nav-bas-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Plus</span></button>
+    </nav>
+    <header class="barre-haut" id="barre-haut">
+      <button type="button" class="btn-icone ouvrir-menu" id="ouvrir-menu" aria-label="Ouvrir le menu" aria-controls="cote" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg></button>
+      <nav class="fil" id="fil" aria-label="Fil d'Ariane"></nav>
+      <form class="dis-victor" id="dis-victor" role="search" aria-label="Demander à Victor" autocomplete="off">
+        <button type="button" class="dis-victor-micro" id="dis-victor-micro" aria-label="Parler à Victor (micro)" title="Parler à Victor"><span class="dis-victor-onde" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+        <input id="dis-victor-champ" type="text" enterkeyhint="send" spellcheck="true" maxlength="500"
+          placeholder="Demande à Victor : une tâche, un rendez-vous, un mail…" aria-label="Demande pour Victor">
+        <kbd title="Appuyer sur / pour écrire ou dicter (Wispr Flow)">/</kbd>
+        <button type="submit" aria-label="Envoyer à Victor"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg></button>
+        <span class="dis-victor-compte" aria-hidden="true"></span>
+      </form>
+      <div class="victor-reponse" id="victor-reponse" role="status" aria-live="polite" hidden></div>
+      <span class="horloge-haut" id="horloge-haut"></span>
+      <button type="button" class="btn-icone ajout-mobile" id="btn-ajout-mobile" aria-label="Nouvelle tâche"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
+    </header>
+  </div>
+
+  <section class="connexion" id="connexion" hidden>
+    <form class="form-connexion" id="form-connexion" autocomplete="on">
+      <div class="logo-3d" id="logo-3d" aria-hidden="true"><img src="assets/marque/logo-3d-256.png" alt="" width="176" height="176"></div>
+      <p class="surtitre">Antonin Rouzier</p>
+      <h1>AR CONSEIL</h1>
+      <label for="email">E-mail</label>
+      <input id="email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="mot-de-passe">Mot de passe</label>
+      <input id="mot-de-passe" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit" class="btn-plein">Entrer</button>
+      <button type="button" class="btn-texte" id="oubli">Mot de passe oublié</button>
+      <p class="message" id="message-connexion" role="status" aria-live="polite"></p>
+      <p class="pied-connexion">Outil personnel d'Antonin Rouzier · <a href="confidentialite.html">Politique de confidentialité</a></p>
+    </form>
+  </section>
+
+  <main id="app" hidden></main>
+
+  <dialog id="ajout-rapide" class="dialogue">
+    <form method="dialog" id="form-ajout">
+      <p class="surtitre">Nouvelle tâche</p>
+      <input id="ajout-titre" name="titre" type="text" placeholder="Que faut-il faire ?" required autocomplete="off">
+      <div class="rangee">
+        <select id="ajout-activite" name="activite" aria-label="Projet"></select>
+        <input id="ajout-echeance" name="echeance" type="date" aria-label="Échéance">
+        <select id="ajout-priorite" name="priorite" aria-label="Priorité">
+          <option value="haute">Priorité haute</option><option value="moyenne" selected>Priorité normale</option><option value="basse">Priorité basse</option>
+        </select>
+      </div>
+      <div class="rangee fin">
+        <button type="button" class="btn-texte" id="ajout-annuler">Annuler</button>
+        <button type="submit" class="btn-plein">Ajouter</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="rdv" class="dialogue">
+    <form method="dialog" id="form-rdv">
+      <p class="surtitre" id="rdv-surtitre">Rendez-vous</p>
+      <input id="rdv-titre" type="text" placeholder="Titre du rendez-vous" required autocomplete="off" aria-label="Titre">
+      <div class="rangee">
+        <label class="champ"><span>Jour</span><input id="rdv-jour" type="date" required></label>
+        <label class="champ"><span>Début</span><input id="rdv-debut" type="time" step="300"></label>
+        <label class="champ"><span>Fin</span><input id="rdv-fin" type="time" step="300"></label>
+        <label class="champ case"><input id="rdv-journee" type="checkbox"> <span>Toute la journée</span></label>
+      </div>
+      <div class="rdv-ou" id="rdv-ou">
+        <div class="rdv-mode" role="radiogroup" aria-label="Lieu ou visio">
+          <button type="button" role="radio" data-mode="lieu" aria-checked="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14.5s4.5-4.2 4.5-7.7A4.5 4.5 0 0 0 3.5 6.8C3.5 10.3 8 14.5 8 14.5z"/><circle cx="8" cy="6.8" r="1.6"/></svg>Lieu</button>
+          <button type="button" role="radio" data-mode="visio" aria-checked="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="4" width="9" height="8" rx="1.8"/><path d="m10.5 7 4-2.2v6.4l-4-2.2"/></svg>Visio</button>
+          <button type="button" role="radio" data-mode="aucun" aria-checked="false">Aucun</button>
+        </div>
+        <div class="rdv-lieu-zone" id="rdv-lieu-zone">
+          <input id="rdv-lieu" type="text" placeholder="Rechercher une adresse, un lieu, un restaurant…" autocomplete="off" aria-label="Lieu"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="rdv-suggestions">
+          <ul class="rdv-suggestions" id="rdv-suggestions" role="listbox" hidden></ul>
+        </div>
+        <div class="rdv-visio-zone" id="rdv-visio-zone" hidden>
+          <div class="rdv-visio-choix" id="rdv-visio-choix" role="radiogroup" aria-label="Type de visio"></div>
+          <input id="rdv-visio-lien" type="url" placeholder="Coller le lien Zoom, Webex…" autocomplete="off" aria-label="Lien de visio" hidden>
+          <p class="rdv-visio-info" id="rdv-visio-info"></p>
+        </div>
+      </div>
+      <div class="rdv-invites" id="rdv-invites">
+        <div class="rdv-invites-champ">
+          <div class="puces-invites" id="rdv-invites-puces"></div>
+          <input id="rdv-invite" type="text" placeholder="Inviter : un nom ou une adresse" autocomplete="off" aria-label="Inviter"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="rdv-invites-sugg">
+        </div>
+        <ul class="rdv-suggestions" id="rdv-invites-sugg" role="listbox" hidden></ul>
+        <p class="rdv-visio-info" id="rdv-invites-info"></p>
+      </div>
+      <div class="rangee">
+        <label class="champ"><span>Agenda</span><select id="rdv-agenda"></select></label>
+        <label class="champ"><span>Projet</span><select id="rdv-projet"></select></label>
+      </div>
+      <p class="vide" id="rdv-info"></p>
+      <div class="rangee fin">
+        <button type="button" class="btn-texte danger" id="rdv-supprimer">Supprimer</button>
+        <span class="espace"></span>
+        <button type="button" class="btn-texte" id="rdv-annuler">Annuler</button>
+        <button type="submit" class="btn-plein" id="rdv-ok">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="assets/config.js"></script>
+  <script src="assets/app-apercu.js?v=1"></script>
+</body>
+</html>

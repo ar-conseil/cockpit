@@ -1293,7 +1293,33 @@
   }
 
   // Chaque liste déjà vue (boîte, dossier, recherche) s'affiche tout de suite, puis se met à jour en fond
-  var LISTES = {};
+  var LISTES = (function () { try { return JSON.parse(localStorage.getItem("cockpit-mails-v1") || "{}"); } catch (e) { return {}; } })();
+  var memoListes = null;
+  function memoriserListes() {   // les réceptions et dossiers déjà vus restent sur l'appareil : la messagerie s'ouvre aussitôt
+    clearTimeout(memoListes);
+    memoListes = setTimeout(function () {
+      var garde = {};
+      Object.keys(LISTES).filter(function (k) { return /\|$/.test(k); }).slice(-24).forEach(function (k) {
+        garde[k] = { mails: LISTES[k].mails.slice(0, 40), suites: LISTES[k].suites, erreurs: {} };
+      });
+      try { localStorage.setItem("cockpit-mails-v1", JSON.stringify(garde)); } catch (e) { /* stockage plein : tant pis */ }
+    }, 800);
+  }
+  // Réceptions des autres boîtes lues en fond : passer d'une boîte à l'autre est immédiat
+  function prechargerReceptions() {
+    listeBoites().forEach(function (b, i) {
+      var k = b.email + "||";
+      if (LISTES[k] && LISTES[k].frais) return;
+      setTimeout(function () {
+        appelMessagerie({ action: "lister", boite: b.email, dossier: "", q: "" }).then(function (d) {
+          if (LISTES[k] && LISTES[k].frais) return;
+          if (B.boite === b.email && !B.dossier && !B.q) return;   // déjà à l'écran : la liste affichée fait foi
+          LISTES[k] = { mails: (d.mails || []).map(versMail), suites: d.suites || {}, erreurs: d.erreurs || {}, frais: true };
+          memoriserListes();
+        }).catch(function () { /* la boîte sera lue à l'ouverture */ });
+      }, 600 + i * 400);
+    });
+  }
   function cleListe() { return B.boite + "|" + (B.boite === "tout" ? "" : B.dossier) + "|" + B.q; }
   function chargerBoite(plus) {
     var cle = ++B.cle, cl = cleListe(), memo = LISTES[cl];
@@ -1317,7 +1343,8 @@
         B.mails = nouveaux;
       }
       B.mails.sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")); });
-      LISTES[cl] = { mails: B.mails, suites: Object.assign({}, B.suites), erreurs: B.erreurs };
+      LISTES[cl] = { mails: B.mails, suites: Object.assign({}, B.suites), erreurs: B.erreurs, frais: true };
+      memoriserListes();
       B.etat = "ok"; rendreBoite();
       if (!plus && LARGE.matches && !B.ouvert && B.mails.length) ouvrirDansBoite(B.mails[0], true);
     }).catch(function (e) { if (cle !== B.cle) return; B.etat = "erreur"; B.message = e.message; rendreBoite(); });
@@ -1659,7 +1686,7 @@
     setTimeout(function () {
       rendreDossiers(); rendreLecture();
       if (!B.mails.length && B.etat !== "charge") (B.projet ? chargerSource() : chargerBoite()); else rendreBoite();
-      if (!B.projet) listeBoites().forEach(function (b, i) { setTimeout(function () { chargerDossiers(b.email); }, i * 150); });
+      if (!B.projet) { listeBoites().forEach(function (b, i) { setTimeout(function () { chargerDossiers(b.email); }, i * 150); }); prechargerReceptions(); }
       ajusterClient();
     }, 0);
     return el("div", { class: "page-boite" + (a ? " page-boite-projet" : "") }, [f]);

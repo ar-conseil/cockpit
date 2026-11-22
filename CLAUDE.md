@@ -47,9 +47,9 @@ Fluidité : seule la page change (transition de vue), le menu reste en place ; p
   sur Aujourd'hui ; une proposition acceptée devient une tâche. Notes du jour dans ~/.cockpit/victor/ (jamais dans le dépôt).
 - Tri des boîtes (fonction `trier-mails`, pg_cron `tri-mails` toutes les 10 min de 5 h à 8 h 50 UTC) : une fois le point du jour
   publié, les mails de la réception reçus AVANT ce point sont classés par Claude Haiku 5.5 et rangés (un dossier par activité,
-  plus Factures & compta, Banque & administratif, Newsletters, Notifications), marqués lus ; les publicités (envoi de masse
+  plus Factures & compta, Banque & administratif, Newsletters, Notifications), laissés non lus ; les publicités (envoi de masse
   seulement) vont à la corbeille. Jamais d'envoi ni d'effacement définitif. Droits nécessaires :
-  gmail.modify / Mail.ReadWrite (colonne `comptes_agenda.droits`, bouton « Autoriser le tri » page Agendas) ; IONOS par IMAP.
+  gmail.modify / Mail.ReadWrite (colonne `comptes_agenda.droits`, bouton « Autoriser le tri » dans Réglages › Boîtes mail) ; IONOS par IMAP.
   Libellés Gmail (validés par Antonin le 5 novembre 2026, plus d'émoticônes) : « 1. À faire » en tête, Projets/<activité>
   (Palomano, Evoa, Harnes Volley, Camp, Berkay, Wealthy), Perso, Classement/(Factures & compta, Banque & administratif,
   Newsletters, Notifications). Outlook et IONOS gardent des dossiers à plat. Le journal garde les noms courts.
@@ -169,3 +169,26 @@ _partage/ranger.ts, envoyer depuis la bonne boîte avec sa signature HTML ; Outl
 - Manifeste : `"id": "/cockpit/"` obligatoire. Chrome résout l'id par rapport à l'origine (ar-conseil.github.io) : avec `"./"`, AR CONSEIL et Studio Lili (même domaine) étaient une seule appli, et Studio Lili a « mis à jour » AR CONSEIL (22 novembre 2026).
 - Fluidité (22 novembre 2026) : `chargerTout` ne lit qu'une fois à la fois et rend true si les données ont changé ; une relecture de fond (temps réel, 5 min, retour sur l'onglet après 1 min) ne redessine que si ça a changé, et jamais la messagerie ouverte (`dessinerFond`). Messagerie : listes gardées (`LISTES`, aussi dans localStorage `cockpit-mails-v1`), réceptions préchargées, mails préchargés au survol (`lecture`), Gmail lu en une seule vague.
 - Tri des boîtes : depuis le 22 novembre 2026, Victor ne marque plus les mails comme lus (étiquette, dossier, drapeau seulement) ; seules les publicités jetées à la corbeille sont marquées lues.
+
+## Réglages (`#reglages/<onglet>`, 22 novembre 2026)
+- Page à onglets façon Evoalys, lien en bas du menu (touche « , ») : Général (thème auto / clair / sombre dans localStorage
+  `cockpit.theme`, posé dès le `<head>` ; vue des tâches ; installer ; relire ; vider la mémoire de l'appareil ; déconnexion),
+  Projets (nom, couleur, heures visées, description, mots-clés des rendez-vous, liens utiles, ordre du menu : table `activites`),
+  Agendas (ex-page `#agendas`, l'ancienne adresse y renvoie), Boîtes mail et Signatures (sortis de Tri des boîtes), Victor (+ Wispr).
+- Les retours de connexion (agenda-connexion, wispr-connexion) reviennent sur `#reglages/agendas`, `#reglages/boites`, `#reglages/victor`.
+- Fiches de réglage : `form.fiche` pour que les relectures de fond n'écrasent pas une saisie non enregistrée.
+
+## Mode congé (fonction `conge`, tables `conges` et `conge_reponses`)
+- Bouton « Je suis en congé » sur le calendrier d'Aujourd'hui, bandeau pendant le congé (« Modifier », « Je suis de retour »).
+- Une réponse d'absence par boîte, signée avec la signature de la boîte (`messageHtml`), programmée du premier jour 0 h au lendemain
+  du dernier jour (Paris) : Gmail et Camp par la réponse d'absence de Gmail (droit gmail.settings.basic, reconnexion de la boîte) ;
+  Outlook par les réponses automatiques (MailboxSettings.ReadWrite : accord de l'administrateur, jeton demandé à part par
+  `jetonMicrosoft` sans toucher au jeton enregistré) ; Harnes (IONOS, sans réglage à distance) par la fonction elle-même
+  (pg_cron `conge`, 10 min, seulement si un congé est en cours) : une réponse par expéditeur et par congé, jamais aux listes,
+  robots, publicités ni réponses automatiques (en-têtes List-*, Auto-Submitted, Precedence…). Evoa : absence réglée dans Evoalys
+  tant que l'administrateur d'Evoa n'a pas donné MailboxSettings au cockpit.
+- Journée « Congé » posée par agenda-ecrire (clé de synchro) ; retirée si le congé est annulé avant de commencer, raccourcie à
+  aujourd'hui en cas de retour anticipé. Un seul congé à la fois : modifier remplace le précédent.
+- Droits de réponse d'absence ajoutés aux scopes de connexion des boîtes ; le renouvellement Outlook ne les demande que si la
+  boîte les a reçus (`peutRegler`).
+

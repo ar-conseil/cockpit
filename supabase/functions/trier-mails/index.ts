@@ -1,5 +1,6 @@
 // Tri des boîtes mail par Victor : chaque mail de la réception est classé dans un dossier par thème (un par activité,
-// plus Factures & compta, Banque & administratif, Newsletters, Notifications) et marqué comme lu. Il RESTE 14 jours dans la
+// plus Factures & compta, Banque & administratif, Newsletters, Notifications) ; il reste NON LU (demande d'Antonin du 22 novembre
+// 2026 : il lit ses mails dans AR CONSEIL ; seules les publicités jetées sont marquées lues). Il RESTE 14 jours dans la
 // boîte de réception, étiqueté (libellé Gmail, catégorie Outlook), puis il est rangé dans son dossier (tri_mails.en_reception,
 // ranger_le) : Antonin voit tous ses mails récents dans la réception (sa demande du 20 novembre 2026). Les mails qui demandent
 // une action d'Antonin reçoivent le libellé « 1. À faire » dans Gmail (un drapeau dans Outlook et IONOS) ; les publicités
@@ -208,7 +209,7 @@ function gmail(email: string, jeton: string): Boite {
     },
     async ranger(m, dossier, important, garder) {
       await appel(`/messages/${m.id}/modify`, { method: "POST", body: JSON.stringify({
-        addLabelIds: await ajouts(dossier, important), removeLabelIds: garder ? ["UNREAD"] : ["INBOX", "UNREAD"] }) });
+        addLabelIds: await ajouts(dossier, important), removeLabelIds: garder ? [] : ["INBOX"] }) });
     },
     // Le libellé est déjà posé : ranger = sortir de la réception (sans effet sur un mail déjà archivé ou supprimé par Antonin)
     async archiver(lignes) {
@@ -254,7 +255,7 @@ function gmail(email: string, jeton: string): Boite {
           const q = `in:inbox category:${categorie} before:${Math.floor(limite.getTime() / 1000)}`;
           const ids = ((await appel(`/messages?maxResults=500&q=${encodeURIComponent(q)}`)).messages ?? []).map((m: { id: string }) => m.id) as string[];
           if (!ids.length) break;
-          await deplacer(ids, dossier === PUB ? ["TRASH"] : [await etiquette(libelle(dossier))], ["INBOX", "UNREAD"]);
+          await deplacer(ids, dossier === PUB ? ["TRASH"] : [await etiquette(libelle(dossier))], dossier === PUB ? ["INBOX", "UNREAD"] : ["INBOX"]);
           await db.from("tri_mails").upsert(ids.map((id) => ({ boite: nomBoite, message_id: `gmail:${id}`,
             dossier: dossier === PUB ? CORBEILLE : dossier, important: false, resume: `Onglet ${categorie === "promotions" ? "Promotions" : "Réseaux sociaux"} de Gmail (rangé en bloc)` })),
             { onConflict: "boite,message_id", ignoreDuplicates: true });
@@ -280,7 +281,7 @@ function gmail(email: string, jeton: string): Boite {
     async rangerLot(groupes) {
       for (const g of groupes) {
         await deplacer(g.mails.map((m) => m.id), g.dossier === PUB ? ["TRASH"] : await ajouts(g.dossier, g.important),
-          g.garder && g.dossier !== PUB ? ["UNREAD"] : ["INBOX", "UNREAD"]);
+          g.dossier === PUB ? ["INBOX", "UNREAD"] : g.garder ? [] : ["INBOX"]);
       }
     },
     // Tâche terminée dans le cockpit -> libellé « À faire » retiré du fil ; libellé retiré (ou fil à la corbeille) -> tâche terminée
@@ -477,8 +478,8 @@ function outlook(email: string, jeton: string): Boite {
     },
     async ranger(m, dossier, important, garder) {
       // En réception : une catégorie Outlook au nom du dossier sert d'étiquette (les catégories déjà posées sont gardées)
-      await appel(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ isRead: true, ...(important ? { flag: { flagStatus: "flagged" } } : {}),
-        ...(garder ? { categories: [...new Set([...(m.categories ?? []), dossier])] } : {}) }) });
+      const maj = { ...(important ? { flag: { flagStatus: "flagged" } } : {}), ...(garder ? { categories: [...new Set([...(m.categories ?? []), dossier])] } : {}) };
+      if (Object.keys(maj).length) await appel(`/messages/${m.id}`, { method: "PATCH", body: JSON.stringify(maj) });   // le mail reste non lu
       if (!garder) await appel(`/messages/${m.id}/move`, { method: "POST", body: JSON.stringify({ destinationId: await dossierId(dossier) }) });
     },
     async archiver(lignes) {
@@ -596,7 +597,7 @@ async function ionos(email: string, mdp: string): Promise<Boite> {
       return mails;
     },
     async ranger(m, nom, important, garder) {
-      await cmd(`UID STORE ${m.id} +FLAGS.SILENT (\\Seen${important ? " \\Flagged" : ""})`);
+      if (important) await cmd(`UID STORE ${m.id} +FLAGS.SILENT (\\Flagged)`);   // le mail reste non lu
       if (!garder) await vers(m.id, await dossier(nom));
     },
     async archiver(lignes) {

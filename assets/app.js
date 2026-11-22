@@ -3519,7 +3519,7 @@
     var boites = S.comptes.filter(function (c) { return c.usage === "mail"; });
     return el("section", { class: "section" }, [
       el("div", { class: "entete" }, [el("h2", { text: "Boîtes connectées" }),
-        el("p", { class: "aside", text: "Chaque matin, Victor lit les boîtes connectées ici (et Harnes, IONOS) : mails marqués comme lus et classés par thème, gardés 14 jours dans la réception puis rangés dans leur dossier, importants signalés, publicités à la corbeille (récupérables 30 jours). Il n'envoie jamais rien et n'efface rien définitivement." })]),
+        el("p", { class: "aside", text: "Chaque matin, Victor lit les boîtes connectées ici (et Harnes, IONOS) : mails classés par thème (ils restent non lus), gardés 14 jours dans la réception puis rangés dans leur dossier, importants signalés, publicités à la corbeille (récupérables 30 jours). Il n'envoie jamais rien et n'efface rien définitivement." })]),
       el("div", { class: "liens-boutons rangee" }, [
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Gmail", onclick: function () { connecter("google", "mail"); } }),
         el("button", { type: "button", class: "btn-contour", text: "Connecter une boîte Outlook", onclick: function () { connecter("microsoft", "mail"); } })
@@ -3613,9 +3613,9 @@
     var jetes = t ? ((t.par_dossier || []).filter(function (x) { return x.dossier === "Corbeille"; })[0] || { n: 0 }).n : 0;
     f.appendChild(el("section", { class: "hero-projet", style: "--c:var(--encre-2)" }, [
       el("div", {}, [icone("mails", "grande"), el("p", { class: "surtitre", text: "Victor" }), el("h1", { text: "Tri des boîtes" }),
-        el("p", { class: "chapo", text: "Chaque matin, après son point, Victor lit les mails arrivés dans tes boîtes, les marque comme lus et les classe par activité ou par thème. Chaque mail reste 14 jours dans la boîte de réception, étiqueté, puis part dans son dossier. Les importants sont signalés (« À faire » dans Gmail, drapeau dans Outlook) et les publicités vont à la corbeille, où elles restent récupérables 30 jours." })]),
+        el("p", { class: "chapo", text: "Chaque matin, après son point, Victor lit les mails arrivés dans tes boîtes et les classe par activité ou par thème, sans les marquer comme lus. Chaque mail reste 14 jours dans la boîte de réception, étiqueté, puis part dans son dossier. Les importants sont signalés (« À faire » dans Gmail, drapeau dans Outlook) et les publicités vont à la corbeille, où elles restent récupérables 30 jours." })]),
       t ? el("dl", { class: "hero-chiffres" }, [
-        el("div", {}, [el("dt", { text: "Classés" }), el("dd", { text: nb(t.total - jetes) }), el("small", { text: "lus et étiquetés" })]),
+        el("div", {}, [el("dt", { text: "Classés" }), el("dd", { text: nb(t.total - jetes) }), el("small", { text: "étiquetés, restés non lus" })]),
         el("div", {}, [el("dt", { text: "Importants" }), el("dd", { text: nb(t.importants_total) }), el("small", { text: "étoilés" })]),
         el("div", {}, [el("dt", { text: "Publicités" }), el("dd", { text: nb(jetes) }), el("small", { text: "à la corbeille" })])
       ]) : null

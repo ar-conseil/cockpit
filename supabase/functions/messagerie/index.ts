@@ -114,7 +114,7 @@ function gmail(c: Compte, jeton: string) {
       const l = await g(`/messages?maxResults=${n}${q ? `&q=${encodeURIComponent(q)}` : ""}${q && !dossier ? "" : `&labelIds=${encodeURIComponent(etiquette)}`}${suite ? `&pageToken=${encodeURIComponent(suite)}` : ""}`);
       const ids = (l.messages ?? []).map((m: any) => m.id) as string[];
       const mails: any[] = [];
-      for (let i = 0; i < ids.length; i += 10) mails.push(...await Promise.all(ids.slice(i, i + 10).map(async (id) => {
+      for (let i = 0; i < ids.length; i += 30) mails.push(...await Promise.all(ids.slice(i, i + 30).map(async (id) => {   // tous ensemble : une seule attente
         const d = await g(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`);
         const h = (k: string) => (d.payload?.headers ?? []).find((x: any) => x.name.toLowerCase() === k)?.value ?? "";
         const lab: string[] = d.labelIds ?? [];

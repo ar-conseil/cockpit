@@ -134,7 +134,17 @@
   function verifier(res) { if (res && res.error) { signaler("Erreur : " + res.error.message); throw res.error; } return res; }
 
   // ---------- Données ----------
+  // Une seule lecture à la fois (les demandes qui arrivent pendant ce temps en déclenchent une seule de plus) ;
+  // la promesse rend true si les données ont changé depuis la dernière fois (sinon, rien à redessiner).
+  var chargement = null, rechargerEnsuite = false, dernierChargement = 0, empreinteDonnees = "";
   function chargerTout() {
+    if (chargement) { rechargerEnsuite = true; return chargement; }
+    chargement = lireTout().then(function (change) { dernierChargement = Date.now(); return change; });
+    var fin = function () { chargement = null; if (rechargerEnsuite) { rechargerEnsuite = false; rechargerPuisDessiner(); } };
+    chargement.then(fin, fin);
+    return chargement;
+  }
+  function lireTout() {
     var debut = ajouterJours(lundi(S.jour), -7).toISOString();
     var fin = ajouterJours(lundi(S.jour), 63).toISOString();
     var depuis = ajouterJours(new Date(), -14).toISOString();
@@ -157,18 +167,27 @@
         .neq("action", "vide").order("cree_le", { ascending: false }).limit(40)
     ]).then(function (r) {
       r.forEach(verifier);
-      appliquerDonnees(r.map(function (x) { return x.data; }));
-      memoriserDonnees(r.map(function (x) { return x.data; }));
+      var d = r.map(function (x) { return x.data; }), texte = JSON.stringify(d);
+      appliquerDonnees(d);   // toujours : une modification locale refusée par la base est ainsi annulée
+      if (texte === empreinteDonnees) return false;
+      empreinteDonnees = texte;
+      memoriserDonnees(texte);
+      return true;
     });
   }
   // Copie des dernières données sur cet appareil : au démarrage, le cockpit s'affiche aussitôt avec elles,
   // puis se met à jour dès que la base a répondu (aucune attente du renouvellement de session ni du réseau).
   var CLE_CACHE = "cockpit-donnees-v1";
-  function memoriserDonnees(d) {
-    try { var t = JSON.stringify({ le: Date.now(), d: d }); if (t.length < 4500000) localStorage.setItem(CLE_CACHE, t); } catch (e) { try { localStorage.removeItem(CLE_CACHE); } catch (e2) { /* rien */ } }
+  function memoriserDonnees(texte) {
+    try { var t = '{"le":' + Date.now() + ',"d":' + texte + "}"; if (t.length < 4500000) localStorage.setItem(CLE_CACHE, t); } catch (e) { try { localStorage.removeItem(CLE_CACHE); } catch (e2) { /* rien */ } }
   }
   function donneesMemorisees() {
-    try { var c = JSON.parse(localStorage.getItem(CLE_CACHE) || "null"); return c && c.d && c.d.length === 15 && Date.now() - c.le < 7 * 864e5 ? c.d : null; } catch (e) { return null; }
+    try {
+      var c = JSON.parse(localStorage.getItem(CLE_CACHE) || "null");
+      if (!(c && c.d && c.d.length === 15 && Date.now() - c.le < 7 * 864e5)) return null;
+      empreinteDonnees = JSON.stringify(c.d);   // si la base n'a pas bougé depuis, l'écran ne se redessine pas au démarrage
+      return c.d;
+    } catch (e) { return null; }
   }
   function appliquerDonnees(d) {
     var r = d.map(function (x) { return { data: x }; });
@@ -193,7 +212,12 @@
   var redessinPrevu = null;
   function rechargerPuisDessiner() {
     clearTimeout(redessinPrevu);
-    redessinPrevu = setTimeout(function () { chargerTout().then(dessiner); }, 250);
+    redessinPrevu = setTimeout(function () { chargerTout().then(function (change) { if (change) dessinerFond(); }); }, 250);
+  }
+  // Mise à jour venue du fond (temps réel, relecture) : la messagerie ouverte reste telle quelle (pas de mail rechargé, pas de saut)
+  function dessinerFond() {
+    if (S.route === "boite" || (activite(S.route) && S.rubrique === "mails")) { dessinerNav(); return; }
+    dessiner();
   }
   function tachesDuJour(iso, act) {
     return S.taches.filter(function (t) { return t.echeance === iso && (!act || t.activite_id === act); });
@@ -1268,17 +1292,32 @@
     if (email !== "tout") chargerDossiers(email);
   }
 
+  // Chaque liste déjà vue (boîte, dossier, recherche) s'affiche tout de suite, puis se met à jour en fond
+  var LISTES = {};
+  function cleListe() { return B.boite + "|" + (B.boite === "tout" ? "" : B.dossier) + "|" + B.q; }
   function chargerBoite(plus) {
-    var cle = ++B.cle;
-    if (!plus) { B.mails = []; B.suites = {}; }
-    B.etat = "charge"; rendreBoite();
+    var cle = ++B.cle, cl = cleListe(), memo = LISTES[cl];
+    if (!plus) {
+      if (memo) { B.mails = memo.mails; B.suites = Object.assign({}, memo.suites); B.erreurs = memo.erreurs; B.etat = "maj"; }
+      else { B.mails = []; B.suites = {}; B.etat = "charge"; }
+    } else B.etat = "charge";
+    rendreBoite();
+    if (!plus && memo && LARGE.matches && !B.ouvert && B.mails.length) ouvrirDansBoite(B.mails[0], true);
     appelMessagerie({ action: "lister", boite: B.boite, dossier: B.boite === "tout" ? "" : B.dossier, q: B.q, suites: plus ? B.suites : {} }).then(function (d) {
       if (cle !== B.cle) return;
       B.boites = d.boites || B.boites; B.erreurs = d.erreurs || {};
       Object.keys(d.suites || {}).forEach(function (k) { B.suites[k] = d.suites[k]; });
-      var vus = {}; B.mails.forEach(function (m) { vus[m.ref.id] = true; });
-      B.mails = B.mails.concat((d.mails || []).map(versMail).filter(function (m) { return !vus[m.ref.id]; }))
-        .sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")); });
+      var nouveaux = (d.mails || []).map(versMail);
+      if (plus) {
+        var vus = {}; B.mails.forEach(function (m) { vus[m.ref.id] = true; });
+        B.mails = B.mails.concat(nouveaux.filter(function (m) { return !vus[m.ref.id]; }));
+      } else {
+        // le mail ouvert garde son objet (sélection, lecture en cours) ; les autres sont remplacés par la version à jour
+        if (B.ouvert) nouveaux = nouveaux.map(function (m) { return m.ref.id === B.ouvert.ref.id ? Object.assign(B.ouvert, { lu: B.ouvert.lu || m.lu, important: m.important }) : m; });
+        B.mails = nouveaux;
+      }
+      B.mails.sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")); });
+      LISTES[cl] = { mails: B.mails, suites: Object.assign({}, B.suites), erreurs: B.erreurs };
       B.etat = "ok"; rendreBoite();
       if (!plus && LARGE.matches && !B.ouvert && B.mails.length) ouvrirDansBoite(B.mails[0], true);
     }).catch(function (e) { if (cle !== B.cle) return; B.etat = "erreur"; B.message = e.message; rendreBoite(); });
@@ -1353,6 +1392,7 @@
   }
 
   // Liste des mails du dossier
+  var survolMail = null;
   function rendreBoite() {
     var zone = document.getElementById("boite-liste"); if (!zone) return;
     zone.textContent = "";
@@ -1371,6 +1411,8 @@
     zone.appendChild(el("ol", { class: "boite-mails" }, B.mails.map(function (m) {
       return el("li", { class: (m.lu ? "" : "non-lu") + (m.important ? " important" : "") + (B.ouvert === m ? " ouvert" : "") }, [
         el("button", { type: "button", class: "boite-ligne", style: "--c:" + couleurBoite(m.ref.boite), "aria-current": B.ouvert === m ? "true" : null,
+          onpointerenter: function () { clearTimeout(survolMail); survolMail = setTimeout(function () { precharger(m); }, 90); },
+          onpointerleave: function () { clearTimeout(survolMail); },
           onclick: function () { ouvrirDansBoite(m); } }, [
           el("span", { class: "boite-point", "aria-label": m.lu ? null : "Non lu" }),
           el("span", { class: "boite-de" }, [
@@ -1499,10 +1541,28 @@
         d.lien ? el("a", { class: "btn-texte", href: d.lien, target: "_blank", rel: "noopener", text: "Ouvrir dans " + nomWeb(m) + " ↗" }) : null
       ]));
     };
-    if (B.cache[cle]) return montrer(B.cache[cle]);
-    appelMessagerie({ action: "lire", boite: m.ref.boite, id: m.ref.id, dossier: m.dossier }).then(function (d) { B.cache[cle] = d; montrer(d); })
+    if (B.cache[cle]) { montrer(B.cache[cle]); prechargerSuivants(m); return; }
+    lecture(m).then(function (d) { montrer(d); prechargerSuivants(m); })
       .catch(function (e) { if (!zone.isConnected) return; zone.textContent = ""; zone.appendChild(el("p", { class: "lecteur-absent", text: "Lecture impossible : " + e.message })); });
   }
+  // Lecture d'un mail : une seule demande à la fois par mail, gardée en mémoire (80 mails au plus)
+  var lecturesEnCours = {}, ordreCache = [];
+  function lecture(m) {
+    var cle = m.ref.boite + "|" + m.ref.id;
+    if (B.cache[cle]) return Promise.resolve(B.cache[cle]);
+    if (lecturesEnCours[cle]) return lecturesEnCours[cle];
+    var p = appelMessagerie({ action: "lire", boite: m.ref.boite, id: m.ref.id, dossier: m.dossier }).then(function (d) {
+      B.cache[cle] = d; ordreCache.push(cle);
+      while (ordreCache.length > 80) delete B.cache[ordreCache.shift()];
+      return d;
+    });
+    lecturesEnCours[cle] = p;
+    var fin = function () { delete lecturesEnCours[cle]; };
+    p.then(fin, fin);
+    return p;
+  }
+  function precharger(m) { if (m && m.ref) lecture(m).catch(function () { /* lu plus tard */ }); }
+  function prechargerSuivants(m) { var i = B.mails.indexOf(m); if (i >= 0) { precharger(B.mails[i + 1]); precharger(B.mails[i + 2]); } }
   // Le mail tel qu'il a été mis en forme, isolé dans un cadre : pas de script, liens dans un nouvel onglet, images distantes sur demande
   function cadreMail(d, images) {
     var html = String(d.html || "").replace(/cid:([^"'\s)>]+)/gi, function (t, c) {
@@ -3879,15 +3939,17 @@
   var canal = null, attenteSaisie = false;
 
   function afficherConnexion(texte) {
-    barre.hidden = true; app.hidden = true; ecranConnexion.hidden = false;
+    barre.hidden = true; app.hidden = true; ecranConnexion.hidden = false; cockpitOuvert = false;
     logoConnexion3D();
     message.textContent = texte || "";
     if (canal) { db.removeChannel(canal); canal = null; }
   }
-  var afficheDepuisCache = false;
+  var afficheDepuisCache = false, cockpitOuvert = false;
   function ouvrirCockpit() {
+    if (cockpitOuvert) return;
+    cockpitOuvert = true;
     ecranConnexion.hidden = true; barre.hidden = false; app.hidden = false;
-    if (afficheDepuisCache) { chargerTout().then(function () { if (!enSaisie()) dessiner(); abonner(); }); return; }
+    if (afficheDepuisCache) { chargerTout().then(function (change) { if (change && !enSaisie()) dessinerFond(); abonner(); }); return; }
     app.textContent = "";
     app.appendChild(el("div", { class: "squelette", "aria-label": "Chargement", role: "status" }, [
       el("i", { class: "s-titre" }), el("div", { class: "s-grille" }, [el("i", { class: "s-bloc grand" }), el("div", { class: "s-pile" }, [el("i", { class: "s-bloc" }), el("i", { class: "s-bloc" }), el("i", { class: "s-bloc" })])])
@@ -3920,7 +3982,7 @@
   document.addEventListener("click", function () { setTimeout(appliquerAttente, 400); }); // fiche annulée
   // Filet de sécurité si le temps réel se coupe (veille de l'ordinateur) : relecture toutes les 5 min et au retour sur l'onglet.
   setInterval(function () { if (db && !barre.hidden && !enSaisie()) rechargerPuisDessiner(); }, 300000);
-  document.addEventListener("visibilitychange", function () { if (!document.hidden && db && !barre.hidden && !enSaisie()) rechargerPuisDessiner(); });
+  document.addEventListener("visibilitychange", function () { if (!document.hidden && db && !barre.hidden && !enSaisie() && Date.now() - dernierChargement > 60000) rechargerPuisDessiner(); });
 
   formConnexion.addEventListener("submit", function (ev) {
     ev.preventDefault();
@@ -3967,7 +4029,7 @@
         var nouveau = prompt("Nouveau mot de passe (10 caractères minimum) :");
         if (nouveau) db.auth.updateUser({ password: nouveau }).then(function (r) { signaler(r.error ? r.error.message : "Mot de passe changé"); });
       }
-      if (session && (barre.hidden || (afficheDepuisCache && !canal))) ouvrirCockpit();
+      if (session && !cockpitOuvert) ouvrirCockpit();
       if (!session) afficherConnexion(evenement === "SIGNED_OUT" ? "À bientôt." : "");
     }, 0);
   });

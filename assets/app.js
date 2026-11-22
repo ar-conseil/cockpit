@@ -1307,7 +1307,7 @@
   }
   // Réceptions des autres boîtes lues en fond : passer d'une boîte à l'autre est immédiat
   function prechargerReceptions() {
-    listeBoites().forEach(function (b, i) {
+    [{ email: "tout" }].concat(listeBoites()).forEach(function (b, i) {
       var k = b.email + "||";
       if (LISTES[k] && LISTES[k].frais) return;
       setTimeout(function () {

@@ -32,13 +32,17 @@ const MICROSOFT = {
 
 // Mails : lecture, rangement dans des dossiers, marquage lu et mise à la corbeille (jamais d'envoi ni d'effacement définitif).
 // Outlook : Mail.Send sert seulement à envoyer une réponse dictée qu'Antonin a validée dans le cockpit (fonction reponses).
-const SCOPES_MAIL = { google: "openid email https://www.googleapis.com/auth/gmail.modify", microsoft: "offline_access openid email User.Read Mail.ReadWrite Mail.Send" };
+// Réponse d'absence (mode congé) : gmail.settings.basic (Google) et MailboxSettings.ReadWrite (Microsoft, accord de l'administrateur).
+const SCOPES_MAIL = { google: "openid email https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.settings.basic",
+  microsoft: "offline_access openid email User.Read Mail.ReadWrite Mail.Send MailboxSettings.ReadWrite" };
+const SCOPES_MAIL_ENVOI = "offline_access openid email User.Read Mail.ReadWrite Mail.Send";
 const SCOPES_MAIL_SANS_ENVOI = "offline_access openid email User.Read Mail.ReadWrite";
 // Boîtes Outlook connectées avant le tri (lecture seule) : leur jeton se renouvelle avec les droits d'origine.
 const SCOPES_MAIL_LECTURE = "offline_access openid email User.Read Mail.Read";
 export const scopes = (f: Fournisseur, u: Usage = "agenda") => u === "mail" ? SCOPES_MAIL[f] : f === "google" ? GOOGLE.scopes : MICROSOFT.scopes;
 export const peutTrier = (c: Compte) => /gmail\.modify|Mail\.ReadWrite/i.test(c.droits ?? "");
 export const peutEnvoyer = (c: Compte) => /gmail\.modify|Mail\.Send/i.test(c.droits ?? "");
+export const peutRegler = (c: Compte) => /gmail\.settings\.basic|MailboxSettings\.ReadWrite/i.test(c.droits ?? "");
 
 export function urlAutorisation(f: Fournisseur, etat: string, u: Usage = "agenda"): string {
   const p: Record<string, string> = f === "google"
@@ -75,6 +79,12 @@ export async function echangerCode(f: Fournisseur, code: string, u: Usage = "age
     jeton_expire_le: new Date(Date.now() + (j.expires_in - 60) * 1000).toISOString() };
 }
 
+// Jeton Microsoft pour une portée précise (réponse d'absence), sans toucher au jeton enregistré : refusé (AADSTS65001)
+// tant que l'administrateur n'a pas donné son accord.
+export async function jetonMicrosoft(c: Compte, portee: string): Promise<string> {
+  if (!c.refresh_token) throw new Error("connexion expirée : reconnectez le compte");
+  return (await demanderJeton("microsoft", { grant_type: "refresh_token", refresh_token: c.refresh_token }, c.usage ?? "agenda", `offline_access ${portee}`)).access_token;
+}
 // Jeton d'accès valide pour un compte (rafraîchi et enregistré si besoin).
 // deno-lint-ignore no-explicit-any
 export async function jetonAcces(db: any, c: Compte): Promise<string> {
@@ -86,6 +96,7 @@ export async function jetonAcces(db: any, c: Compte): Promise<string> {
   // Agenda Outlook qui a aussi reçu la lecture des mails (Evoa) : on la garde au renouvellement, pour que Victor lise la boîte
   const agendaLecteur = c.usage !== "mail" && c.fournisseur === "microsoft" && /Mail\.Read/i.test(c.droits ?? "");
   const portee = lectureSeule ? SCOPES_MAIL_LECTURE : outlookMail && !peutEnvoyer(c) ? SCOPES_MAIL_SANS_ENVOI
+    : outlookMail ? (peutRegler(c) ? SCOPES_MAIL.microsoft : SCOPES_MAIL_ENVOI)
     : agendaLecteur ? `${MICROSOFT.scopes} Mail.Read` : scopes(c.fournisseur, c.usage ?? "agenda");
   const champs = { grant_type: "refresh_token", refresh_token: c.refresh_token };
   const j = await demanderJeton(c.fournisseur, champs, c.usage ?? "agenda", portee)
@@ -124,7 +135,7 @@ export async function listerAgendas(c: Compte, jeton: string): Promise<AgendaDis
 }
 
 const utc = (s: string) => (/[zZ]|[+-]\d\d:\d\d$/.test(s) ? s : s.replace(/\.\d+$/, "") + "Z");
-function minuitParis(date: string): string { // « 2026-11-05 » -> instant UTC de minuit à Paris
+export function minuitParis(date: string): string { // « 2026-11-05 » -> instant UTC de minuit à Paris
   const utcMs = Date.parse(date + "T00:00:00Z");
   const p = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(utcMs));
   const v = (k: string) => Number(p.find((x) => x.type === k)!.value);

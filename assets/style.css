@@ -444,6 +444,7 @@ main { margin-left: var(--l-cote); padding: 0 var(--marge) 96px; --marge: max(cl
 .dialogue input:disabled, .dialogue select:disabled { opacity: .6; }
 .espace { flex: 1; }
 .liens-boutons { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.liens-boutons.rangee { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
 .bandeau { margin: 24px 0 0; padding: 12px 16px; background: var(--encre); color: var(--papier); border-radius: 2px; font-size: 14px; }
 .agenda li.compte { grid-template-columns: 40px 1fr auto auto; }
 .agenda li.compte div { display: grid; gap: 2px; }
@@ -1671,3 +1672,37 @@ main#app.large { --marge: clamp(16px, 2.2vw, 30px); }
   .cote-bas a.btn-texte[aria-current="page"] span { color: var(--encre); font-weight: 600; }
 }
 @media (max-width: 900px) { .cote-bas a.btn-texte[aria-current="page"] { color: var(--encre); font-weight: 600; } }
+
+/* ---------- Mode congé : bouton sur le calendrier, bandeau sur Aujourd'hui, fenêtre ---------- */
+.panneau-actions { display: flex; gap: 6px; margin-left: auto; }
+.panneau-actions .btn-contour.petit { margin-left: 0; }
+.bandeau-conge { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; padding: 14px 18px; border-radius: 14px; background: var(--blanc);
+  border: 1px solid var(--filet); box-shadow: inset 4px 0 0 #6a4fe0; }
+.bandeau-conge.en-cours { background: color-mix(in srgb, #6a4fe0 7%, var(--blanc)); border-color: color-mix(in srgb, #6a4fe0 22%, var(--filet)); }
+.bandeau-conge > div { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.bandeau-conge b { font-weight: 600; font-size: 15px; }
+.bandeau-conge span { font-size: 13px; color: var(--encre-2); }
+.bandeau-conge .btn-contour.petit { margin-left: 0; }
+.conge-pastille { width: 10px; height: 10px; border-radius: 50%; background: #6a4fe0; flex: none; box-shadow: 0 0 0 4px color-mix(in srgb, #6a4fe0 18%, transparent); }
+.dialogue-conge { width: min(600px, calc(100vw - 32px)); border-top-color: #6a4fe0; max-height: calc(100vh - 40px); overflow-y: auto; }
+.dialogue-conge .conge-titre { margin: -8px 0 0; font: 700 26px/1.1 var(--serif); letter-spacing: -.025em; }
+.dialogue-conge .rangee { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.dialogue-conge .rangee.fin { align-items: center; }
+.dialogue-conge textarea { width: 100%; resize: vertical; line-height: 1.5; }
+.dialogue-conge select { width: 100%; }
+.conge-retour { margin: 0 0 9px; font-size: 13px; color: var(--encre-2); }
+.conge-aide { font-size: 12px; color: var(--encre-3); }
+.conge-info:empty { display: none; }
+.conge-boites { list-style: none; margin: 0; padding: 0; border: 1px solid var(--filet); border-radius: 12px; background: var(--blanc); }
+.conge-boites li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--filet); }
+.conge-boites li:first-child { border-top: 0; }
+.conge-boites li.vide { display: block; color: var(--encre-3); font-size: 13px; }
+.conge-boites label { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; cursor: pointer; }
+.conge-boites input[type="checkbox"] { width: 17px; height: 17px; accent-color: #6a4fe0; flex: none; }
+.conge-boite { display: grid; gap: 1px; min-width: 0; }
+.conge-boite b { font-size: 14px; font-weight: 600; }
+.conge-boite small { font-size: 12px; color: var(--encre-3); overflow: hidden; text-overflow: ellipsis; }
+.conge-boites li.indispo label { cursor: default; }
+.conge-boites li.indispo b { color: var(--encre-3); }
+.conge-boites .btn-contour.petit { margin-left: 0; flex: none; }
+@media (max-width: 640px) { .bandeau-conge { flex-wrap: wrap; } .panneau-actions { flex-wrap: wrap; justify-content: flex-end; } }

@@ -2047,6 +2047,127 @@
     direAVictor(texte, true);
   });
 
+  // ---------- Mode congé : réponse d'absence signée sur chaque boîte, journée « Congé » dans l'agenda (fonction conge) ----------
+  function appelConge(corps) {
+    return db.functions.invoke("conge", { body: corps }).then(function (r) {
+      if (r.error && r.error.context && typeof r.error.context.json === "function") return r.error.context.json().then(function (j) { throw new Error(j.erreur || r.error.message); });
+      if (r.error) throw r.error;
+      if (r.data && r.data.erreur) throw new Error(r.data.erreur);
+      return r.data;
+    });
+  }
+  function chargerConge() {
+    if (S.congeEnCours) return;
+    S.congeEnCours = true;
+    db.from("conges").select("*").eq("actif", true).gte("au", isoJour(new Date())).order("cree_le", { ascending: false }).limit(1).then(function (r) {
+      S.congeEnCours = false; S.congeLu = true; S.conge = (r.data || [])[0] || null;
+      if (!S.route && !enSaisie()) dessiner();
+    });
+  }
+  var jourLong = function (iso) { return fmt(new Date(iso + "T12:00:00"), { weekday: "long", day: "numeric", month: "long" }); };
+  function jourRetour(au) { // premier jour ouvré après le dernier jour de congé
+    var d = new Date(au + "T12:00:00"); do { d = ajouterJours(d, 1); } while (d.getDay() === 0 || d.getDay() === 6);
+    return isoJour(d);
+  }
+  function messageConge(du, au) {
+    return "Bonjour,\n\nJe suis en congé du " + jourLong(du) + " au " + jourLong(au) + " inclus, sans accès régulier à mes mails. Je vous répondrai dès mon retour, le "
+      + jourLong(jourRetour(au)) + ".\n\nBien cordialement,";
+  }
+  var NOMS_MODES = { google: "Réponse d'absence de Gmail", microsoft: "Réponses automatiques d'Outlook", ionos: "Réponse envoyée par le cockpit, une fois par expéditeur" };
+  function ouvrirConge() {
+    var actuel = S.conge, auj = isoJour(new Date());
+    var dlg = el("dialog", { class: "dialogue dialogue-conge", "aria-labelledby": "conge-titre" });
+    var cDu = el("input", { type: "date", required: true, value: actuel ? actuel.du : auj, "aria-label": "Premier jour" });
+    var cAu = el("input", { type: "date", required: true, value: actuel ? actuel.au : isoJour(ajouterJours(new Date(), 6)), "aria-label": "Dernier jour" });
+    var retour = el("p", { class: "conge-retour" });
+    var cMsg = el("textarea", { rows: "7", "aria-label": "Message d'absence" });
+    var auto = !actuel; // le message suit les dates tant qu'il n'a pas été retouché
+    cMsg.value = actuel ? actuel.message : messageConge(cDu.value, cAu.value);
+    cMsg.addEventListener("input", function () { auto = false; });
+    function majDates() {
+      if (cAu.value && cDu.value && cAu.value < cDu.value) cAu.value = cDu.value;
+      retour.textContent = cAu.value ? "Retour le " + jourLong(jourRetour(cAu.value)) : "";
+      if (auto && cDu.value && cAu.value) cMsg.value = messageConge(cDu.value, cAu.value);
+    }
+    cDu.addEventListener("change", majDates); cAu.addEventListener("change", majDates); majDates();
+    var listeBoites = el("ul", { class: "conge-boites" }, [el("li", { class: "vide", text: "Lecture des boîtes…" })]);
+    var ecrit = agendasEcriture();
+    var cAgenda = el("select", { "aria-label": "Agenda à bloquer" }, [el("option", { value: "", text: "Ne pas bloquer l'agenda" })].concat(ecrit.map(function (g) {
+      var c = S.comptes.filter(function (x) { return x.id === g.compte_id; })[0];
+      return el("option", { value: g.id, text: g.nom + (c && c.email !== g.nom ? " · " + c.email : "") });
+    })));
+    var perso = ecrit.filter(function (g) { var c = S.comptes.filter(function (x) { return x.id === g.compte_id; })[0]; return c && c.email === "arouzier@gmail.com"; })[0];
+    cAgenda.value = actuel ? "" : (perso || ecrit[0] || { id: "" }).id;
+    var info = el("p", { class: "vide conge-info" });
+    var ok = el("button", { type: "submit", class: "btn-plein", text: actuel ? "Mettre à jour" : "Activer le congé", disabled: true });
+    var arreter = actuel ? el("button", { type: "button", class: "btn-texte danger", text: "Je suis de retour", onclick: function () {
+      if (!confirm("Arrêter le congé ? Les réponses d'absence sont éteintes tout de suite.")) return;
+      arreter.disabled = true; ok.disabled = true; info.textContent = "Arrêt des réponses…";
+      appelConge({ action: "arreter" }).then(function () { S.conge = null; dlg.close(); signaler("Bon retour : les réponses d'absence sont éteintes"); chargerTout().then(dessiner); })
+        .catch(function (e) { arreter.disabled = false; ok.disabled = false; info.textContent = e.message; });
+    } }) : null;
+    var form = el("form", { method: "dialog", onsubmit: function (ev) {
+      ev.preventDefault();
+      var boites = Array.prototype.map.call(listeBoites.querySelectorAll("input:checked"), function (x) { return x.value; });
+      if (!boites.length && !cAgenda.value) { info.textContent = "Choisis au moins une boîte ou un agenda."; return; }
+      ok.disabled = true; info.textContent = "Réglage des réponses d'absence…";
+      appelConge({ action: "activer", du: cDu.value, au: cAu.value, message: cMsg.value, boites: boites, agenda_id: cAgenda.value || null }).then(function (r) {
+        S.conge = r.conge; dlg.close();
+        var rates = Object.keys(r.conge.etat || {}).filter(function (k) { return !r.conge.etat[k].ok; });
+        signaler(rates.length ? "Congé enregistré, sauf : " + rates.join(", ") + (r.erreur_agenda ? " et l'agenda" : "")
+          : r.erreur_agenda ? "Réponses d'absence posées ; agenda non bloqué : " + r.erreur_agenda
+          : "Congé enregistré : réponses d'absence du " + jourLong(r.conge.du) + " au " + jourLong(r.conge.au));
+        chargerTout().then(dessiner);
+      }).catch(function (e) { ok.disabled = false; info.textContent = e.message; });
+    } }, [
+      el("p", { class: "surtitre", text: "Mode congé" }),
+      el("h2", { id: "conge-titre", class: "conge-titre", text: actuel ? "Ton congé" : "Je suis en congé" }),
+      el("div", { class: "rangee" }, [
+        el("label", { class: "champ" }, [el("span", { text: "Premier jour" }), cDu]),
+        el("label", { class: "champ" }, [el("span", { text: "Dernier jour" }), cAu]),
+        retour
+      ]),
+      el("label", { class: "champ" }, [el("span", { text: "Message" }), cMsg,
+        el("small", { class: "conge-aide", text: "Chaque réponse se termine par la signature de sa boîte (Réglages › Signatures)." })]),
+      el("div", { class: "champ" }, [el("span", { text: "Répondre depuis" }), listeBoites]),
+      el("label", { class: "champ" }, [el("span", { text: "Bloquer l'agenda" }), cAgenda]),
+      info,
+      el("div", { class: "rangee fin" }, [arreter, el("span", { class: "espace" }),
+        el("button", { type: "button", class: "btn-texte", text: "Annuler", onclick: function () { dlg.close(); } }), ok])
+    ]);
+    dlg.appendChild(form);
+    dlg.addEventListener("close", function () { dlg.remove(); });
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    appelConge({ action: "etat" }).then(function (r) {
+      listeBoites.textContent = "";
+      var choisies = actuel ? actuel.boites : null;
+      (r.boites || []).forEach(function (b) {
+        var pret = b.mode === "pret";
+        var coche = el("input", { type: "checkbox", value: b.email, checked: pret && (!choisies || choisies.indexOf(b.email) >= 0), disabled: !pret, "aria-label": "Répondre depuis " + b.nom });
+        var action = b.mode === "autorisation" ? el("button", { type: "button", class: "btn-contour petit", text: "Autoriser", title: b.fournisseur === "microsoft" ? "Demande l'accord de l'administrateur Microsoft" : "Reconnecte la boîte avec le droit de réponse d'absence",
+            onclick: function () { connecter(b.fournisseur, "mail"); } })
+          : b.mode === "evoalys" ? el("span", { class: "puce", text: "Dans Evoalys" }) : null;
+        listeBoites.appendChild(el("li", { class: pret ? "" : "indispo" }, [
+          el("label", {}, [coche, el("span", { class: "conge-boite" }, [el("b", { text: b.nom }), el("small", { text: b.email + " · " + (pret ? NOMS_MODES[b.fournisseur]
+            : b.mode === "evoalys" ? "absence à régler dans Evoalys (Mails › Absence)" : "droit à accorder pour poser la réponse") })])]),
+          action]));
+      });
+      ok.disabled = false;
+    }).catch(function (e) { listeBoites.textContent = ""; listeBoites.appendChild(el("li", { class: "vide", text: "Boîtes illisibles : " + e.message })); ok.disabled = false; });
+  }
+  function bandeauConge() {
+    var c = S.conge; if (!c) return null;
+    var auj = isoJour(new Date()), enCours = c.du <= auj;
+    var noms = (c.boites || []).filter(function (b) { return !c.etat || !c.etat[b] || c.etat[b].ok; }).map(function (b) { return NOMS_BOITES[b] || (/palomano/.test(b) ? "Palomano" : b); });
+    return el("section", { class: "bandeau-conge" + (enCours ? " en-cours" : "") }, [
+      el("span", { class: "conge-pastille", "aria-hidden": "true" }),
+      el("div", {}, [el("b", { text: enCours ? "En congé jusqu'au " + jourLong(c.au) : "Congé prévu du " + jourLong(c.du) + " au " + jourLong(c.au) }),
+        el("span", { text: noms.length ? "Réponse d'absence " + (enCours ? "active" : "programmée") + " sur " + noms.join(", ") + "." : "Aucune réponse d'absence." })]),
+      el("button", { type: "button", class: "btn-contour petit", text: "Modifier", onclick: ouvrirConge })
+    ]);
+  }
+
   function vueAccueil() {
     var f = document.createDocumentFragment(), iso = isoJour(S.jour), n = new Date(), estAuj = memeJour(S.jour, n);
     f.appendChild(el("header", { class: "entete-jour" }, [
@@ -2062,12 +2183,16 @@
         selecteurJours()
       ])
     ]));
+    if (!S.congeLu) chargerConge();
+    var bc = bandeauConge(); if (bc) f.appendChild(bc);
     if (estAuj) f.appendChild(blocVictor());
     f.appendChild(el("div", { class: "grille-aujourdhui" }, [
       el("section", { class: "panneau calendrier" }, [
         el("div", { class: "panneau-tete" }, [el("h2", { text: "Calendrier" }),
           el("span", { class: "compte", text: planJour(S.jour).horaires.length + " rendez-vous" }),
-          el("button", { type: "button", class: "btn-contour petit", text: "+ Rendez-vous", onclick: function () { ouvrirRdv(null); } })]),
+          el("div", { class: "panneau-actions" }, [
+            el("button", { type: "button", class: "btn-contour petit" + (S.conge ? " actif" : ""), text: S.conge ? "En congé" : "Je suis en congé", onclick: ouvrirConge }),
+            el("button", { type: "button", class: "btn-contour petit", text: "+ Rendez-vous", onclick: function () { ouvrirRdv(null); } })])]),
         calendrierJour(S.jour)
       ]),
       el("div", { class: "colonne-droite" }, [estAuj ? blocMaintenant() : null, panneauAFaire(iso)])
@@ -3533,9 +3658,10 @@
           el("span", { class: "fournisseur", text: c.fournisseur === "google" ? "G" : "O" }),
           el("div", {}, [el("b", { text: c.email }), el("span", { class: c.derniere_erreur || !trie(c) ? "retard" : "", text: c.derniere_erreur ? "Erreur : " + c.derniere_erreur : trie(c) ? "Mails · lus et classés par Victor" : "Lecture seule : reconnectez la boîte pour autoriser le tri" })]),
           trie(c) ? null : el("button", { type: "button", class: "btn-contour petit", text: "Autoriser le tri", onclick: function () { connecter(c.fournisseur, "mail"); } }),
-          // Outlook : l'envoi des réponses validées dans la page Réponses demande un droit de plus (Mail.Send)
-          trie(c) && c.fournisseur === "microsoft" && !/Mail\.Send/i.test(c.droits || "") ? el("button", { type: "button", class: "btn-contour petit", text: "Autoriser l'envoi",
-            title: "Pour envoyer depuis le cockpit les réponses que vous avez validées", onclick: function () { connecter("microsoft", "mail"); } }) : null,
+          // Droits en plus : envoi (Outlook, Mail.Send) et réponse d'absence du mode congé (gmail.settings.basic, MailboxSettings.ReadWrite)
+          trie(c) && (c.fournisseur === "microsoft" ? !/Mail\.Send/i.test(c.droits || "") || !/MailboxSettings/i.test(c.droits || "") : !/gmail\.settings\.basic/i.test(c.droits || ""))
+            ? el("button", { type: "button", class: "btn-contour petit", text: c.fournisseur === "microsoft" ? (/Mail\.Send/i.test(c.droits || "") ? "Autoriser l'absence" : "Autoriser l'envoi et l'absence") : "Autoriser l'absence",
+              title: "Envoi depuis le cockpit et réponse d'absence du mode congé", onclick: function () { connecter(c.fournisseur, "mail"); } }) : null,
           el("button", { type: "button", class: "btn-texte danger", text: "Déconnecter", onclick: function () {
             if (!confirm("Ne plus faire lire " + c.email + " par Victor ?")) return;
             db.from("comptes_agenda").delete().eq("id", c.id).then(verifier).then(function () { chargerTout().then(dessiner); });
